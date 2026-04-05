@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunFileSystem.js",
+  "module": "../dist/esm/BunFileSystem.js",
+  "types": "../dist/dts/BunFileSystem.d.ts"
+}

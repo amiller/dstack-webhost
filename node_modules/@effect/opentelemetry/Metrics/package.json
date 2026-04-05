@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/Metrics.js",
+  "module": "../dist/esm/Metrics.js",
+  "types": "../dist/dts/Metrics.d.ts"
+}

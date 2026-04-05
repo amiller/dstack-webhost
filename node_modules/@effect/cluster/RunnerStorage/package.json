@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/RunnerStorage.js",
+  "module": "../dist/esm/RunnerStorage.js",
+  "types": "../dist/dts/RunnerStorage.d.ts"
+}

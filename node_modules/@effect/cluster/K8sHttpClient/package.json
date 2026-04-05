@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/K8sHttpClient.js",
+  "module": "../dist/esm/K8sHttpClient.js",
+  "types": "../dist/dts/K8sHttpClient.d.ts"
+}

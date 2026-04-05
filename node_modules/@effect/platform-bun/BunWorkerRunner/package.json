@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunWorkerRunner.js",
+  "module": "../dist/esm/BunWorkerRunner.js",
+  "types": "../dist/dts/BunWorkerRunner.d.ts"
+}

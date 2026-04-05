@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../../dist/cjs/BunFileSystem/ParcelWatcher.js",
+  "module": "../../dist/esm/BunFileSystem/ParcelWatcher.js",
+  "types": "../../dist/dts/BunFileSystem/ParcelWatcher.d.ts"
+}

@@ -1,0 +1,6 @@
+{
+  "main": "../dist/cjs/DurableRateLimiter.js",
+  "module": "../dist/esm/DurableRateLimiter.js",
+  "types": "../dist/dts/DurableRateLimiter.d.ts",
+  "sideEffects": []
+}

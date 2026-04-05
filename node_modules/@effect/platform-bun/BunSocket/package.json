@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunSocket.js",
+  "module": "../dist/esm/BunSocket.js",
+  "types": "../dist/dts/BunSocket.d.ts"
+}

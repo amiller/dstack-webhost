@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunMultipart.js",
+  "module": "../dist/esm/BunMultipart.js",
+  "types": "../dist/dts/BunMultipart.d.ts"
+}

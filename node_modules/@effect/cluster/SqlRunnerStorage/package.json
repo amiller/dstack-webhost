@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/SqlRunnerStorage.js",
+  "module": "../dist/esm/SqlRunnerStorage.js",
+  "types": "../dist/dts/SqlRunnerStorage.d.ts"
+}

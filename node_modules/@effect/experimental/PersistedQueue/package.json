@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/PersistedQueue.js",
+  "module": "../dist/esm/PersistedQueue.js",
+  "types": "../dist/dts/PersistedQueue.d.ts"
+}

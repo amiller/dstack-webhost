@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/SingleRunner.js",
+  "module": "../dist/esm/SingleRunner.js",
+  "types": "../dist/dts/SingleRunner.d.ts"
+}

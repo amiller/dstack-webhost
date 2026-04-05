@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/OtlpSerialization.js",
+  "module": "../dist/esm/OtlpSerialization.js",
+  "types": "../dist/dts/OtlpSerialization.d.ts"
+}

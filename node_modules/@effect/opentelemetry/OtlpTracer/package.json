@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/OtlpTracer.js",
+  "module": "../dist/esm/OtlpTracer.js",
+  "types": "../dist/dts/OtlpTracer.d.ts"
+}

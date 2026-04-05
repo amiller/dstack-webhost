@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/SqlPersistedQueue.js",
+  "module": "../dist/esm/SqlPersistedQueue.js",
+  "types": "../dist/dts/SqlPersistedQueue.d.ts"
+}

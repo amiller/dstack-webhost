@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunClusterSocket.js",
+  "module": "../dist/esm/BunClusterSocket.js",
+  "types": "../dist/dts/BunClusterSocket.d.ts"
+}

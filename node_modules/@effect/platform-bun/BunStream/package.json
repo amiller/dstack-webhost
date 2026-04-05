@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunStream.js",
+  "module": "../dist/esm/BunStream.js",
+  "types": "../dist/dts/BunStream.d.ts"
+}

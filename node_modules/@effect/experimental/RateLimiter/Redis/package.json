@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../../dist/cjs/RateLimiter/Redis.js",
+  "module": "../../dist/esm/RateLimiter/Redis.js",
+  "types": "../../dist/dts/RateLimiter/Redis.d.ts"
+}

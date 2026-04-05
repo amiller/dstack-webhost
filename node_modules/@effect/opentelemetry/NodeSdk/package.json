@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/NodeSdk.js",
+  "module": "../dist/esm/NodeSdk.js",
+  "types": "../dist/dts/NodeSdk.d.ts"
+}

@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/NodeClusterSocket.js",
+  "module": "../dist/esm/NodeClusterSocket.js",
+  "types": "../dist/dts/NodeClusterSocket.d.ts"
+}

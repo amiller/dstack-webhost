@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunClusterHttp.js",
+  "module": "../dist/esm/BunClusterHttp.js",
+  "types": "../dist/dts/BunClusterHttp.d.ts"
+}

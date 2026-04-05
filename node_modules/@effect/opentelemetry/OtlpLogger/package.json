@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/OtlpLogger.js",
+  "module": "../dist/esm/OtlpLogger.js",
+  "types": "../dist/dts/OtlpLogger.d.ts"
+}

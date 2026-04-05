@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunTerminal.js",
+  "module": "../dist/esm/BunTerminal.js",
+  "types": "../dist/dts/BunTerminal.d.ts"
+}

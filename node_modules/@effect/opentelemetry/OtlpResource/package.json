@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/OtlpResource.js",
+  "module": "../dist/esm/OtlpResource.js",
+  "types": "../dist/dts/OtlpResource.d.ts"
+}

@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/WebSdk.js",
+  "module": "../dist/esm/WebSdk.js",
+  "types": "../dist/dts/WebSdk.d.ts"
+}

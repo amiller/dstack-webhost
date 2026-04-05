@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunHttpPlatform.js",
+  "module": "../dist/esm/BunHttpPlatform.js",
+  "types": "../dist/dts/BunHttpPlatform.d.ts"
+}

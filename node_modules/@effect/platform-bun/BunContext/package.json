@@ -1,0 +1,6 @@
+{
+  "sideEffects": [],
+  "main": "../dist/cjs/BunContext.js",
+  "module": "../dist/esm/BunContext.js",
+  "types": "../dist/dts/BunContext.d.ts"
+}
