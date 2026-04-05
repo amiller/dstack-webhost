@@ -7,6 +7,9 @@
 // the tunnel URL and their requests get queued for the client to pick up.
 //
 // Deploy as a deno runtime project on tee-daemon.
+//
+// Auth: creation requires TUNNEL_TOKEN env var as Bearer auth.
+// The listing endpoint is removed -- you track your own secrets.
 
 interface PendingRequest {
   id: string;
@@ -22,15 +25,24 @@ interface Tunnel {
   secret: string;
   createdAt: number;
   expiresAt: number;
-  pollSeq: number; // monotonic counter for long-poll ordering
+  pollSeq: number;
 }
 
 const tunnels = new Map<string, Tunnel>();
 const pendingRequests = new Map<string, PendingRequest>();
-const pendingSeqs = new Map<string, number>(); // seq -> secret mapping
+const pendingSeqs = new Map<string, number>();
 
-function genId(): string {
-  return crypto.randomUUID().slice(0, 12);
+function genSecret(): string {
+  // 256-bit random, hex encoded -- not guessable
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function checkAuth(req: Request, token: string): boolean {
+  if (!token) return true; // no token configured = open (dev mode)
+  const auth = req.headers.get("authorization") || "";
+  return auth === `Bearer ${token}`;
 }
 
 // Cleanup expired tunnels and stale requests every 10s
@@ -53,13 +65,17 @@ export default async function handler(req: Request, ctx: { env: Record<string, s
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean);
   const maxTimeout = parseInt(ctx.env.MAX_TUNNEL_TIMEOUT || "86400");
+  const token = ctx.env.TUNNEL_TOKEN || "";
 
-  // POST /  -> create tunnel
+  // POST /  -> create tunnel (requires auth)
   if (req.method === "POST" && parts.length === 0) {
+    if (!checkAuth(req, token)) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
+    }
     const body = await req.json();
     const timeout = Math.min(parseInt(body.timeout || "3600"), maxTimeout) * 1000;
 
-    const secret = genId();
+    const secret = genSecret();
     tunnels.set(secret, {
       secret,
       createdAt: Date.now(),
@@ -78,21 +94,21 @@ export default async function handler(req: Request, ctx: { env: Record<string, s
     });
   }
 
-  // GET /  -> list tunnels
+  // GET /  -> just shows status, no secrets
   if (req.method === "GET" && parts.length === 0) {
-    const list = [...tunnels.values()].map(t => ({
-      secret: t.secret,
-      createdAt: new Date(t.createdAt).toISOString(),
-      expiresAt: new Date(t.expiresAt).toISOString(),
-      activeRequests: [...pendingRequests.values()].filter(r => pendingSeqs.get(r.id) !== undefined).length,
-    }));
-    return new Response(JSON.stringify({ tunnels: list }, null, 2), {
+    return new Response(JSON.stringify({
+      active: tunnels.size,
+      pending: pendingRequests.size,
+    }), {
       headers: { "content-type": "application/json" },
     });
   }
 
-  // DELETE /<secret>  -> revoke tunnel
+  // DELETE /<secret>  -> revoke tunnel (requires auth)
   if (req.method === "DELETE" && parts.length === 1) {
+    if (!checkAuth(req, token)) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
+    }
     const secret = parts[0];
     tunnels.delete(secret);
     return new Response(JSON.stringify({ ok: true }), {
@@ -114,13 +130,11 @@ export default async function handler(req: Request, ctx: { env: Record<string, s
 
     const afterSeq = parseInt((await req.json()).afterSeq || "0");
 
-    // Wait up to 25s for a request to arrive (long-poll)
     const deadline = Date.now() + 25_000;
     while (Date.now() < deadline) {
       for (const [id, req] of pendingRequests) {
         const seq = pendingSeqs.get(id);
         if (seq && seq > afterSeq) {
-          // Found a request newer than the last one the client saw
           return new Response(JSON.stringify({
             id: req.id,
             method: req.method,
@@ -136,7 +150,6 @@ export default async function handler(req: Request, ctx: { env: Record<string, s
       await new Promise(r => setTimeout(r, 500));
     }
 
-    // No request arrived, return empty (client will poll again)
     return new Response(JSON.stringify({ empty: true }), {
       headers: { "content-type": "application/json" },
     });
@@ -178,7 +191,6 @@ export default async function handler(req: Request, ctx: { env: Record<string, s
     const visitorPath = "/" + (parts.length > 1 ? parts.slice(1).join("/") : "") + (url.search || "");
     const reqBody = req.body ? btoa(await req.text()) : "";
 
-    // Queue the request and wait for the developer's client to relay the response
     const id = crypto.randomUUID().slice(0, 12);
     tunnel.pollSeq++;
     pendingSeqs.set(id, tunnel.pollSeq);
@@ -194,7 +206,6 @@ export default async function handler(req: Request, ctx: { env: Record<string, s
         timestamp: Date.now(),
       });
 
-      // Timeout after 30s
       setTimeout(() => {
         if (pendingRequests.has(id)) {
           pendingRequests.delete(id);
@@ -211,7 +222,7 @@ export default async function handler(req: Request, ctx: { env: Record<string, s
     });
   }
 
-  return new Response("tunnel: POST / to create, /<secret>/poll and /<secret>/relay for client", {
+  return new Response("tunnel: POST / to create (auth required), /<secret>/poll and /<secret>/relay for client", {
     headers: { "content-type": "text/plain" },
   });
 }
