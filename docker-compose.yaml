@@ -1,0 +1,22 @@
+# tee-daemon: TEE app hosting platform
+# Deploy to Phala dstack CVM:
+#   phala deploy --cvm-name <name> -c docker-compose.yaml -e .env
+#
+# Local dev:
+#   docker compose up
+services:
+  tee-daemon:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/dstack.sock:/var/run/dstack.sock:ro
+      - daemon_data:/var/lib/tee-daemon
+    environment:
+      - TEE_DAEMON_TOKEN=${TEE_DAEMON_TOKEN}
+      - DAEMON_VOLUME_NAME=${DAEMON_VOLUME_NAME:-}
+      - DAEMON_VOLUME_MOUNT=${DAEMON_VOLUME_MOUNT:-/var/lib/tee-daemon}
+
+volumes:
+  daemon_data:
