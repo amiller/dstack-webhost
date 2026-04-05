@@ -263,6 +263,22 @@ class RuntimeManager:
     async def recover_all(self):
         runtimes_needed = set()
         for p in self.store.list():
+            # Check if files are missing — re-clone from source if available
+            files_dir = self.store.files_dir(p.name)
+            if not os.path.isdir(files_dir) or not os.listdir(files_dir):
+                if p.source:
+                    log.info("Recovering %s from %s", p.name, p.source)
+                    try:
+                        from .deploy import git_clone
+                        commit_sha = await git_clone(p.source, p.ref, files_dir)
+                        p.commit_sha = commit_sha
+                        self.store.save(p)
+                        log.info("Recovered %s -> %s", p.name, commit_sha[:12])
+                    except Exception as e:
+                        log.error("Failed to recover %s: %s", p.name, e)
+                else:
+                    log.warning("No files and no source for %s, skipping", p.name)
+
             if p.runtime not in ("static", "dockerfile"):
                 runtimes_needed.add(p.runtime)
         for rt in runtimes_needed:
