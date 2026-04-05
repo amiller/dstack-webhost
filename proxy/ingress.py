@@ -179,6 +179,7 @@ class Ingress:
             "name": project.name, "source": project.source, "ref": project.ref,
             "runtime": project.runtime, "entry": project.entry, "port": project.port,
             "attested": project.attested, "env": project.env,
+            "source_path": project.source_path,
         }
         project = await deploy(
             self.store, self.docker, self.audit, self.tracker, self.rtm, manifest)

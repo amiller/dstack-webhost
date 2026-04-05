@@ -21,6 +21,7 @@ class Project:
     ref: str = ""
     commit_sha: str = ""
     tree_hash: str = ""
+    source_path: str = ""
 
     def __post_init__(self):
         if self.env is None:

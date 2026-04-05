@@ -133,7 +133,22 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit: AuditLog,
         raise ValueError(f"Invalid project name: {name!r}")
 
     files_dir = store.files_dir(name)
-    commit_sha = await git_clone(source, ref, files_dir)
+    source_path = manifest.get("source_path", "")
+
+    # Clone to temp dir first, then copy source_path if specified
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="tee-deploy-")
+    try:
+        commit_sha = await git_clone(source, ref, tmp)
+        repo_root = os.path.join(tmp, source_path) if source_path else tmp
+        if not os.path.isdir(repo_root):
+            raise ValueError(f"source_path '{source_path}' not found in repo")
+        # Copy files to files_dir
+        if os.path.exists(files_dir):
+            shutil.rmtree(files_dir)
+        shutil.copytree(repo_root, files_dir)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
     repo_manifest = detect_manifest(files_dir)
 
@@ -159,6 +174,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit: AuditLog,
         name=name, runtime=runtime, entry=entry, port=port, attested=attested,
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         source=source, ref=ref, commit_sha=commit_sha, tree_hash=tree_hash,
+        source_path=source_path,
     )
     store.save(project)
 
