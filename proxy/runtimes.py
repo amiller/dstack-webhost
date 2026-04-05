@@ -1,5 +1,6 @@
 """Shared runtime containers — one per runtime type, routes all projects."""
 
+import asyncio
 import json
 import logging
 import os
@@ -267,13 +268,32 @@ class RuntimeManager:
             files_dir = self.store.files_dir(p.name)
             if not os.path.isdir(files_dir) or not os.listdir(files_dir):
                 if p.source:
-                    log.info("Recovering %s from %s", p.name, p.source)
+                    log.info("Recovering %s from %s@%s", p.name, p.source,
+                             p.commit_sha[:12] if p.commit_sha else (p.ref or "HEAD"))
                     try:
                         from .deploy import git_clone
-                        commit_sha = await git_clone(p.source, p.ref, files_dir)
-                        p.commit_sha = commit_sha
-                        self.store.save(p)
-                        log.info("Recovered %s -> %s", p.name, commit_sha[:12])
+                        # Clone to temp, then copy source_path subdir if set
+                        import tempfile, shutil
+                        tmp = tempfile.mkdtemp(prefix="tee-recover-")
+                        try:
+                            # Clone at ref (branch), then checkout pinned commit if we have one
+                            commit_sha = await git_clone(p.source, p.ref, tmp)
+                            if p.commit_sha:
+                                proc = await asyncio.create_subprocess_exec(
+                                    "git", "-C", tmp, "checkout", p.commit_sha,
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE)
+                                await proc.communicate()
+                                commit_sha = p.commit_sha
+                            src = os.path.join(tmp, p.source_path) if p.source_path else tmp
+                            if os.path.exists(files_dir):
+                                shutil.rmtree(files_dir)
+                            shutil.copytree(src, files_dir)
+                            p.commit_sha = commit_sha
+                            self.store.save(p)
+                            log.info("Recovered %s -> %s", p.name, commit_sha[:12])
+                        finally:
+                            shutil.rmtree(tmp, ignore_errors=True)
                     except Exception as e:
                         log.error("Failed to recover %s: %s", p.name, e)
                 else:
