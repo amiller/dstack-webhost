@@ -104,8 +104,24 @@ via path-based routing on port 8080 (current behavior).
 - The dstack CVM's docker-compose needs to expose all declared ports
 - The management API should expose the routing table: `GET /_api/routes`
 
+### WebSocket support
+
+The current ingress proxy in `proxy/ingress.py` does NOT support WebSocket
+upgrades. It eagerly reads the full request/response body and returns a
+`web.Response`, which is fundamentally incompatible with the 101 upgrade
+handshake and persistent bidirectional connection that WebSocket requires.
+
+To fix this, `_proxy()` needs to:
+
+1. Check for `Upgrade: websocket` headers on the incoming request
+2. Return a `web.WebSocketResponse` (aiohttp's WS type) instead of `web.Response`
+3. Relay frames bidirectionally between the visitor and the backend
+
+This is needed for apps like the tunnel (RFC 0003) which currently uses
+long-polling as a workaround. See also `apps/tunnel/` for the long-poll
+implementation that works without daemon changes.
+
 ## Out of Scope
 
 - TLS termination (dstack handles this at the edge)
 - Load balancing between multiple containers of the same project
-- Websocket-specific handling (works through HTTP proxy already)

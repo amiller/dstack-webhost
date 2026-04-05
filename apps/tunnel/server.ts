@@ -1,208 +1,217 @@
-// tunnel - temporary reverse proxy via dstack-webhost
-// Deploys as a Layer 2 app. Creates short-lived tunnels
-// where visitors can reach your local service through the CVM.
+// tunnel - temporary reverse proxy via dstack-webhost (long-poll mode)
 //
-// Usage (as a deno runtime project on tee-daemon):
-//   POST /_api/tunnels  -> create tunnel
-//   GET  /t/<id>/...    -> proxied traffic
+// Works through the existing HTTP-only ingress proxy. No WebSocket needed.
+//
+// Developer runs the client on their machine, which polls the tunnel
+// app for incoming requests and posts responses back. Visitors hit
+// the tunnel URL and their requests get queued for the client to pick up.
+//
+// Deploy as a deno runtime project on tee-daemon.
 
-const tunnels = new Map<string, {
+interface PendingRequest {
   id: string;
-  backendUrl: string;
-  ws: WebSocket | null;
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: string; // base64
+  resolve: (resp: { status: number; headers: Record<string, string>; body: string }) => void;
+  timestamp: number;
+}
+
+interface Tunnel {
+  secret: string;
   createdAt: number;
   expiresAt: number;
-  secret: string;
-  queue: ((chunk: Uint8Array) => void)[];
-}>();
+  pollSeq: number; // monotonic counter for long-poll ordering
+}
+
+const tunnels = new Map<string, Tunnel>();
+const pendingRequests = new Map<string, PendingRequest>();
+const pendingSeqs = new Map<string, number>(); // seq -> secret mapping
 
 function genId(): string {
-  return "t-" + crypto.randomUUID().slice(0, 8);
+  return crypto.randomUUID().slice(0, 12);
 }
 
-function genSecret(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-// Tunnel via "pull" model: developer connects via WebSocket to register,
-// then the daemon relays incoming HTTP requests through that WS.
+// Cleanup expired tunnels and stale requests every 10s
+setInterval(() => {
+  const now = Date.now();
+  for (const [secret, tunnel] of tunnels) {
+    if (now > tunnel.expiresAt) {
+      tunnels.delete(secret);
+    }
+  }
+  for (const [id, req] of pendingRequests) {
+    if (now - req.timestamp > 60000) {
+      req.resolve({ status: 504, headers: { "content-type": "text/plain" }, body: btoa("gateway timeout") });
+      pendingRequests.delete(id);
+    }
+  }
+}, 10_000);
 
 export default async function handler(req: Request, ctx: { env: Record<string, string> }): Promise<Response> {
   const url = new URL(req.url);
-  const path = url.pathname;
+  const parts = url.pathname.split("/").filter(Boolean);
+  const maxTimeout = parseInt(ctx.env.MAX_TUNNEL_TIMEOUT || "86400");
 
-  // WebSocket upgrade for tunnel registration/relay
-  if (req.headers.get("upgrade") === "websocket") {
-    const backendUrl = url.searchParams.get("backend") || "";
-    const secret = url.searchParams.get("secret") || "";
-    const timeout = parseInt(url.searchParams.get("timeout") || "3600");
+  // POST /  -> create tunnel
+  if (req.method === "POST" && parts.length === 0) {
+    const body = await req.json();
+    const timeout = Math.min(parseInt(body.timeout || "3600"), maxTimeout) * 1000;
 
-    if (!backendUrl) {
-      return new Response("missing ?backend=", { status: 400 });
-    }
-
-    // If secret provided, connect to existing tunnel (relay mode)
-    if (secret) {
-      const tunnel = tunnels.get(secret);
-      if (!tunnel) {
-        return new Response("tunnel not found", { status: 404 });
-      }
-
-      const pair = new WebSocketPair();
-      const [client, server] = Object.values(pair);
-
-      // Accept the client WS
-      server.accept();
-
-      // When we get data from the developer's WS, forward to pending requests
-      let pendingResolve: ((resp: Response) => void) | null = null;
-
-      server.addEventListener("message", (event) => {
-        const data = typeof event.data === "string" ? event.data : event.data;
-        // The developer sends back HTTP responses as JSON: { status, headers, body (base64) }
-        try {
-          const msg = JSON.parse(data as string);
-          if (pendingResolve && msg.type === "response") {
-            const body = msg.body ? atob(msg.body) : "";
-            const resp = new Response(body, {
-              status: msg.status || 200,
-              headers: msg.headers || {},
-            });
-            pendingResolve(resp);
-            pendingResolve = null;
-          }
-        } catch {
-          // raw data, treat as response body
-          if (pendingResolve) {
-            pendingResolve(new Response(data as string, { status: 200 }));
-            pendingResolve = null;
-          }
-        }
-      });
-
-      // Store the WS on the tunnel
-      tunnel.ws = server as unknown as WebSocket;
-
-      return new Response(null, { status: 101, webSocket: client });
-    }
-
-    // Register a new tunnel
-    const id = genId();
-    const tunnelSecret = genSecret();
-    const maxTimeout = parseInt(ctx.env.MAX_TUNNEL_TIMEOUT || "86400");
-    const expiresAt = Date.now() + Math.min(timeout, maxTimeout) * 1000;
-
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    server.accept();
-
-    const tunnel = {
-      id,
-      backendUrl,
-      ws: server as unknown as WebSocket,
+    const secret = genId();
+    tunnels.set(secret, {
+      secret,
       createdAt: Date.now(),
-      expiresAt,
-      secret: tunnelSecret,
-      queue: [],
-    };
-    tunnels.set(tunnelSecret, tunnel);
-
-    // Send tunnel info back to the developer
-    server.addEventListener("open", () => {
-      server.send(JSON.stringify({
-        type: "registered",
-        id,
-        secret: tunnelSecret,
-        url: `/${id}/`,
-        expiresAt: new Date(expiresAt).toISOString(),
-      }));
+      expiresAt: Date.now() + timeout,
+      pollSeq: 0,
     });
 
-    server.addEventListener("close", () => {
-      tunnels.delete(tunnelSecret);
+    return new Response(JSON.stringify({
+      secret,
+      pollUrl: `/${secret}/poll`,
+      relayUrl: `/${secret}/relay`,
+      visitorUrl: `/${secret}/`,
+      expiresAt: new Date(Date.now() + timeout).toISOString(),
+    }), {
+      headers: { "content-type": "application/json" },
     });
-
-    // Auto-cleanup on expiry
-    setTimeout(() => {
-      tunnels.delete(tunnelSecret);
-      try { server.close(); } catch {}
-    }, Math.min(timeout, maxTimeout) * 1000);
-
-    return new Response(null, { status: 101, webSocket: client });
   }
 
-  // Management API
-  if (path === "/api") {
+  // GET /  -> list tunnels
+  if (req.method === "GET" && parts.length === 0) {
     const list = [...tunnels.values()].map(t => ({
-      id: t.id,
-      backendUrl: t.backendUrl,
+      secret: t.secret,
       createdAt: new Date(t.createdAt).toISOString(),
       expiresAt: new Date(t.expiresAt).toISOString(),
-      connected: t.ws !== null,
+      activeRequests: [...pendingRequests.values()].filter(r => pendingSeqs.get(r.id) !== undefined).length,
     }));
     return new Response(JSON.stringify({ tunnels: list }, null, 2), {
       headers: { "content-type": "application/json" },
     });
   }
 
-  // Check for tunnel route: /<secret>/<rest...>
-  const parts = path.split("/").filter(Boolean);
-  const maybeSecret = parts[0];
-
-  const tunnel = tunnels.get(maybeSecret);
-  if (!tunnel) {
-    return new Response(
-      `tunnel not found. POST management or connect via WebSocket.\nActive: ${tunnels.size}`,
-      { status: 404, headers: { "content-type": "text/plain" } }
-    );
+  // DELETE /<secret>  -> revoke tunnel
+  if (req.method === "DELETE" && parts.length === 1) {
+    const secret = parts[0];
+    tunnels.delete(secret);
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { "content-type": "application/json" },
+    });
   }
 
-  if (Date.now() > tunnel.expiresAt) {
-    tunnels.delete(maybeSecret);
-    return new Response("tunnel expired", { status: 410 });
+  // POST /<secret>/poll  -> developer polls for next request (long-poll)
+  if (req.method === "POST" && parts.length === 2 && parts[1] === "poll") {
+    const secret = parts[0];
+    const tunnel = tunnels.get(secret);
+    if (!tunnel) {
+      return new Response(JSON.stringify({ error: "tunnel not found" }), { status: 404, headers: { "content-type": "application/json" } });
+    }
+    if (Date.now() > tunnel.expiresAt) {
+      tunnels.delete(secret);
+      return new Response(JSON.stringify({ error: "tunnel expired" }), { status: 410, headers: { "content-type": "application/json" } });
+    }
+
+    const afterSeq = parseInt((await req.json()).afterSeq || "0");
+
+    // Wait up to 25s for a request to arrive (long-poll)
+    const deadline = Date.now() + 25_000;
+    while (Date.now() < deadline) {
+      for (const [id, req] of pendingRequests) {
+        const seq = pendingSeqs.get(id);
+        if (seq && seq > afterSeq) {
+          // Found a request newer than the last one the client saw
+          return new Response(JSON.stringify({
+            id: req.id,
+            method: req.method,
+            path: req.path,
+            headers: req.headers,
+            body: req.body,
+            seq,
+          }), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+      }
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    // No request arrived, return empty (client will poll again)
+    return new Response(JSON.stringify({ empty: true }), {
+      headers: { "content-type": "application/json" },
+    });
   }
 
-  if (!tunnel.ws) {
-    return new Response("tunnel backend not connected", { status: 503 });
+  // POST /<secret>/relay  -> developer sends back a response
+  if (req.method === "POST" && parts.length === 2 && parts[1] === "relay") {
+    const secret = parts[0];
+    if (!tunnels.has(secret)) {
+      return new Response(JSON.stringify({ error: "tunnel not found" }), { status: 404, headers: { "content-type": "application/json" } });
+    }
+
+    const { id, status, headers, body } = await req.json();
+    const pending = pendingRequests.get(id);
+    if (!pending) {
+      return new Response(JSON.stringify({ error: "request not found or already responded" }), { status: 404, headers: { "content-type": "application/json" } });
+    }
+
+    pendingRequests.delete(id);
+    pendingSeqs.delete(id);
+    pending.resolve({ status: status || 200, headers: headers || {}, body: body || "" });
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { "content-type": "application/json" },
+    });
   }
 
-  // Relay the HTTP request through the WebSocket to the developer's machine
-  const subpath = "/" + parts.slice(1).join("/") + (url.search || "");
-  const reqBody = req.body ? btoa(await req.text()) : "";
+  // Anything else: treat as visitor traffic -> /<secret>/<path...>
+  if (parts.length >= 1) {
+    const secret = parts[0];
+    const tunnel = tunnels.get(secret);
+    if (!tunnel) {
+      return new Response("tunnel not found", { status: 404 });
+    }
+    if (Date.now() > tunnel.expiresAt) {
+      tunnels.delete(secret);
+      return new Response("tunnel expired", { status: 410 });
+    }
 
-  return new Promise<Response>((resolve) => {
-    const msg = JSON.stringify({
-      type: "request",
-      method: req.method,
-      path: subpath,
-      headers: Object.fromEntries(req.headers.entries()),
-      body: reqBody,
+    const visitorPath = "/" + (parts.length > 1 ? parts.slice(1).join("/") : "") + (url.search || "");
+    const reqBody = req.body ? btoa(await req.text()) : "";
+
+    // Queue the request and wait for the developer's client to relay the response
+    const id = crypto.randomUUID().slice(0, 12);
+    tunnel.pollSeq++;
+    pendingSeqs.set(id, tunnel.pollSeq);
+
+    const response = await new Promise<{ status: number; headers: Record<string, string>; body: string }>((resolve) => {
+      pendingRequests.set(id, {
+        id,
+        method: req.method,
+        path: visitorPath,
+        headers: Object.fromEntries(req.headers.entries()),
+        body: reqBody,
+        resolve,
+        timestamp: Date.now(),
+      });
+
+      // Timeout after 30s
+      setTimeout(() => {
+        if (pendingRequests.has(id)) {
+          pendingRequests.delete(id);
+          pendingSeqs.delete(id);
+          resolve({ status: 504, headers: { "content-type": "text/plain" }, body: btoa("gateway timeout") });
+        }
+      }, 30_000);
     });
 
-    // Set up response handler
-    const handler = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data as string);
-        if (data.type === "response") {
-          tunnel.ws!.removeEventListener("message", handler);
-          const body = data.body ? atob(data.body) : "";
-          resolve(new Response(body, {
-            status: data.status || 200,
-            headers: data.headers || {},
-          }));
-        }
-      } catch {}
-    };
+    const respBody = response.body ? atob(response.body) : "";
+    return new Response(respBody, {
+      status: response.status,
+      headers: response.headers,
+    });
+  }
 
-    tunnel.ws!.addEventListener("message", handler);
-    tunnel.ws!.send(msg);
-
-    // Timeout after 30s
-    setTimeout(() => {
-      tunnel.ws!.removeEventListener("message", handler);
-      resolve(new Response("gateway timeout", { status: 504 }));
-    }, 30000);
+  return new Response("tunnel: POST / to create, /<secret>/poll and /<secret>/relay for client", {
+    headers: { "content-type": "text/plain" },
   });
 }

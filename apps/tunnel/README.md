@@ -3,25 +3,63 @@
 Temporary reverse proxy for dstack-webhost. Like ngrok, but the relay runs
 inside your TEE-attested CVM.
 
-## Pull mode (WebSocket relay, works behind NAT)
+Works through the existing HTTP-only ingress using long-polling. No daemon
+changes needed.
 
-The developer connects to the tunnel app via WebSocket from their local
-machine. The daemon relays incoming HTTP requests through that WebSocket.
+## Usage
+
+### Start the client on your machine
 
 ```bash
-# On the developer's machine:
-deno run --allow-net client.ts ws://your-cvm:8080/tunnel/ --backend http://localhost:3000
+deno run --allow-net client.ts http://your-cvm:8080/tunnel/ http://localhost:3000
 ```
 
-This works even if the developer is behind NAT.
+Output:
+```
+  Tunnel created!
+  Secret:   a1b2c3d4e5f6
+  Expires:  2026-04-05T16:00:00Z
+  Visitor:  http://your-cvm:8080/tunnel/a1b2c3d4e5f6/
 
-## Attestation
+Waiting for incoming requests...
+```
 
-Since the tunnel runs inside the CVM, visitors can verify the CVM's
-attestation quote and daemon source hash. The relay path is attested;
-the backend service itself is not.
+### Share the visitor URL
 
-## Files
+Anyone who visits the visitor URL gets their requests proxied through the
+CVM to your local service, relayed via long-polling through the tunnel client.
 
-- `server.ts` -- Deno handler (deploy as Layer 2 project)
-- `client.ts` -- CLI client for pull-mode tunneling
+### The client logs each request
+
+```
+  GET / -> http://localhost:3000/
+    <- 200
+  POST /api/items -> http://localhost:3000/api/items
+    <- 201
+```
+
+## How it works
+
+1. Client POSTs to create a tunnel, gets back a secret
+2. Client long-polls `/<secret>/poll` waiting for visitor requests
+3. Visitors hit `/<secret>/<path>` -- requests are queued server-side
+4. When the client picks up a request, it fetches the backend locally
+5. Client POSTs the response back to `/<secret>/relay`
+6. Visitor gets the response
+
+## Deploy as a Layer 2 project
+
+```bash
+curl -X POST http://your-cvm:8080/_api/projects \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "tunnel",
+    "runtime": "deno",
+    "entry": "server.ts",
+    "source": "https://github.com/amiller/dstack-webhost",
+    "ref": "main"
+  }'
+```
+
+Then the tunnel app is live at `http://your-cvm:8080/tunnel/`.

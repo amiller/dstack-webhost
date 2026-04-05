@@ -2,86 +2,109 @@
 /**
  * tunnel client - connects your local service to a dstack-webhost tunnel
  *
- * Usage:
- *   deno run --allow-net client.ts ws://<cvm-host>:8080/tunnel/ http://localhost:3000
+ * Uses long-polling (works through HTTP-only ingress proxies).
  *
- * This opens a WebSocket to the tunnel app running on the CVM,
- * then relays incoming HTTP requests to your local service.
+ * Usage:
+ *   deno run --allow-net client.ts http://<cvm-host>:8080/tunnel/ http://localhost:3000
  */
 
 const tunnelUrl = Deno.args[0];
 const backendUrl = Deno.args[1];
 
 if (!tunnelUrl || !backendUrl) {
-  console.error("Usage: deno run --allow-net client.ts <ws://cvm-host:8080/tunnel/> <http://localhost:3000>");
+  console.error("Usage: deno run --allow-net client.ts <http://cvm-host:8080/tunnel/> <http://localhost:3000>");
   Deno.exit(1);
 }
 
-console.log(`Connecting to tunnel: ${tunnelUrl}`);
-console.log(`Backend: ${backendUrl}`);
+console.log(`Tunnel server: ${tunnelUrl}`);
+console.log(`Backend:       ${backendUrl}`);
 
-const ws = new WebSocket(tunnelUrl);
+// Create tunnel
+const createResp = await fetch(tunnelUrl, { method: "POST" });
+const tunnel = await createResp.json();
+console.log(`\n  Tunnel created!`);
+console.log(`  Secret:   ${tunnel.secret}`);
+console.log(`  Expires:  ${tunnel.expiresAt}`);
 
-ws.addEventListener("open", () => {
-  console.log("WebSocket connected, registering tunnel...");
-  ws.send(JSON.stringify({ type: "register", backend: backendUrl }));
-});
+// Build the visitor URL from the tunnel URL
+const baseUrl = tunnelUrl.replace(/\/+$/, "");
+const visitorUrl = `${baseUrl}/${tunnel.secret}/`;
+const pollUrl = `${baseUrl}/${tunnel.secret}/poll`;
+const relayUrl = `${baseUrl}/${tunnel.secret}/relay`;
 
-ws.addEventListener("message", async (event) => {
-  const msg = JSON.parse(event.data);
+console.log(`  Visitor:  ${visitorUrl}`);
+console.log(`\nWaiting for incoming requests...\n`);
 
-  if (msg.type === "registered") {
-    console.log(`\n  Tunnel active!`);
-    console.log(`  ID:       ${msg.id}`);
-    console.log(`  Secret:   ${msg.secret}`);
-    console.log(`  URL:      ${msg.url}`);
-    console.log(`  Expires:  ${msg.expiresAt}`);
-    console.log(`\n  Visitors can access your service at:`);
-    console.log(`  ${tunnelUrl.replace("ws://", "http://").replace("wss://", "https://").replace(/\/tunnel\/?$/, "")}/${msg.secret}/`);
-    console.log();
-    return;
-  }
+let lastSeq = 0;
 
-  if (msg.type === "request") {
-    const { id, method, path, headers, body } = msg;
-    const url = new URL(path, backendUrl);
-
+async function pollLoop() {
+  while (true) {
     try {
-      const resp = await fetch(url.toString(), {
-        method,
-        headers,
-        body: body ? atob(body) : undefined,
+      const pollResp = await fetch(pollUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ afterSeq: lastSeq }),
       });
 
-      const respBody = resp.body ? btoa(await resp.text()) : "";
-      const respHeaders: Record<string, string> = {};
-      resp.headers.forEach((v, k) => { respHeaders[k] = v; });
+      if (pollResp.status === 410) {
+        console.error("Tunnel expired.");
+        break;
+      }
 
-      ws.send(JSON.stringify({
-        type: "response",
-        id,
-        status: resp.status,
-        headers: respHeaders,
-        body: respBody,
-      }));
+      const msg = await pollResp.json();
+
+      if (msg.empty) continue;
+
+      // Got an incoming request from a visitor
+      const { id, method, path, headers, body: reqBodyB64, seq } = msg;
+      lastSeq = seq;
+
+      const reqBody = reqBodyB64 ? atob(reqBodyB64) : undefined;
+      const url = new URL(path, backendUrl).toString();
+
+      console.log(`  ${method} ${path} -> ${url}`);
+
+      try {
+        const resp = await fetch(url, {
+          method,
+          headers,
+          body: reqBody,
+        });
+
+        const respBodyB64 = resp.body ? btoa(await resp.text()) : "";
+        const respHeaders: Record<string, string> = {};
+        resp.headers.forEach((v, k) => { respHeaders[k] = v; });
+
+        await fetch(relayUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id,
+            status: resp.status,
+            headers: respHeaders,
+            body: respBodyB64,
+          }),
+        });
+
+        console.log(`    <- ${resp.status}`);
+      } catch (err) {
+        await fetch(relayUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id,
+            status: 502,
+            headers: { "content-type": "text/plain" },
+            body: btoa(`Backend error: ${(err as Error).message}`),
+          }),
+        });
+        console.log(`    <- 502 backend error`);
+      }
     } catch (err) {
-      ws.send(JSON.stringify({
-        type: "response",
-        id,
-        status: 502,
-        headers: {},
-        body: btoa(`Backend error: ${err.message}`),
-      }));
+      console.error(`Poll error: ${(err as Error).message}, retrying in 3s...`);
+      await new Promise(r => setTimeout(r, 3000));
     }
   }
-});
+}
 
-ws.addEventListener("close", () => {
-  console.error("Tunnel disconnected.");
-  Deno.exit(1);
-});
-
-ws.addEventListener("error", (event) => {
-  console.error("WebSocket error:", event);
-  Deno.exit(1);
-});
+pollLoop();
