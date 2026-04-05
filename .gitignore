@@ -1,6 +1,14 @@
 __pycache__/
 *.pyc
 .env
+.env.*
 *.egg-info/
 dist/
 build/
+node_modules/
+smithers.db*
+workflows/
+tsconfig.json
+package.json
+package-lock.json
+bun.lock

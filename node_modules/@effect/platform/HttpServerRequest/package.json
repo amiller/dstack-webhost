@@ -1,6 +1,0 @@
-{
-  "sideEffects": [],
-  "main": "../dist/cjs/HttpServerRequest.js",
-  "module": "../dist/esm/HttpServerRequest.js",
-  "types": "../dist/dts/HttpServerRequest.d.ts"
-}

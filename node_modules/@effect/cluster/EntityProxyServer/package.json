@@ -1,6 +1,0 @@
-{
-  "sideEffects": [],
-  "main": "../dist/cjs/EntityProxyServer.js",
-  "module": "../dist/esm/EntityProxyServer.js",
-  "types": "../dist/dts/EntityProxyServer.d.ts"
-}

@@ -1,6 +1,0 @@
-{
-  "main": "../dist/cjs/Activity.js",
-  "module": "../dist/esm/Activity.js",
-  "types": "../dist/dts/Activity.d.ts",
-  "sideEffects": []
-}

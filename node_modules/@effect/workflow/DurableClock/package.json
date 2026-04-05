@@ -1,6 +1,0 @@
-{
-  "main": "../dist/cjs/DurableClock.js",
-  "module": "../dist/esm/DurableClock.js",
-  "types": "../dist/dts/DurableClock.d.ts",
-  "sideEffects": []
-}

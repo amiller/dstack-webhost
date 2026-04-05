@@ -1,6 +1,0 @@
-{
-  "main": "../dist/cjs/DurableQueue.js",
-  "module": "../dist/esm/DurableQueue.js",
-  "types": "../dist/dts/DurableQueue.d.ts",
-  "sideEffects": []
-}

@@ -1,6 +1,0 @@
-{
-  "main": "../dist/cjs/WorkflowProxyServer.js",
-  "module": "../dist/esm/WorkflowProxyServer.js",
-  "types": "../dist/dts/WorkflowProxyServer.d.ts",
-  "sideEffects": []
-}

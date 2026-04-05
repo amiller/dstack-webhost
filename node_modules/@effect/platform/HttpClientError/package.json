@@ -1,6 +1,0 @@
-{
-  "sideEffects": [],
-  "main": "../dist/cjs/HttpClientError.js",
-  "module": "../dist/esm/HttpClientError.js",
-  "types": "../dist/dts/HttpClientError.d.ts"
-}

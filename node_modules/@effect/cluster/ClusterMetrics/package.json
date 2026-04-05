@@ -1,6 +1,0 @@
-{
-  "sideEffects": [],
-  "main": "../dist/cjs/ClusterMetrics.js",
-  "module": "../dist/esm/ClusterMetrics.js",
-  "types": "../dist/dts/ClusterMetrics.d.ts"
-}
