@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "@ai-sdk/openai": "^3.0.50",
-    "ai": "^6.0.146",
-    "smithers-orchestrator": "^0.14.1",
-    "zod": "^4.3.6"
-  }
-}
