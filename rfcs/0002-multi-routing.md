@@ -125,3 +125,12 @@ implementation that works without daemon changes.
 
 - TLS termination (dstack handles this at the edge)
 - Load balancing between multiple containers of the same project
+
+## Next Steps
+
+1. **Port binding in project manifest**: Add `listen.port` and `listen.protocol` fields to project config, default to 8080/http
+2. **Port-based routing**: When a project specifies a port, bind that port and route all traffic directly to the container (no path-based routing)
+3. **TCP proxy mode**: Add raw TCP stream proxy for non-HTTP services, bidirectional byte forwarding
+4. **Routing table endpoint**: `GET /_api/routes` returns the current routing table with port, protocol, project mapping
+5. **Port conflict detection**: Prevent two projects from binding the same port, return clear error on deploy
+

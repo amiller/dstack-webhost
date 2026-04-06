@@ -1,6 +1,5 @@
 """Shared runtime containers — one per runtime type, routes all projects."""
 
-import asyncio
 import json
 import logging
 import os
@@ -11,7 +10,8 @@ from .tracker import ContainerTracker
 
 log = logging.getLogger(__name__)
 
-NETWORK = "tee-apps"
+NETWORK_DEV = "tee-apps-dev"
+NETWORK_ATTESTED = "tee-apps-attested"
 # When running inside Docker, host paths don't work for sibling container bind mounts.
 # Set DAEMON_VOLUME_NAME to the Docker volume name (e.g. "dstack_daemon_data")
 # and DAEMON_VOLUME_MOUNT to the mount point inside the daemon (e.g. "/var/lib/tee-daemon").
@@ -185,8 +185,8 @@ class RuntimeManager:
         self.docker = docker
         self.store = store
         self.tracker = tracker
-        self.runtime_ips: dict[str, str] = {}
-        self.runtime_cids: dict[str, str] = {}
+        self.runtime_ips: dict[tuple[str, str], str] = {}  # (runtime_key, mode) -> ip
+        self.runtime_cids: dict[tuple[str, str], str] = {}  # (runtime_key, mode) -> cid
 
     async def refresh(self, runtime: str):
         if runtime == "static" or runtime == "dockerfile":
@@ -196,67 +196,96 @@ class RuntimeManager:
         if config_key not in RUNTIME_CONFIG:
             return
         config = RUNTIME_CONFIG[config_key]
-        cname = f"tee-runtime-{config_key}"
 
-        router_path = os.path.join(self.store.base_dir, config["router_file"])
-
-        # Stop existing
-        existing = await self.docker.container_exists(cname)
-        if existing:
-            await self.docker.stop(existing)
-            await self.docker.remove(existing)
-            self.tracker.remove(existing)
-
-        # Check if any projects use this runtime
+        # Check if any projects use this runtime in either mode
         runtimes_served = [config_key]
         if config_key == "deno":
             runtimes_served.append("bun")
         projects = [p for p in self.store.list() if p.runtime in runtimes_served]
-        if not projects:
-            self.runtime_ips.pop(config_key, None)
-            self.runtime_cids.pop(config_key, None)
-            log.info("No %s projects, skipping runtime container", config_key)
-            return
 
-        log.info("Pulling %s...", config["image"])
-        await self.docker.pull(config["image"])
+        # Handle dev and attested modes separately
+        for mode in ["dev", "attested"]:
+            mode_projects = [p for p in projects if p.mode == mode]
+            mode_suffix = mode
+            network = NETWORK_ATTESTED if mode == "attested" else NETWORK_DEV
+            cname = f"tee-runtime-{config_key}-{mode_suffix}"
+            key = (config_key, mode)
 
-        labels = {"tee-proxy.managed": "true", "tee-daemon.runtime": config_key}
-        if VOLUME_NAME:
-            # Docker-in-Docker: mount the named volume, projects are at subdir
-            rel = os.path.relpath(self.store.base_dir, VOLUME_MOUNT)
-            binds = [f"{VOLUME_NAME}:/daemon-vol:ro"]
-            # Rewrite router to read from /daemon-vol/{rel}/
-            projects_root = f"/daemon-vol/{rel}"
-        else:
-            # Local dev: host path works directly
-            binds = [f"{os.path.abspath(self.store.base_dir)}:/projects:ro"]
-            projects_root = "/projects"
+            router_path = os.path.join(self.store.base_dir, f"{config['router_file']}.{mode_suffix}")
 
-        # Write router with correct projects root
-        router_code = config["router_code"].replace("/projects/", f"{projects_root}/").replace('"/projects"', f'"{projects_root}"')
-        with open(router_path, "w") as f:
-            f.write(router_code)
+            # Stop existing
+            existing = await self.docker.container_exists(cname)
+            if existing:
+                await self.docker.stop(existing)
+                await self.docker.remove(existing)
+                self.tracker.remove(existing)
 
-        cmd = [c.replace("/projects/", f"{projects_root}/") for c in config["cmd"]]
+            if not mode_projects:
+                self.runtime_ips.pop(key, None)
+                self.runtime_cids.pop(key, None)
+                log.info("No %s %s projects, skipping runtime container", mode_suffix, config_key)
+                continue
 
-        cid = await self.docker.create_container(
-            cname, config["image"], cmd, binds, labels, NETWORK)
-        await self.docker.start(cid)
-        self.tracker.add(cid)
-        ip = await self.docker.container_ip(cid, NETWORK)
-        self.runtime_cids[config_key] = cid
-        self.runtime_ips[config_key] = ip
-        log.info("Runtime %s -> %s (%s), serving %d projects",
-                 config_key, cid[:12], ip, len(projects))
+            log.info("Pulling %s...", config["image"])
+            await self.docker.pull(config["image"])
 
-    def get_route(self, runtime: str) -> tuple[str, int] | None:
+            labels = {"tee-proxy.managed": "true", "tee-daemon.runtime": config_key}
+            if mode == "attested":
+                labels["tee-daemon.attested"] = "true"
+
+            # Add project labels for audit log association
+            for p in mode_projects:
+                labels[f"tee-daemon.project.{p.name}"] = "true"
+
+            if VOLUME_NAME:
+                # Docker-in-Docker: mount the named volume, projects are at subdir
+                rel = os.path.relpath(self.store.base_dir, VOLUME_MOUNT)
+                binds = [f"{VOLUME_NAME}:/daemon-vol:ro"]
+                # Rewrite router to read from /daemon-vol/{rel}/
+                projects_root = f"/daemon-vol/{rel}"
+            else:
+                # Local dev: host path works directly
+                binds = [f"{os.path.abspath(self.store.base_dir)}:/projects:ro"]
+                projects_root = "/projects"
+
+            # Write router with correct projects root, filtering by mode
+            router_code = config["router_code"].replace("/projects/", f"{projects_root}/").replace('"/projects"', f'"{projects_root}"')
+            # Filter projects by mode in the router
+            if mode == "attested":
+                router_code = router_code.replace(
+                    'if (!entry.isDirectory || entry.name.startsWith("_")) continue;',
+                    'if (!entry.isDirectory || entry.name.startsWith("_")) continue; const manifest = JSON.parse(raw); if (manifest.mode !== "attested") continue;'
+                )
+            else:
+                router_code = router_code.replace(
+                    'if (!entry.isDirectory || entry.name.startsWith("_")) continue;',
+                    'if (!entry.isDirectory || entry.name.startsWith("_")) continue; const manifest = JSON.parse(raw); if (manifest.mode === "attested") continue;'
+                )
+            with open(router_path, "w") as f:
+                f.write(router_code)
+
+            cmd = [c.replace("/projects/", f"{projects_root}/") for c in config["cmd"]]
+
+            cid = await self.docker.create_container(
+                cname, config["image"], cmd, binds, labels, network)
+            await self.docker.start(cid)
+            self.tracker.add(cid)
+            ip = await self.docker.container_ip(cid, network)
+            self.runtime_cids[key] = cid
+            self.runtime_ips[key] = ip
+            log.info("Runtime %s-%s -> %s (%s), serving %d projects",
+                     config_key, mode_suffix, cid[:12], ip, len(mode_projects))
+
+    def get_route(self, runtime: str, mode: str) -> tuple[str, int] | None:
         if runtime == "static" or runtime == "dockerfile":
             return None
         config_key = runtime
         if runtime == "bun":
             config_key = "deno"
-        ip = self.runtime_ips.get(config_key)
+        if mode not in ("dev", "attested"):
+            mode = "dev"
+        key = (config_key, mode)
+        ip = self.runtime_ips.get(key)
         if not ip:
             return None
         return (ip, RUNTIME_CONFIG[config_key]["port"])
@@ -264,41 +293,6 @@ class RuntimeManager:
     async def recover_all(self):
         runtimes_needed = set()
         for p in self.store.list():
-            # Check if files are missing — re-clone from source if available
-            files_dir = self.store.files_dir(p.name)
-            if not os.path.isdir(files_dir) or not os.listdir(files_dir):
-                if p.source:
-                    log.info("Recovering %s from %s@%s", p.name, p.source,
-                             p.commit_sha[:12] if p.commit_sha else (p.ref or "HEAD"))
-                    try:
-                        from .deploy import git_clone
-                        # Clone to temp, then copy source_path subdir if set
-                        import tempfile, shutil
-                        tmp = tempfile.mkdtemp(prefix="tee-recover-")
-                        try:
-                            # Clone at ref (branch), then checkout pinned commit if we have one
-                            commit_sha = await git_clone(p.source, p.ref, tmp)
-                            if p.commit_sha:
-                                proc = await asyncio.create_subprocess_exec(
-                                    "git", "-C", tmp, "checkout", p.commit_sha,
-                                    stdout=asyncio.subprocess.PIPE,
-                                    stderr=asyncio.subprocess.PIPE)
-                                await proc.communicate()
-                                commit_sha = p.commit_sha
-                            src = os.path.join(tmp, p.source_path) if p.source_path else tmp
-                            if os.path.exists(files_dir):
-                                shutil.rmtree(files_dir)
-                            shutil.copytree(src, files_dir)
-                            p.commit_sha = commit_sha
-                            self.store.save(p)
-                            log.info("Recovered %s -> %s", p.name, commit_sha[:12])
-                        finally:
-                            shutil.rmtree(tmp, ignore_errors=True)
-                    except Exception as e:
-                        log.error("Failed to recover %s: %s", p.name, e)
-                else:
-                    log.warning("No files and no source for %s, skipping", p.name)
-
             if p.runtime not in ("static", "dockerfile"):
                 runtimes_needed.add(p.runtime)
         for rt in runtimes_needed:

@@ -11,14 +11,15 @@ import time
 from datetime import datetime, timezone
 
 from .docker_client import DockerClient
-from .projects import Project, ProjectStore
+from .projects import Project, ProjectStore, ListenConfig
 from .tracker import ContainerTracker
 from .audit import AuditLog, AuditEntry
 from .runtimes import RuntimeManager, RUNTIME_CONFIG, VOLUME_NAME, VOLUME_MOUNT
 
 log = logging.getLogger(__name__)
 
-NETWORK = "tee-apps"
+NETWORK_DEV = "tee-apps-dev"
+NETWORK_ATTESTED = "tee-apps-attested"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 VALID_RUNTIMES = set(RUNTIME_CONFIG.keys()) | {"static", "dockerfile"}
 
@@ -120,7 +121,7 @@ async def run_build_step(docker: DockerClient, runtime: str, entry: str, files_d
     log.info("Build complete")
 
 
-async def deploy(store: ProjectStore, docker: DockerClient, audit: AuditLog,
+async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
                  tracker: ContainerTracker, rtm: RuntimeManager,
                  manifest: dict) -> Project:
     source = manifest.get("source", "")
@@ -133,30 +134,41 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit: AuditLog,
         raise ValueError(f"Invalid project name: {name!r}")
 
     files_dir = store.files_dir(name)
-    source_path = manifest.get("source_path", "")
-
-    # Clone to temp dir first, then copy source_path if specified
-    import tempfile
-    tmp = tempfile.mkdtemp(prefix="tee-deploy-")
-    try:
-        commit_sha = await git_clone(source, ref, tmp)
-        repo_root = os.path.join(tmp, source_path) if source_path else tmp
-        if not os.path.isdir(repo_root):
-            raise ValueError(f"source_path '{source_path}' not found in repo")
-        # Copy files to files_dir
-        if os.path.exists(files_dir):
-            shutil.rmtree(files_dir)
-        shutil.copytree(repo_root, files_dir)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    commit_sha = await git_clone(source, ref, files_dir)
 
     repo_manifest = detect_manifest(files_dir)
 
     runtime = manifest.get("runtime") or repo_manifest.get("runtime", "")
     entry = manifest.get("entry") or repo_manifest.get("entry") or DEFAULT_ENTRY.get(runtime, "")
     port = int(manifest.get("port", 0)) or int(repo_manifest.get("port", 0)) or DEFAULT_PORT.get(runtime, 0)
-    attested = manifest.get("attested", repo_manifest.get("attested", False))
+    mode = manifest.get("mode") or repo_manifest.get("mode", "dev")
+    if mode not in ("dev", "attested"):
+        mode = "dev"
     env_vars = {**repo_manifest.get("env", {}), **manifest.get("env", {})}
+
+    # Parse listen configuration with defaults
+    listen_manifest = manifest.get("listen") or repo_manifest.get("listen")
+    if listen_manifest is None:
+        # Default listen config: use detected port or fallback to 8080/http
+        listen_port = port or 8080
+        listen_protocol = "http"
+    else:
+        listen_port = int(listen_manifest.get("port", port)) or 8080
+        listen_protocol = listen_manifest.get("protocol", "http") or "http"
+    listen_config = ListenConfig(port=listen_port, protocol=listen_protocol)
+
+    # Check for port conflicts with existing projects
+    # Port 8080 is special: multiple projects can use it for path-based routing
+    if listen_port != 8080:
+        existing_projects = store.list()
+        for existing in existing_projects:
+            if existing.listen and existing.listen.port == listen_port:
+                # Allow redeploying the same project on the same port
+                if existing.name != name:
+                    raise ValueError(
+                        f"Port conflict: project '{name}' cannot bind to port {listen_port} "
+                        f"because it is already in use by project '{existing.name}'"
+                    )
 
     if not runtime:
         raise ValueError("Cannot detect runtime — add project.json or specify runtime")
@@ -171,10 +183,10 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit: AuditLog,
     image = config["image"] if config else runtime
 
     project = Project(
-        name=name, runtime=runtime, entry=entry, port=port, attested=attested,
+        name=name, runtime=runtime, entry=entry, port=port, mode=mode,
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         source=source, ref=ref, commit_sha=commit_sha, tree_hash=tree_hash,
-        source_path=source_path,
+        listen=listen_config,
     )
     store.save(project)
 
@@ -185,22 +197,28 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit: AuditLog,
     project.image_digest = digest
     store.save(project)
 
-    await audit.record(AuditEntry(
-        timestamp=time.time(), action="deploy", image=image, image_digest=digest,
-        detail=json.dumps({"name": name, "source": source, "ref": ref,
-                           "commit": commit_sha, "tree_hash": tree_hash})))
+    # Only record audit log for attested mode
+    if mode == "attested":
+        audit = audit_manager.get_audit_log(name)
+        await audit.record(AuditEntry(
+            timestamp=time.time(), action="deploy", image=image, image_digest=digest,
+            detail=json.dumps({"name": name, "source": source, "ref": ref,
+                               "commit": commit_sha, "tree_hash": tree_hash})))
 
     log.info("Deployed %s from %s@%s (%s)", name, source, ref or "HEAD", commit_sha[:12])
     return project
 
 
-async def teardown(store: ProjectStore, docker: DockerClient, audit: AuditLog,
+async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
                    tracker: ContainerTracker, rtm: RuntimeManager, name: str):
     project = store.load(name)
 
-    await audit.record(AuditEntry(
-        timestamp=time.time(), action="teardown", detail=name,
-        image_digest=project.image_digest))
+    # Only record audit log for attested mode
+    if project.mode == "attested":
+        audit = audit_manager.get_audit_log(name)
+        await audit.record(AuditEntry(
+            timestamp=time.time(), action="teardown", detail=name,
+            image_digest=project.image_digest))
 
     store.delete(name)
 
@@ -208,3 +226,42 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit: AuditLog,
         await rtm.refresh(project.runtime)
 
     log.info("Torn down %s", name)
+
+
+async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
+                  name: str) -> Project:
+    """Promote a project from dev mode to attested mode."""
+    project = store.load(name)
+
+    if project.mode == "attested":
+        raise ValueError(f"Project {name} is already in attested mode")
+
+    # Change mode to attested and save
+    project.mode = "attested"
+    store.save(project)
+
+    # Record promotion in audit log with source hash (now attested)
+    audit = audit_manager.get_audit_log(name)
+    await audit.record(AuditEntry(
+        timestamp=time.time(),
+        action="promote",
+        detail=json.dumps({
+            "name": name,
+            "from_mode": "dev",
+            "to_mode": "attested",
+            "source": project.source,
+            "ref": project.ref,
+            "commit": project.commit_sha,
+            "tree_hash": project.tree_hash,
+        }),
+        image=project.image_digest,
+        image_digest=project.image_digest,
+    ))
+
+    # Re-deploy on attested network
+    if project.runtime not in ("static", "dockerfile"):
+        await rtm.refresh(project.runtime)
+
+    log.info("Promoted %s to attested mode (commit: %s, tree_hash: %s)",
+             name, project.commit_sha[:12], project.tree_hash[:12])
+    return project

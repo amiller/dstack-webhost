@@ -107,3 +107,11 @@ deploy it as a project (RFC 0001, Layer 2).
 - Permanent tunnels (use project deployment)
 - End-to-end encryption (the TEE provides transport integrity; if the backend
   is on the developer's machine, they should use HTTPS/WSS themselves)
+
+## Next Steps
+
+1. **Tunnel API**: `POST /_api/tunnels` creates a temporary reverse proxy entry with timeout and optional auth
+2. **Tunnel proxy handler**: Route requests matching `/<tunnel-id>/...` to the backend URL, remove route after timeout
+3. **WebSocket relay**: Support WS upgrade on tunnel endpoints for interactive sessions
+4. **Tunnel lifecycle management**: Auto-cleanup of expired tunnels, `GET /_api/tunnels` to list active, `DELETE /_api/tunnels/<id>` to revoke
+

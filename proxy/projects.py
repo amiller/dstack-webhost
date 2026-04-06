@@ -3,7 +3,14 @@
 import json
 import os
 import shutil
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
+from typing import Optional
+
+
+@dataclass
+class ListenConfig:
+    port: int = 8080
+    protocol: str = "http"
 
 
 @dataclass
@@ -12,7 +19,7 @@ class Project:
     runtime: str
     entry: str
     port: int
-    attested: bool
+    mode: str = "dev"
     env: dict = None
     container_id: str = ""
     deployed_at: str = ""
@@ -21,11 +28,16 @@ class Project:
     ref: str = ""
     commit_sha: str = ""
     tree_hash: str = ""
-    source_path: str = ""
+    listen: Optional[ListenConfig] = None
 
     def __post_init__(self):
         if self.env is None:
             self.env = {}
+        if self.mode not in ("dev", "attested"):
+            self.mode = "dev"
+        # Initialize listen config with defaults if not provided
+        if self.listen is None:
+            self.listen = ListenConfig(port=self.port, protocol="http")
 
 
 class ProjectStore:
@@ -47,7 +59,11 @@ class ProjectStore:
 
     def load(self, name: str) -> Project:
         with open(os.path.join(self._project_dir(name), "project.json")) as f:
-            return Project(**json.load(f))
+            data = json.load(f)
+            # Convert listen dict to ListenConfig object if present
+            if "listen" in data and data["listen"] is not None:
+                data["listen"] = ListenConfig(**data["listen"])
+            return Project(**data)
 
     def list(self) -> list[Project]:
         projects = []

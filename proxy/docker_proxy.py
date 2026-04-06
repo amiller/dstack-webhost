@@ -8,12 +8,16 @@ import aiohttp
 from aiohttp import web
 
 from .tracker import ContainerTracker
-from .audit import AuditLog, AuditEntry
+from .audit import AuditLogManager, AuditEntry
 
 log = logging.getLogger(__name__)
 
 LABEL_MANAGED = "tee-proxy.managed"
-NETWORK_NAME = "tee-apps"
+LABEL_PROJECT = "tee-daemon.project"
+LABEL_ATTESTED = "tee-daemon.attested"
+NETWORK_DEV = "tee-apps-dev"
+NETWORK_ATTESTED = "tee-apps-attested"
+NETWORKS = [NETWORK_DEV, NETWORK_ATTESTED]
 
 OPEN_ROUTES = [
     ("GET",  re.compile(r"^(/v[\d.]+)?/_ping$")),
@@ -45,25 +49,25 @@ DENIED_RE = re.compile(r"^(/v[\d.]+)?/containers/[a-f0-9]+/(exec|archive)$")
 
 CREATE_RE = re.compile(r"^(/v[\d.]+)?/containers/create$")
 LIST_RE = re.compile(r"^(/v[\d.]+)?/containers/json$")
-AUDIT_RE = re.compile(r"^(/v[\d.]+)?/tee-proxy/audit$")
 
 
 class DockerProxy:
-    def __init__(self, real_socket: str, tracker: ContainerTracker, audit: AuditLog):
+    def __init__(self, real_socket: str, tracker: ContainerTracker, audit_manager: AuditLogManager):
         self.real_socket = real_socket
         self.tracker = tracker
-        self.audit = audit
+        self.audit_manager = audit_manager
 
     async def ensure_network(self):
         conn = aiohttp.UnixConnector(path=self.real_socket)
         async with aiohttp.ClientSession(connector=conn) as session:
             async with session.get("http://localhost/networks") as resp:
                 networks = await resp.json()
-                if any(n["Name"] == NETWORK_NAME for n in networks):
-                    return
-            async with session.post("http://localhost/networks/create",
-                                    json={"Name": NETWORK_NAME, "Driver": "bridge"}) as resp:
-                log.info("Created network %s: %s", NETWORK_NAME, resp.status)
+                existing = {n["Name"] for n in networks}
+            for network in NETWORKS:
+                if network not in existing:
+                    async with session.post("http://localhost/networks/create",
+                                            json={"Name": network, "Driver": "bridge"}) as resp:
+                        log.info("Created network %s: %s", network, resp.status)
 
     async def recover_tracked(self):
         conn = aiohttp.UnixConnector(path=self.real_socket)
@@ -81,9 +85,6 @@ class DockerProxy:
         if DENIED_RE.match(request.path):
             log.warning("Denied %s %s (isolation boundary)", method, request.path)
             return web.json_response({"message": "Operation not permitted"}, status=403)
-
-        if AUDIT_RE.match(request.path):
-            return web.json_response(self.audit.to_json())
 
         for m, pat in OPEN_ROUTES:
             if method == m and pat.match(request.path):
@@ -109,16 +110,34 @@ class DockerProxy:
                 resp = await self._forward(method, path, request,
                                           stream=(action in ("logs", "attach")))
                 if resp.status < 400 and action in ("start", "stop", "kill", "remove"):
-                    import time
-                    await self.audit.record(AuditEntry(
-                        timestamp=time.time(), action=action,
-                        container_id=self.tracker.full_id(cid) or cid))
+                    await self._maybe_audit(cid, action)
                     if action == "remove":
                         self.tracker.remove(cid)
                 return resp
 
         log.warning("Denied %s %s", method, request.path)
         return web.json_response({"message": "Operation not permitted"}, status=403)
+
+    async def _maybe_audit(self, cid: str, action: str):
+        """Record audit entry only for attested containers."""
+        try:
+            conn = aiohttp.UnixConnector(path=self.real_socket)
+            async with aiohttp.ClientSession(connector=conn) as session:
+                async with session.get(f"http://localhost/containers/{cid}/json") as resp:
+                    if resp.status == 200:
+                        container_data = await resp.json()
+                        labels = container_data.get("Labels", {})
+                        attested = labels.get(LABEL_ATTESTED, "false").lower() == "true"
+                        project_name = labels.get(LABEL_PROJECT, "")
+
+                        if attested and project_name:
+                            audit = self.audit_manager.get_audit_log(project_name)
+                            import time
+                            await audit.record(AuditEntry(
+                                timestamp=time.time(), action=action,
+                                container_id=self.tracker.full_id(cid) or cid))
+        except Exception as e:
+            log.warning("Failed to audit container %s: %s", cid[:12], e)
 
     async def _handle_create(self, path: str, request: web.Request) -> web.Response:
         body = await request.json()
@@ -127,12 +146,16 @@ class DockerProxy:
         labels = body.setdefault("Labels", {})
         labels[LABEL_MANAGED] = "true"
 
-        # Replace whatever network the client requested with tee-apps
+        # Determine which network to use based on attested label
+        attested = labels.get(LABEL_ATTESTED, "false").lower() == "true"
+        network = NETWORK_ATTESTED if attested else NETWORK_DEV
+
+        # Replace whatever network the client requested with the appropriate network
         host_config = body.get("HostConfig", {})
         host_config.pop("NetworkMode", None)
         body["HostConfig"] = host_config
 
-        body["NetworkingConfig"] = {"EndpointsConfig": {NETWORK_NAME: {}}}
+        body["NetworkingConfig"] = {"EndpointsConfig": {network: {}}}
 
         conn = aiohttp.UnixConnector(path=self.real_socket)
         async with aiohttp.ClientSession(connector=conn) as session:
@@ -152,10 +175,15 @@ class DockerProxy:
                     except Exception:
                         pass
 
-                    import time
-                    await self.audit.record(AuditEntry(
-                        timestamp=time.time(), action="create",
-                        container_id=cid, image=image, image_digest=image_digest))
+                    # Only record audit for attested containers
+                    if attested:
+                        project_name = labels.get(LABEL_PROJECT, "")
+                        if project_name:
+                            audit = self.audit_manager.get_audit_log(project_name)
+                            import time
+                            await audit.record(AuditEntry(
+                                timestamp=time.time(), action="create",
+                                container_id=cid, image=image, image_digest=image_digest))
 
                 return web.json_response(data, status=resp.status)
 

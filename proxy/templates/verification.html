@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEE Attestation Verification - {{ project_name }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+        }
+        .header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .header .project-name {
+            font-weight: 300;
+            opacity: 0.9;
+        }
+        .header p {
+            opacity: 0.9;
+            margin-top: 0.5rem;
+        }
+        .section {
+            padding: 1.5rem;
+            border-bottom: 1px solid #eee;
+        }
+        .section:last-child {
+            border-bottom: none;
+        }
+        .section h2 {
+            font-size: 1.3rem;
+            margin-bottom: 1rem;
+            color: #667eea;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .section h2 .icon {
+            font-size: 1.2rem;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .info-item {
+            background: #f8f9fa;
+            padding: 0.75rem;
+            border-radius: 6px;
+        }
+        .info-label {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .info-value {
+            font-weight: 500;
+            font-size: 0.95rem;
+            word-break: break-all;
+        }
+        .info-value.mono {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.85rem;
+        }
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+        .audit-entry {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 0.75rem;
+            border-left: 3px solid #667eea;
+        }
+        .audit-entry:last-child {
+            margin-bottom: 0;
+        }
+        .audit-entry .timestamp {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+        }
+        .audit-entry .action {
+            font-weight: 500;
+            color: #667eea;
+            margin-bottom: 0.25rem;
+        }
+        .audit-entry .detail {
+            font-size: 0.9rem;
+            color: #555;
+        }
+        .trust-chain {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .chain-link {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem;
+            background: #f8f9fa;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+        .chain-link::before {
+            content: "↳";
+            margin-right: 0.75rem;
+            color: #667eea;
+            font-weight: bold;
+        }
+        .chain-link:first-child::before {
+            content: "●";
+            margin-right: 0.75rem;
+            color: #667eea;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-badge.attested {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-badge.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem;
+        }
+        .footer {
+            background: #f8f9fa;
+            padding: 1rem 2rem;
+            text-align: center;
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <span>🔒</span>
+                TEE Attestation Verification
+                <span class="project-name">- {{ project_name }}</span>
+            </h1>
+            <p>Verify what code is running in this Trusted Execution Environment</p>
+        </div>
+
+        <div id="error" style="display: none;"></div>
+        <div id="loading" class="loading">Loading verification data...</div>
+        <div id="content" style="display: none;">
+            <!-- Trust Chain Section -->
+            <div class="section">
+                <h2><span class="icon">🔗</span> Trust Chain</h2>
+                <div class="trust-chain">
+                    <div class="chain-link">Base Smart Contract (CVM App ID)</div>
+                    <div class="chain-link">CVM Attestation (dstack quote with TCB & boot measurements)</div>
+                    <div class="chain-link">tee-daemon Code (verified via repo commit hash)</div>
+                    <div class="chain-link">Per-Project Attestation ({{ project_name }})</div>
+                </div>
+            </div>
+
+            <!-- Project Manifest Section -->
+            <div class="section">
+                <h2><span class="icon">📋</span> Project Manifest</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Project Name</div>
+                        <div class="info-value" id="project-name">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Runtime</div>
+                        <div class="info-value" id="project-runtime">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Mode</div>
+                        <div class="info-value"><span class="status-badge attested" id="project-mode">-</span></div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Source</div>
+                        <div class="info-value mono" id="project-source">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Branch/Tag</div>
+                        <div class="info-value mono" id="project-ref">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Commit SHA</div>
+                        <div class="info-value mono" id="project-sha">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Tree Hash</div>
+                        <div class="info-value mono" id="project-tree">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Deployed At</div>
+                        <div class="info-value" id="project-deployed">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dstack Quote Section -->
+            <div class="section">
+                <h2><span class="icon">🛡️</span> TEE Attestation Quote</h2>
+                <div id="quote-status"></div>
+                <div id="quote-content" style="display: none;">
+                    <div class="info-item" style="margin-bottom: 1rem;">
+                        <div class="info-label">Quote</div>
+                        <div class="code-block mono" id="quote-data"></div>
+                    </div>
+                    <p style="font-size: 0.9rem; color: #666; margin-top: 1rem;">
+                        This quote proves the code is running inside a genuine TEE. You can verify this against the base smart contract using the dstack verification tools.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Audit Log Section -->
+            <div class="section">
+                <h2><span class="icon">📝</span> Audit Log</h2>
+                <div id="audit-log"></div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Powered by <a href="https://github.com/amiller/dstack-webhost" target="_blank">dstack-webhost</a> - A verifiable TEE web hosting platform</p>
+        </div>
+    </div>
+
+    <script>
+        const projectName = "{{ project_name }}";
+
+        async function loadVerificationData() {
+            const loadingEl = document.getElementById('loading');
+            const contentEl = document.getElementById('content');
+            const errorEl = document.getElementById('error');
+
+            try {
+                const response = await fetch(`/_api/verification/${projectName}`);
+                const data = await response.json();
+
+                if (!response.ok || data.error) {
+                    throw new Error(data.error || 'Failed to load verification data');
+                }
+
+                loadingEl.style.display = 'none';
+                contentEl.style.display = 'block';
+
+                renderProject(data.project);
+                renderQuote(data.quote);
+                renderAudit(data.audit);
+
+            } catch (error) {
+                loadingEl.style.display = 'none';
+                errorEl.style.display = 'block';
+                errorEl.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        function renderProject(project) {
+            document.getElementById('project-name').textContent = project.name;
+            document.getElementById('project-runtime').textContent = project.runtime;
+            document.getElementById('project-mode').textContent = project.mode;
+            document.getElementById('project-source').textContent = project.source || '-';
+            document.getElementById('project-ref').textContent = project.ref || '-';
+            document.getElementById('project-sha').textContent = project.commit_sha || '-';
+            document.getElementById('project-tree').textContent = project.tree_hash || '-';
+            document.getElementById('project-deployed').textContent = project.deployed_at || '-';
+        }
+
+        function renderQuote(quoteData) {
+            const statusEl = document.getElementById('quote-status');
+            const contentEl = document.getElementById('quote-content');
+
+            if (!quoteData || quoteData.error) {
+                statusEl.innerHTML = `<div class="status-badge error">${quoteData?.error || 'Quote not available'}</div>`;
+                return;
+            }
+
+            statusEl.innerHTML = `<div class="status-badge attested">Verified TEE Quote</div>`;
+            contentEl.style.display = 'block';
+            document.getElementById('quote-data').textContent = JSON.stringify(quoteData, null, 2);
+        }
+
+        function renderAudit(auditData) {
+            const container = document.getElementById('audit-log');
+
+            if (!auditData || auditData.length === 0) {
+                container.innerHTML = '<p style="color: #666; font-style: italic;">No audit entries available</p>';
+                return;
+            }
+
+            container.innerHTML = auditData.map(entry => {
+                const date = new Date(entry.timestamp * 1000).toLocaleString();
+                return `
+                    <div class="audit-entry">
+                        <div class="timestamp">${date}</div>
+                        <div class="action">${entry.action.toUpperCase()}</div>
+                        ${entry.detail ? `<div class="detail">${entry.detail}</div>` : ''}
+                        ${entry.container_id ? `<div class="detail">Container: ${entry.container_id}</div>` : ''}
+                        ${entry.image ? `<div class="detail">Image: ${entry.image}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        document.addEventListener('DOMContentLoaded', loadVerificationData);
+    </script>
+</body>
+</html>
