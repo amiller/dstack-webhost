@@ -44,6 +44,18 @@ for await (const entry of Deno.readDir("/projects")) {
 
 console.log(`Router ready: ${handlers.size} projects`);
 
+// Warmup: fire a synthetic request to each handler so they can initialize
+// (e.g. inject env vars into background workers like setInterval loops)
+for (const [name, handler] of handlers) {
+  try {
+    const warmupReq = new Request("http://localhost/_warmup");
+    await handler(warmupReq, {env: envs.get(name) || {}});
+  } catch (e) {
+    // Warmup errors are non-fatal (handler may not support GET /_warmup)
+  }
+}
+console.log("Warmup complete");
+
 Deno.serve({ port: 3000 }, async (req: Request) => {
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean);
@@ -84,6 +96,26 @@ for (const name of fs.readdirSync("/projects")) {
 }
 
 console.log(`Router ready: ${Object.keys(handlers).length} projects`);
+
+// Warmup: fire a synthetic request to each handler so they can initialize
+for (const name of Object.keys(handlers)) {
+  try {
+    const fakeReq = Object.create(http.IncomingMessage.prototype);
+    fakeReq.method = "GET";
+    fakeReq.url = "/_warmup";
+    fakeReq.headers = {};
+    let responded = false;
+    const fakeRes = {
+      statusCode: 200,
+      setHeader: () => {},
+      end: (data) => { responded = true; },
+    };
+    handlers[name](fakeReq, fakeRes, envs[name] || {});
+  } catch (e) {
+    // Warmup errors are non-fatal
+  }
+}
+console.log("Warmup complete");
 
 http.createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
@@ -129,6 +161,15 @@ for name in sorted(os.listdir("/projects")):
         print(f"Failed to load {name}: {e}")
 
 print(f"Router ready: {len(handlers)} projects")
+
+# Warmup: fire a synthetic request to each handler so they can initialize
+for name, handler in handlers.items():
+    try:
+        asyncio.get_event_loop().run_until_complete(
+            handler("GET", "/_warmup", {}, b"", envs.get(name, {})))
+    except Exception:
+        pass
+print("Warmup complete")
 
 async def route(request):
     path = request.path.strip("/")
