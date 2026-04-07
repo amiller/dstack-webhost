@@ -9,7 +9,7 @@ from typing import Optional
 
 @dataclass
 class ListenConfig:
-    port: int = 8080
+    port: int = 0
     protocol: str = "http"
 
 
@@ -35,9 +35,10 @@ class Project:
             self.env = {}
         if self.mode not in ("dev", "attested"):
             self.mode = "dev"
-        # Initialize listen config with defaults if not provided
+        # Initialize listen config if not provided
+        # port=0 means "path-based only, no dedicated port"
         if self.listen is None:
-            self.listen = ListenConfig(port=self.port, protocol="http")
+            self.listen = ListenConfig(port=0, protocol="http")
 
 
 class ProjectStore:
