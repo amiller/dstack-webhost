@@ -20,8 +20,8 @@ VOLUME_NAME = os.environ.get("DAEMON_VOLUME_NAME", "")
 VOLUME_MOUNT = os.environ.get("DAEMON_VOLUME_MOUNT", "/var/lib/tee-daemon")
 
 ROUTER_DENO = r"""
-const handlers = new Map<string, (req: Request, ctx: {env: Record<string,string>}) => Response | Promise<Response>>();
-const envs = new Map<string, Record<string,string>>();
+const handlers = new Map();
+const envs = new Map();
 
 for await (const entry of Deno.readDir("/projects")) {
   if (!entry.isDirectory || entry.name.startsWith("_")) continue;
