@@ -56,7 +56,7 @@ for (const [name, handler] of handlers) {
 }
 console.log("Warmup complete");
 
-Deno.serve({ port: 3000 }, async (req: Request) => {
+  Deno.serve({ port: 3000 }, async (req) => {
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean);
   const name = parts.shift() || "";
@@ -192,14 +192,14 @@ web.run_app(app, port=8000, print=lambda *a: None)
 RUNTIME_CONFIG = {
     "deno": {
         "image": "denoland/deno:latest",
-        "cmd": ["deno", "run", "--allow-all", "/projects/_router.ts"],
+        "cmd": ["deno", "run", "--allow-all", "--no-check", "/projects/_router.ts"],
         "port": 3000,
         "router_file": "_router.ts",
         "router_code": ROUTER_DENO,
     },
     "bun": {
         "image": "denoland/deno:latest",
-        "cmd": ["deno", "run", "--allow-all", "/projects/_router.ts"],
+        "cmd": ["deno", "run", "--allow-all", "--no-check", "/projects/_router.ts"],
         "port": 3000,
         "router_file": "_router.ts",
         "router_code": ROUTER_DENO,
@@ -251,8 +251,13 @@ class RuntimeManager:
             network = NETWORK_ATTESTED if mode == "attested" else NETWORK_DEV
             cname = f"tee-runtime-{config_key}-{mode_suffix}"
             key = (config_key, mode)
+            # Split router filename for mode suffix insertion (before ext)
+            rfile = config["router_file"]
+            base_name, dot, ext = rfile.rpartition(".")
+            if not dot:
+                base_name, ext = rfile, ""
 
-            router_path = os.path.join(self.store.base_dir, f"{config['router_file']}.{mode_suffix}")
+            router_path = os.path.join(self.store.base_dir, f"{base_name}.{mode_suffix}.{ext}")
 
             # Stop existing
             existing = await self.docker.container_exists(cname)
@@ -306,11 +311,11 @@ class RuntimeManager:
                 f.write(router_code)
 
             cmd = [c.replace("/projects/", f"{projects_root}/") for c in config["cmd"]]
-            # Append mode suffix to router file (e.g. _router.ts -> _router.ts.dev)
+            # Insert mode suffix before file extension (e.g. _router.ts -> _router.dev.ts)
             cmd = [
                 c.replace(
-                    f".{config['router_file'].split('.')[-1]}",
-                    f".{config['router_file'].split('.')[-1]}.{mode_suffix}"
+                    f".{ext}",
+                    f".{mode_suffix}.{ext}"
                 ) if config["router_file"].split("/")[-1] in c else c
                 for c in cmd
             ]
