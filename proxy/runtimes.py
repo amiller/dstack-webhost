@@ -306,6 +306,14 @@ class RuntimeManager:
                 f.write(router_code)
 
             cmd = [c.replace("/projects/", f"{projects_root}/") for c in config["cmd"]]
+            # Append mode suffix to router file (e.g. _router.ts -> _router.ts.dev)
+            cmd = [
+                c.replace(
+                    f".{config['router_file'].split('.')[-1]}",
+                    f".{config['router_file'].split('.')[-1]}.{mode_suffix}"
+                ) if config["router_file"].split("/")[-1] in c else c
+                for c in cmd
+            ]
 
             cid = await self.docker.create_container(
                 cname, config["image"], cmd, binds, labels, network)
