@@ -63,6 +63,9 @@ class ProjectStore:
             # Convert listen dict to ListenConfig object if present
             if "listen" in data and data["listen"] is not None:
                 data["listen"] = ListenConfig(**data["listen"])
+            # Strip unknown fields (e.g. legacy "attested" boolean)
+            valid = {f.name for f in Project.__dataclass_fields__.values()}
+            data = {k: v for k, v in data.items() if k in valid}
             return Project(**data)
 
     def list(self) -> list[Project]:
