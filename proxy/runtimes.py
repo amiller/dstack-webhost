@@ -294,13 +294,13 @@ class RuntimeManager:
             # Filter projects by mode in the router
             if mode == "attested":
                 router_code = router_code.replace(
-                    'if (!entry.isDirectory || entry.name.startsWith("_")) continue;',
-                    'if (!entry.isDirectory || entry.name.startsWith("_")) continue; const manifest = JSON.parse(raw); if (manifest.mode !== "attested") continue;'
+                    'if (manifest.runtime !== "deno" && manifest.runtime !== "bun") continue;',
+                    'if (manifest.mode !== "attested") continue; if (manifest.runtime !== "deno" && manifest.runtime !== "bun") continue;'
                 )
             else:
                 router_code = router_code.replace(
-                    'if (!entry.isDirectory || entry.name.startsWith("_")) continue;',
-                    'if (!entry.isDirectory || entry.name.startsWith("_")) continue; const manifest = JSON.parse(raw); if (manifest.mode === "attested") continue;'
+                    'if (manifest.runtime !== "deno" && manifest.runtime !== "bun") continue;',
+                    'if (manifest.mode === "attested") continue; if (manifest.runtime !== "deno" && manifest.runtime !== "bun") continue;'
                 )
             with open(router_path, "w") as f:
                 f.write(router_code)
