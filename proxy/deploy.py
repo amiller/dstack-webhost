@@ -1,12 +1,14 @@
-"""Deploy and teardown logic — git-only deploys."""
+"""Deploy and teardown logic — git clone or tarball upload."""
 
 import asyncio
 import hashlib
+import io
 import json
 import logging
 import os
 import re
 import shutil
+import tarfile
 import time
 from datetime import datetime, timezone
 
@@ -62,6 +64,17 @@ async def git_clone(source: str, ref: str, dest: str) -> str:
         stdout=asyncio.subprocess.PIPE)
     stdout, _ = await proc2.communicate()
     return stdout.decode().strip()
+
+
+def extract_tarball(data: bytes, dest: str) -> None:
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    os.makedirs(dest, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tf:
+        for m in tf.getmembers():
+            if m.name.startswith("/") or ".." in m.name.split("/"):
+                raise ValueError(f"unsafe tar member: {m.name}")
+        tf.extractall(dest, filter="data")
 
 
 def compute_tree_hash(directory: str) -> str:
@@ -123,18 +136,22 @@ async def run_build_step(docker: DockerClient, runtime: str, entry: str, files_d
 
 async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
                  tracker: ContainerTracker, rtm: RuntimeManager,
-                 manifest: dict) -> Project:
+                 manifest: dict, files_data: bytes | None = None) -> Project:
     source = manifest.get("source", "")
     ref = manifest.get("ref", "")
     name = manifest.get("name", "")
 
-    if not source:
-        raise ValueError("Missing source")
     if not name or not NAME_RE.match(name):
         raise ValueError(f"Invalid project name: {name!r}")
 
     files_dir = store.files_dir(name)
-    commit_sha = await git_clone(source, ref, files_dir)
+    if files_data is not None:
+        extract_tarball(files_data, files_dir)
+        commit_sha = manifest.get("commit_sha", "")
+    else:
+        if not source:
+            raise ValueError("Missing source (provide git source or upload tarball via multipart)")
+        commit_sha = await git_clone(source, ref, files_dir)
 
     repo_manifest = detect_manifest(files_dir)
 

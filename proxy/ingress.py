@@ -491,9 +491,37 @@ class Ingress:
         return web.json_response(routes)
 
     async def _api_deploy(self, request: web.Request) -> web.Response:
-        manifest = await request.json()
-        project = await deploy(
-            self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+        """Deploy a project. Accepts either:
+          - application/json: {name, source, ref, ...}  (git clone)
+          - multipart/form-data: 'manifest' field (JSON) + 'files' field (tarball)
+        """
+        ct = request.headers.get("Content-Type", "")
+        if ct.startswith("multipart/"):
+            reader = await request.multipart()
+            manifest = None
+            files_data = None
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name == "manifest":
+                    try:
+                        manifest = json.loads(await part.text())
+                    except json.JSONDecodeError as e:
+                        return web.json_response({"error": f"manifest is not valid JSON: {e}"}, status=400)
+                elif part.name == "files":
+                    files_data = await part.read(decode=False)
+            if manifest is None:
+                return web.json_response({"error": "missing 'manifest' field"}, status=400)
+            if files_data is None:
+                return web.json_response({"error": "missing 'files' field"}, status=400)
+            project = await deploy(
+                self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
+                manifest, files_data=files_data)
+        else:
+            manifest = await request.json()
+            project = await deploy(
+                self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
         return web.json_response(asdict(project), status=201)
 
     async def _api_status(self, name: str) -> web.Response:

@@ -1,10 +1,12 @@
 """End-to-end test: daemon → git deploy → browse with Playwright → teardown."""
 
+import io
 import json
 import os
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
@@ -68,6 +70,8 @@ def start_daemon():
         **os.environ,
         "INGRESS_PORT": str(DAEMON_PORT),
         "DAEMON_DATA_DIR": os.path.join(tmpdir, "projects"),
+        "DAEMON_AUDIT_DIR": os.path.join(tmpdir, "audit"),
+        "DAEMON_TUNNEL_DIR": os.path.join(tmpdir, "tunnels"),
         "PROXY_SOCKET_DIR": os.path.join(tmpdir, "proxy"),
         "DOCKER_SOCKET": "/var/run/docker.sock",
         "DSTACK_SOCKET": "/nonexistent",
@@ -209,6 +213,88 @@ async def handle(method, path, headers, body, env):
     print(f"  Verified: {resp.json()}")
 
 
+def make_tarball(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for path, content in files.items():
+            info = tarfile.TarInfo(path)
+            info.size = len(content)
+            tf.addfile(info, io.BytesIO(content))
+    return buf.getvalue()
+
+
+def test_deploy_multipart_static():
+    print("\n--- Test: deploy static via multipart tarball ---")
+    tarball = make_tarball({
+        "index.html": b"<html><body><h1>Tarball deploy</h1></body></html>",
+    })
+    manifest = {
+        "name": "test-tarball",
+        "runtime": "static",
+        "source": "tarball://local",
+        "ref": "manual",
+        "commit_sha": "deadbeefcafe",
+    }
+    resp = requests.post(
+        f"{API}/projects",
+        headers=AUTH,
+        files={
+            "manifest": (None, json.dumps(manifest), "application/json"),
+            "files": ("app.tar.gz", tarball, "application/gzip"),
+        },
+    )
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    project = resp.json()
+    assert project["commit_sha"] == "deadbeefcafe", f"commit_sha not preserved: {project}"
+    assert project["tree_hash"], "tree_hash should be computed"
+    assert project["source"] == "tarball://local"
+    print(f"  Deployed: commit={project['commit_sha'][:12]} tree={project['tree_hash'][:12]}")
+
+    # Verify content is actually served
+    resp = requests.get(f"{INGRESS}/test-tarball/")
+    assert resp.status_code == 200
+    assert "Tarball deploy" in resp.text
+    print("  Content served ✓")
+
+
+def test_deploy_multipart_missing_files():
+    print("\n--- Test: multipart deploy with missing 'files' field ---")
+    resp = requests.post(
+        f"{API}/projects",
+        headers=AUTH,
+        files={"manifest": (None, json.dumps({"name": "x", "runtime": "static"}), "application/json")},
+    )
+    assert resp.status_code == 400
+    assert "files" in resp.json().get("error", "")
+    print(f"  Got expected 400: {resp.json()}")
+
+
+def test_deploy_multipart_missing_manifest():
+    print("\n--- Test: multipart deploy with missing 'manifest' field ---")
+    resp = requests.post(
+        f"{API}/projects",
+        headers=AUTH,
+        files={"files": ("app.tar.gz", make_tarball({"index.html": b"x"}), "application/gzip")},
+    )
+    assert resp.status_code == 400
+    assert "manifest" in resp.json().get("error", "")
+    print(f"  Got expected 400: {resp.json()}")
+
+
+def test_deploy_multipart_bad_json():
+    print("\n--- Test: multipart deploy with malformed manifest JSON ---")
+    resp = requests.post(
+        f"{API}/projects",
+        headers=AUTH,
+        files={
+            "manifest": (None, "not json{{", "application/json"),
+            "files": ("app.tar.gz", make_tarball({"index.html": b"x"}), "application/gzip"),
+        },
+    )
+    assert resp.status_code == 400
+    print(f"  Got expected 400: {resp.json()}")
+
+
 def test_redeploy():
     print("\n--- Test: redeploy after git push ---")
     old = api_get("/projects/test-static").json()
@@ -255,7 +341,7 @@ def test_list_projects():
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-deno", "test-auto"]:
+    for name in ["test-static", "test-deno", "test-auto", "test-tarball"]:
         resp = api_delete(f"/projects/{name}")
         assert resp.status_code == 200
         print(f"  Torn down: {name}")
@@ -276,6 +362,10 @@ def main():
         test_deploy_deno()
         test_ingress_deno()
         test_autodetect()
+        test_deploy_multipart_static()
+        test_deploy_multipart_missing_files()
+        test_deploy_multipart_missing_manifest()
+        test_deploy_multipart_bad_json()
         test_redeploy()
         test_audit_log()
         test_list_projects()
