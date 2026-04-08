@@ -49,14 +49,15 @@ async def start():
     await docker_proxy.recover_tracked()
     log.info("Recovered %d tracked containers", len(tracker.all_ids()))
 
-    # Connect ourselves to tee-apps network so we can proxy to runtime containers
+    # Connect ourselves to runtime networks so we can proxy to runtime containers
     hostname = os.environ.get("HOSTNAME", "")
     if hostname:
-        try:
-            await docker.connect_network(hostname, "tee-apps")
-            log.info("Connected self (%s) to tee-apps network", hostname)
-        except Exception as e:
-            log.warning("Could not connect to tee-apps: %s", e)
+        for net in ("tee-apps-dev", "tee-apps-attested"):
+            try:
+                await docker.connect_network(hostname, net)
+                log.info("Connected self (%s) to %s network", hostname, net)
+            except Exception as e:
+                log.warning("Could not connect to %s: %s", net, e)
 
     docker_app = web.Application()
     docker_app.router.add_route("*", "/{path:.*}", docker_proxy.handle)
