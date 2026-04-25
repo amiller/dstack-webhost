@@ -18,10 +18,26 @@ NETWORK_ATTESTED = "tee-apps-attested"
 # The runtime container will mount the volume directly.
 VOLUME_NAME = os.environ.get("DAEMON_VOLUME_NAME", "")
 VOLUME_MOUNT = os.environ.get("DAEMON_VOLUME_MOUNT", "/var/lib/tee-daemon")
+# Optional writable per-project data volume. If set, the shared runtime gets
+# it mounted at /daemon-data:rw and passes ctx.dataDir = /daemon-data/<name>
+# to each handler. Projects use it for persistent state (DBs, subs, etc.).
+DATA_VOLUME_NAME = os.environ.get("DAEMON_DATA_VOLUME_NAME", "")
+DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 
 ROUTER_DENO = r"""
 const handlers = new Map();
 const envs = new Map();
+const dataDirs = new Map();
+const DATA_ROOT = "__DATA_ROOT__";
+
+async function ensureDataDir(name) {
+  if (!DATA_ROOT) return "";
+  const dir = `${DATA_ROOT}/${name}`;
+  try { await Deno.mkdir(dir, { recursive: true }); } catch (e) {
+    if (!(e instanceof Deno.errors.AlreadyExists)) console.error(`mkdir ${dir}:`, e.message);
+  }
+  return dir;
+}
 
 for await (const entry of Deno.readDir("/projects")) {
   if (!entry.isDirectory || entry.name.startsWith("_")) continue;
@@ -35,6 +51,7 @@ for await (const entry of Deno.readDir("/projects")) {
     if (typeof handler === "function") {
       handlers.set(entry.name, handler);
       envs.set(entry.name, manifest.env || {});
+      dataDirs.set(entry.name, await ensureDataDir(entry.name));
       console.log(`Loaded: ${entry.name}`);
     }
   } catch (e) {
@@ -49,7 +66,7 @@ console.log(`Router ready: ${handlers.size} projects`);
 for (const [name, handler] of handlers) {
   try {
     const warmupReq = new Request("http://localhost/_warmup");
-    await handler(warmupReq, {env: envs.get(name) || {}});
+    await handler(warmupReq, {env: envs.get(name) || {}, dataDir: dataDirs.get(name) || ""});
   } catch (e) {
     // Warmup errors are non-fatal (handler may not support GET /_warmup)
   }
@@ -68,7 +85,7 @@ console.log("Warmup complete");
   const subpath = "/" + parts.join("/") + (url.search || "");
   const newReq = new Request(new URL(subpath, url.origin).toString(),
     {method: req.method, headers: req.headers, body: req.body});
-  return handler(newReq, {env: envs.get(name) || {}});
+  return handler(newReq, {env: envs.get(name) || {}, dataDir: dataDirs.get(name) || ""});
 });
 """
 
@@ -294,8 +311,15 @@ class RuntimeManager:
                 binds = [f"{os.path.abspath(self.store.base_dir)}:/projects:ro"]
                 projects_root = "/projects"
 
+            # Optional writable per-project data volume (same shape for both modes).
+            data_root = ""
+            if DATA_VOLUME_NAME:
+                binds.append(f"{DATA_VOLUME_NAME}:{DATA_VOLUME_MOUNT_IN_RUNTIME}:rw")
+                data_root = DATA_VOLUME_MOUNT_IN_RUNTIME
+
             # Write router with correct projects root, filtering by mode
             router_code = config["router_code"].replace("/projects/", f"{projects_root}/").replace('"/projects"', f'"{projects_root}"')
+            router_code = router_code.replace("__DATA_ROOT__", data_root)
             # Filter projects by mode in the router
             if mode == "attested":
                 router_code = router_code.replace(
