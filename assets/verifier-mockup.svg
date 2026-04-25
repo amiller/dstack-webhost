@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" role="img" aria-label="Mockup of the verifier output a relying party sees: source repo and tree hash, signed TEE quote, audit log, and a verdict.">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect x="20" y="20" width="680" height="420" rx="12" fill="#fff" stroke="#d0d7de" stroke-width="1.5" filter="url(#shadow)"/>
+
+  <rect x="20" y="20" width="680" height="58" rx="12" fill="#f6f8fa"/>
+  <rect x="20" y="60" width="680" height="18" fill="#f6f8fa"/>
+  <circle cx="42" cy="49" r="6" fill="#ff6058"/>
+  <circle cx="62" cy="49" r="6" fill="#ffbd2d"/>
+  <circle cx="82" cy="49" r="6" fill="#28c840"/>
+  <text x="360" y="55" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#57606a">verify.html — timelock</text>
+
+  <text x="48" y="115" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#111">Verifying: timelock</text>
+  <text x="48" y="135" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#57606a">hermes-staging.dstack-pha-prod7.phala.network/timelock/</text>
+
+  <line x1="48" y1="155" x2="672" y2="155" stroke="#d0d7de" stroke-width="1"/>
+
+  <text x="48" y="185" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" font-weight="600" fill="#111">Source</text>
+  <text x="48" y="208" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#1a7f37">✓</text>
+  <text x="68" y="208" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#333">github.com/amiller/timelock</text>
+  <text x="68" y="226" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#57606a">commit b122277c · tree 7ef50a22 · matches deployed</text>
+
+  <text x="48" y="260" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" font-weight="600" fill="#111">TEE attestation</text>
+  <text x="48" y="283" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#1a7f37">✓</text>
+  <text x="68" y="283" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#333">Quote signed by Phala dstack</text>
+  <text x="68" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#57606a">app_id 915c8197... · TCB measurements valid</text>
+
+  <text x="48" y="335" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" font-weight="600" fill="#111">Audit log</text>
+  <text x="48" y="358" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#1a7f37">✓</text>
+  <text x="68" y="358" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#333">1 entry: promoted 2026-04-25 · binds source to quote</text>
+
+  <rect x="48" y="385" width="624" height="42" rx="6" fill="#f0f7f4" stroke="#1a7f37" stroke-width="1"/>
+  <text x="60" y="404" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#1a7f37" font-weight="600">→ You can read the source. You can trust the sandbox.</text>
+  <text x="60" y="420" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#1a7f37">  Decide for yourself whether to trust what the code does.</text>
+</svg>

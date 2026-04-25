@@ -18,6 +18,7 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0012](0012-tunnel-latency.md) | Tunnel Latency Optimization | Draft |
 | [0013](0013-tunnel-header-auth.md) | Tunnel Header-Based Auth | Draft |
 | [0014](0014-volume-mount-env-var.md) | Volume Mount Path Configuration | Draft |
+| [0015](0015-public-verification-endpoints.md) | Public Read-Only Verification Endpoints | Draft |
 
 ## Conventions
 

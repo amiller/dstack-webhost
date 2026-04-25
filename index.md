@@ -43,6 +43,18 @@ Apps can be ephemeral (deploy, prove, throw away, no leftover state) or long-run
 
 Multi-tenant CVMs are possible but not the default. The default is one user, one CVM, many apps.
 
+## Try it as a relying party
+
+The most concrete way to feel what this platform is for: pretend someone shared an app with you and you want to know what code is actually running.
+
+<p style="text-align:center;margin:1.5em 0">
+  <img src="assets/verifier-mockup.svg" alt="Mockup of the verifier output: source, TEE quote, audit log, verdict." style="max-width:100%;height:auto"/>
+</p>
+
+The example app is **timelock** — a TEE-backed time-lock encryption service where the enclave holds decryption keys until a release time. The relying party reads four things: the source on GitHub, the daemon's manifest with its tree hash, the signed TEE quote, and the audit log. Then they decide whether to trust what the code actually does.
+
+[Walkthrough: verifying timelock end to end →](verify.md)
+
 ## Status
 
 Pre-v1. The dev-mode hosting flow works today across Deno, Node, Bun, Python, static, and custom Dockerfiles. The attested-promotion and end-to-end verification chain are designed but not yet exercised end-to-end. Closing that gap is the main thing in flight.
