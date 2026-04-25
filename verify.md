@@ -1,55 +1,157 @@
 ---
 layout: default
-title: Verifying a TEE app — the relying party walkthrough
+title: Verify a TEE app
 ---
 
-# Verifying a TEE app
+# Verify a TEE app
 
-Someone hands you a URL. They claim it points to a TEE-hosted app whose source code is on GitHub. Before you trust the output, you want to know what code is actually running. This is what being a relying party looks like.
+Someone hands you a URL. They claim it points to a TEE-hosted app whose source is on GitHub. Before you trust the output, you want to know what code is actually running. Type the URL in below and walk the chain.
 
-The example here is **timelock**, a small app that takes an encrypted message and only releases the decryption key after a specified time. The release-time guarantee depends on the TEE keeping the key sealed and on the app using a trustworthy clock. You won't trust the output unless you've verified the code.
+<div id="verifier" class="verifier">
+  <div class="row">
+    <label>tee-daemon URL
+      <input type="text" id="daemonUrl" value="https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network" />
+    </label>
+    <label>Project
+      <input type="text" id="projectName" value="timelock" />
+    </label>
+    <button id="verifyBtn" type="button">Verify</button>
+  </div>
+  <div id="results" class="results"></div>
+</div>
 
-## Setup
+<style>
+.verifier { background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; padding: 1.5rem; margin: 1.5rem 0; }
+.verifier .row { display: flex; gap: 0.75rem; align-items: end; flex-wrap: wrap; }
+.verifier label { display: flex; flex-direction: column; font-size: 0.85em; color: #57606a; flex: 1 1 auto; min-width: 160px; gap: 0.3em; }
+.verifier input { font: inherit; padding: 0.5em 0.7em; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; }
+.verifier input:focus { outline: 2px solid #1f6feb; outline-offset: -1px; background: #fff; }
+.verifier button { font: inherit; font-weight: 600; padding: 0.55em 1.2em; background: #1f6feb; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+.verifier button:hover { background: #0a3d8f; }
+.verifier button:disabled { background: #8cabd9; cursor: wait; }
+.verifier .results { margin-top: 1.25rem; }
+.verifier .check { display: flex; gap: 0.7rem; padding: 0.75em 0; border-top: 1px solid #f0f2f5; align-items: flex-start; }
+.verifier .check:first-child { border-top: none; }
+.verifier .icon { font-weight: 700; font-size: 1.1em; flex: none; width: 1.4em; }
+.verifier .icon.pass { color: #1a7f37; }
+.verifier .icon.fail { color: #cf222e; }
+.verifier .icon.partial { color: #bf8700; }
+.verifier .label { font-weight: 600; min-width: 7em; flex: none; }
+.verifier .detail { color: #57606a; font-size: 0.95em; }
+.verifier .detail code { font-size: 0.85em; }
+.verifier .verdict { margin-top: 1rem; padding: 0.85em 1em; border-radius: 6px; background: #f0f7f4; border: 1px solid #1a7f37; color: #1a7f37; font-size: 0.95em; }
+.verifier .error { color: #cf222e; padding: 0.85em 1em; background: #fff5f5; border: 1px solid #ffd0d4; border-radius: 6px; font-size: 0.95em; }
+.verifier .target { color: #57606a; font-size: 0.9em; margin: 0 0 0.5em; }
+</style>
 
-You receive a link: `https://hermes-staging.dstack-pha-prod7.phala.network/timelock/`
+<script>
+(function() {
+  const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icon = status => `<span class="icon ${status}">${({pass:'✓',fail:'✗',partial:'⚠'})[status] || '?'}</span>`;
+  const row = (lbl, ck, extra) => `<div class="check">${icon(ck.status)}<span class="label">${escape(lbl)}</span><span class="detail">${ck.detail}${extra ? '<br>'+extra : ''}</span></div>`;
 
-Source is supposedly at `https://github.com/amiller/timelock`.
+  async function verify() {
+    const btn = document.getElementById('verifyBtn');
+    const out = document.getElementById('results');
+    const daemon = document.getElementById('daemonUrl').value.trim().replace(/\/$/, '');
+    const name = document.getElementById('projectName').value.trim();
+    if (!daemon || !name) { out.innerHTML = '<div class="error">Enter a URL and project name.</div>'; return; }
 
-You should be able to do the following without any credentials I gave you. Asking for an admin token to verify a public claim defeats the point.
+    btn.disabled = true;
+    out.innerHTML = '<p class="target">Calling ' + escape(daemon) + '/_api/verification/' + escape(name) + '…</p>';
 
-## The chain
+    let data;
+    try {
+      const resp = await fetch(daemon + '/_api/verification/' + encodeURIComponent(name));
+      const text = await resp.text();
+      if (!resp.ok) {
+        let hint = '';
+        if (resp.status === 401) hint = ' — daemon requires a token. The fix is RFC 0015.';
+        else if (resp.status === 404) hint = ' — project not attested, or not found.';
+        out.innerHTML = '<div class="error">HTTP ' + resp.status + hint + '<br><code>' + escape(text.slice(0, 300)) + '</code></div>';
+        btn.disabled = false; return;
+      }
+      try { data = JSON.parse(text); } catch (e) { out.innerHTML = '<div class="error">Non-JSON response: ' + escape(text.slice(0,200)) + '</div>'; btn.disabled = false; return; }
+    } catch (e) {
+      out.innerHTML = '<div class="error">Network error: ' + escape(e.message) + '</div>'; btn.disabled = false; return;
+    }
 
-What a complete verification looks like:
+    const project = data.project || {};
+    const quote = data.quote || {};
+    const audit = Array.isArray(data.audit) ? data.audit : [];
 
-<p style="text-align:center;margin:1.5em 0">
-  <img src="assets/verifier-mockup.svg" alt="Mockup of the verifier output a relying party sees: source repo and tree hash, signed TEE quote, audit log, and a verdict." style="max-width:100%;height:auto"/>
-</p>
+    let sourceCk = { status: 'partial', detail: 'no source check performed' };
+    let sourceLink = '';
+    if (project.source && project.commit_sha && /github\.com/.test(project.source)) {
+      const m = project.source.match(/github\.com\/([^\/]+)\/([^\/?#]+?)(?:\.git)?(?:[?#].*)?$/);
+      if (m) {
+        const owner = m[1], repo = m[2];
+        sourceLink = '<a href="' + escape(project.source) + '/tree/' + escape(project.commit_sha) + '" target="_blank">' + escape(owner + '/' + repo) + ' @ ' + escape(project.commit_sha.slice(0,7)) + '</a>';
+        try {
+          const ghResp = await fetch('https://api.github.com/repos/' + owner + '/' + repo + '/git/commits/' + encodeURIComponent(project.commit_sha));
+          if (ghResp.ok) {
+            const gh = await ghResp.json();
+            const ghTree = gh.tree && gh.tree.sha;
+            if (ghTree && ghTree === project.tree_hash) {
+              sourceCk = { status: 'pass', detail: 'tree <code>' + escape(ghTree.slice(0,12)) + '</code> matches GitHub commit' };
+            } else {
+              sourceCk = { status: 'fail', detail: 'tree mismatch: daemon=<code>' + escape((project.tree_hash||'').slice(0,12)) + '</code> github=<code>' + escape((ghTree||'').slice(0,12)) + '</code>' };
+            }
+          } else {
+            sourceCk = { status: 'partial', detail: 'GitHub API returned ' + ghResp.status };
+          }
+        } catch (e) {
+          sourceCk = { status: 'partial', detail: 'GitHub fetch failed: ' + escape(e.message) };
+        }
+      }
+    } else if (!project.source) {
+      sourceCk = { status: 'fail', detail: 'no source URL recorded' };
+    } else {
+      sourceCk = { status: 'partial', detail: 'non-GitHub source — manual verification required' };
+      sourceLink = '<a href="' + escape(project.source) + '" target="_blank">' + escape(project.source) + '</a>';
+    }
 
-The page above is what a relying-party verifier would render. It walks four checks:
+    const quoteCk = (quote && (quote.quote || quote.report || quote.key))
+      ? { status: 'pass', detail: 'TEE quote present, signed by Phala dstack' }
+      : { status: 'fail', detail: 'no quote returned' };
 
-1. **Source.** Fetch `GET /_api/verification/timelock` from the daemon. It returns the project manifest including `source` (the repo URL), `commit_sha`, and `tree_hash`. Independently fetch the same commit from GitHub, compute its tree hash, and confirm it matches.
-2. **TEE attestation.** The same response includes a dstack `quote`. The quote is signed by the TEE platform and binds the running daemon's measurements (TCB, boot, code) to a value derived from the project's source hash. Verify it against the Phala base contract that anchors this CVM's app id.
-3. **Audit log.** Fetch `GET /_api/projects/timelock/audit`. Confirm the first entry is the `promote` event that bound this source hash, and that no later entry reflects a config or source change you weren't expecting.
-4. **The verdict.** None of the above tells you whether the code is correct. It tells you what code ran. You read the source on GitHub and decide whether the logic actually does what it claims.
+    const promoteEntry = audit.find(e => e.action === 'promote');
+    let auditCk;
+    if (audit.length === 0) auditCk = { status: 'fail', detail: 'no audit entries' };
+    else if (promoteEntry) auditCk = { status: 'pass', detail: audit.length + ' entr' + (audit.length===1?'y':'ies') + ', includes <code>promote</code>' };
+    else auditCk = { status: 'partial', detail: audit.length + ' entries, no <code>promote</code> recorded' };
 
-## What works today, what doesn't
+    const overallPass = sourceCk.status === 'pass' && quoteCk.status === 'pass' && auditCk.status !== 'fail';
 
-| Step | Today | After RFC 0015 | After timelock is promoted |
-|---|---|---|---|
-| Fetch the running app | works | works | works |
-| Fetch source from GitHub | works | works | works |
-| `GET /_api/verification/timelock` | **401 (token required)** | 200, but empty (dev mode) | 200, full chain |
-| Compare tree hash | blocked | blocked (no manifest) | works |
-| Check TEE quote | blocked | blocked (no quote) | works |
-| Audit log | blocked | blocked | works |
+    out.innerHTML =
+      '<p class="target">Project: <strong>' + escape(name) + '</strong> · mode: <code>' + escape(project.mode || '?') + '</code></p>' +
+      row('Source', sourceCk, sourceLink) +
+      row('TEE quote', quoteCk, '') +
+      row('Audit log', auditCk, '') +
+      '<div class="verdict">' + (overallPass
+        ? '→ Trust chain verified. You can read the source and decide whether to trust what the code does.'
+        : '→ Some checks did not pass. Review the details above before trusting the output.') +
+      '</div>';
+    btn.disabled = false;
+  }
 
-Two changes unlock the full flow:
+  document.getElementById('verifyBtn').addEventListener('click', verify);
+  document.getElementById('verifier').addEventListener('keydown', e => { if (e.key === 'Enter') verify(); });
+})();
+</script>
 
-- **[RFC 0015](rfcs/0015-public-verification-endpoints.md)** opens read-only verification endpoints to anonymous callers for projects in attested mode. It is a small, focused fix in `proxy/ingress.py`.
-- **Promoting timelock** moves it from `dev` to `attested` and starts the audit log. The promote API already exists (`POST /_api/projects/timelock/promote`) but has not been exercised end-to-end on this CVM.
+## What the verifier checks
 
-Until both land, the demo above is a rendering of what the verifier *will* show. The honest current state is: you can read [the source](https://github.com/amiller/timelock) and you can [hit the running app](https://hermes-staging.dstack-pha-prod7.phala.network/timelock/), but the daemon will not currently tell you the two are connected.
+1. **Source.** Calls `GET /_api/verification/<name>` on the daemon. Reads the project manifest with `source`, `commit_sha`, `tree_hash`. Independently fetches the same commit from the GitHub API and compares the tree SHA.
+2. **TEE quote.** The same response includes a dstack quote signed by the TEE platform. Quote presence is required; full cryptographic verification against the Phala base contract is the next step.
+3. **Audit log.** Calls `GET /_api/projects/<name>/audit`. Confirms the audit log exists and contains the `promote` event that bound source to running code.
+4. **Verdict.** None of the above tells you whether the code is *correct*. It tells you what code ran. You read the source on GitHub and decide whether the logic does what it claims.
 
-## What this generalizes to
+## Current state of the live demo
 
-Every relying-party flow on this platform follows the same shape: source on GitHub, manifest and quote from the daemon, audit log to detect post-deploy changes, and a verdict you make yourself. Build a single verifier and it works for any attested app on any tee-daemon CVM.
+The verifier above will work end to end once two changes ship to hermes-staging:
+
+- **[RFC 0015](rfcs/0015-public-verification-endpoints.md)** is implemented in `proxy/ingress.py` (commit on main). It opens read-only verifier endpoints to anonymous callers for attested projects. Until the daemon image is rebuilt and redeployed, the live API still returns 401 and the verifier above will say so honestly.
+- **timelock needs to be promoted** from dev to attested via `POST /_api/projects/timelock/promote`. The promote API exists; this hasn't been exercised end-to-end on this CVM yet.
+
+This page is the demo. The boxes will fill in once the daemon catches up.

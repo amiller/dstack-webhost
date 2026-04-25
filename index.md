@@ -52,7 +52,7 @@ The most concrete way to feel what this platform is for: pretend someone shared 
 
 The example app is **timelock** — a TEE-backed time-lock encryption service where the enclave holds decryption keys until a release time. The relying party reads four things: the source on GitHub, the daemon's manifest with its tree hash, the signed TEE quote, and the audit log. Then they decide whether to trust what the code actually does.
 
-[Walkthrough: verifying timelock end to end →](verify.md)
+[Try the live verifier on timelock →](verify.md)
 
 ## Status
 
