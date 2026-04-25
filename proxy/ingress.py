@@ -399,11 +399,42 @@ class Ingress:
             return web.json_response({"error": "invalid token"}, status=403)
         return None
 
+    def _public_attested_path(self, path: str) -> str | None:
+        """RFC 0015: return project name if `path` is a public verifier endpoint."""
+        parts = path.split("/")
+        if len(parts) == 2 and parts[0] in ("attest", "verification") and parts[1]:
+            return parts[1]
+        if len(parts) == 2 and parts[0] == "projects" and parts[1]:
+            return parts[1]
+        if len(parts) == 3 and parts[0] == "projects" and parts[1] and parts[2] == "audit":
+            return parts[1]
+        return None
+
     async def _handle_api(self, request: web.Request, path: str) -> web.Response:
+        method = request.method
+
+        # RFC 0015: read-only verifier endpoints are public for attested projects.
+        # A relying party should not need the admin token to verify what is running.
+        if method == "GET":
+            public_name = self._public_attested_path(path)
+            if public_name is not None:
+                try:
+                    project = self.store.load(public_name)
+                except FileNotFoundError:
+                    return web.json_response({"error": "not found"}, status=404)
+                if project.mode != "attested":
+                    return web.json_response({"error": "not found"}, status=404)
+                if path.startswith("attest/"):
+                    return await self._api_attest(public_name)
+                if path.startswith("verification/"):
+                    return await self._api_verification(public_name)
+                if path.endswith("/audit"):
+                    return await self._api_audit(public_name)
+                return await self._api_status(public_name)
+
         denied = self._check_auth(request)
         if denied:
             return denied
-        method = request.method
 
         # Tunnel API endpoints
         if path == "tunnels" and method == "POST":
