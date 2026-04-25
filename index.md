@@ -1,6 +1,5 @@
 ---
 layout: default
-title: tee-daemon
 ---
 
 <div style="display:flex;align-items:center;gap:18px;margin:0.5em 0 1.5em">
