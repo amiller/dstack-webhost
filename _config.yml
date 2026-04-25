@@ -1,5 +1,5 @@
-title: tee-daemon
-description: A personal Vercel for attestable web apps
+title: dstack-webhost
+description: devproof mini apps
 theme: jekyll-theme-cayman
 plugins:
   - jekyll-relative-links
