@@ -1,0 +1,22 @@
+title: tee-daemon
+description: Verifiable TEE web hosting for Phala dstack CVMs
+theme: jekyll-theme-cayman
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: true
+exclude:
+  - apps/
+  - proxy/
+  - workflows/
+  - node_modules/
+  - test_daemon.py
+  - smithers.db
+  - bun.lock
+  - tsconfig.json
+  - Dockerfile
+  - docker-compose.yaml
+  - kanban.json
+  - reports/
+  - .claude/
