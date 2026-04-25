@@ -1,5 +1,5 @@
 title: tee-daemon
-description: Verifiable TEE web hosting for Phala dstack CVMs
+description: A personal Vercel for attestable web apps
 theme: jekyll-theme-cayman
 plugins:
   - jekyll-relative-links
