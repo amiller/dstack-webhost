@@ -3,9 +3,14 @@ layout: default
 title: tee-daemon
 ---
 
-# tee-daemon
+<div style="display:flex;align-items:center;gap:18px;margin:0.5em 0 1.5em">
+  <img src="assets/logo.svg" alt="" width="56" height="56" style="flex:none"/>
+  <span>A personal Vercel for attestable web apps. One Phala dstack CVM hosts many little apps you wrote yourself, and each one ships with evidence of what code actually ran.</span>
+</div>
 
-A personal Vercel for attestable web apps. One Phala dstack CVM hosts many little apps you wrote yourself, and each one ships with evidence of what code actually ran.
+<p style="text-align:center;margin:1.5em 0">
+  <img src="assets/diagram.svg" alt="A CVM hosts many apps; one app's attestation package goes to a counterparty who reads the source code and verifies the TEE quote." style="max-width:100%;height:auto"/>
+</p>
 
 ## The idea
 
