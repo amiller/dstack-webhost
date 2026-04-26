@@ -184,6 +184,7 @@ The mechanical part — proving the code running on this CVM is the same code in
   ).join('') + '<div class="actions">'
     + '<button class="primary" id="copyBtn">Copy this report URL</button>'
     + '<a class="secondary" href="' + escape(daemon) + '/' + escape(project) + '/" target="_blank">Open the running app</a>'
+    + '<a class="secondary" href="audit.html?project=' + encodeURIComponent(project) + '">For an auditor: the runbook</a>'
     + '<span class="copied" id="copied" style="display:none">Copied.</span>'
     + '</div>';
 
