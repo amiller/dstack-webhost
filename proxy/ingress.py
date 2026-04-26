@@ -64,9 +64,21 @@ class Ingress:
         name = parts[0] if parts[0] else ""
 
         if not name:
-            projects = {p.name: {"runtime": p.runtime, "mode": p.mode}
-                        for p in self.store.list()}
-            return web.json_response({"projects": projects})
+            # Public listing: only attested projects (dev projects do not leak).
+            # An authenticated caller may use /_api/projects to see everything.
+            auth = request.headers.get("Authorization", "")
+            authed = (API_TOKEN and auth.startswith("Bearer ")
+                      and hmac.compare_digest(auth[7:], API_TOKEN))
+            visible = [p for p in self.store.list()
+                       if authed or p.mode == "attested"]
+            projects = {p.name: {
+                "runtime": p.runtime, "mode": p.mode,
+                "source": p.source, "commit_sha": p.commit_sha,
+                "tree_hash": p.tree_hash,
+            } for p in visible}
+            resp = web.json_response({"projects": projects})
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
 
         try:
             project = self.store.load(name)
