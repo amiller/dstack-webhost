@@ -45,7 +45,10 @@ Equal → running code = published source. Not equal → halt, report the mismat
 
 **Audit log.** Read it in order. The latest `promote` or `deploy` is the current attested state; its tree hash is the one you just verified. Earlier entries with different hashes can come from redeploys or platform hash-scheme changes — call them out in the verdict, don't fail on them.
 
-**Quote.** The bundle includes a dstack quote. Walking it back to the on-chain CVM identity needs first-party dstack tooling that this skill does not wrap. State in the verdict: *quote present, not independently verified by this skill.*
+**Quote and platform mode.** The bundle includes a dstack quote. There are two things the quote can tell a relying party, and they need different tooling:
+
+- *"Real TEE, running tee-daemon at digest X."* The quote carries measurements that bind the CVM's TCB and the tee-daemon container image. Verifying these requires dstack's own quote-parse tooling, which this skill does not wrap. State in the verdict: *quote present, measurements not independently parsed by this skill.*
+- *"This is the operator's known CVM."* This requires on-chain registration of the CVM's app ID against the operator's identity (e.g., on Base). Today's tee-daemon CVMs are typically launched via Phala's cloud without that anchoring; the operator's identity rides on the URL channel (whoever sent you the link). Treat the platform itself as in "dev mode" until on-chain anchoring is wired. **State this in the verdict explicitly** — it is the most consequential limit of what this skill can promise.
 
 ## 2. Audit the source
 
@@ -71,12 +74,13 @@ Dispatch a subagent. Prompt template:
 
 Two parts.
 
-**Substrate.** "Running code at `<project>` matches `<source>` commit `<short_sha>`. Audit log: N entries, latest `<action>` on `<date>`." Mention oddities (legacy hashes, quote not walked) without inflating them.
+**Substrate.** "Running code at `<project>` matches `<source>` commit `<short_sha>`. Audit log: N entries, latest `<action>` on `<date>`." Mention oddities (legacy hashes, quote not walked) without inflating them. **Always state the platform mode**: whether the CVM is on-chain-anchored or operator-identity rides on the URL channel.
 
 **Source.** The subagent's bottom line plus the most important caveats. The relying party should leave knowing what they can and cannot rely on.
 
 ## What this skill does not do
 
-- Walk the dstack quote back to the on-chain CVM ID. Use dstack's verifier tools.
+- Parse the dstack quote's measurements against the tee-daemon image digest. That needs dstack's verifier tools.
+- Anchor operator identity. See "Quote and platform mode" above; until tee-daemon CVMs are on-chain-registered, the skill flags this and stops short.
 - Set up a local replica. See [audit.md](audit.html).
 - Decide whether the trust claim is well-posed. That is a design review, not an audit.

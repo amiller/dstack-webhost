@@ -140,6 +140,8 @@ The verifier page and audit guide together replace what RFC 0001 originally call
 
 What's still off:
 
+- **On-chain CVM anchoring.** The top link of the trust chain — Base smart contract → CVM app ID → dstack quote — isn't wired. CVMs are launched via Phala's cloud; the dstack quote is real, but operator identity (whose CVM this is) currently rides on the URL channel, not on-chain registration. The platform is effectively in "dev mode" at this layer. The [verifier skill](../verify-skill.md) is required to call this out in any verdict.
+- **Quote-parse tooling in the skill.** Even with no on-chain anchor, dstack quotes carry measurements that a relying party can parse and check against the tee-daemon image digest. The verifier skill does not wrap this yet.
 - Custom domains. Apps live at `<cvm>/<project-name>/`.
 - CI/CD-triggered redeploys. Available via API; no first-party hook.
 - Multi-CVM federation. Out of scope.
