@@ -39,7 +39,10 @@ Someone hands you a URL. They claim it points to a TEE-hosted app whose source i
 .verifier .label { font-weight: 600; min-width: 7em; flex: none; }
 .verifier .detail { color: #57606a; font-size: 0.95em; }
 .verifier .detail code { font-size: 0.85em; }
-.verifier .verdict { margin-top: 1rem; padding: 0.85em 1em; border-radius: 6px; background: #f0f7f4; border: 1px solid #1a7f37; color: #1a7f37; font-size: 0.95em; }
+.verifier .verdict { margin-top: 1rem; padding: 0.85em 1em; border-radius: 6px; font-size: 0.95em; border: 1px solid; }
+.verifier .verdict.pass { background: #f0f7f4; border-color: #1a7f37; color: #1a7f37; }
+.verifier .verdict.fail { background: #fff5f5; border-color: #cf222e; color: #cf222e; }
+.verifier .verdict.partial { background: #fff8e1; border-color: #bf8700; color: #8a6300; }
 .verifier .error { color: #cf222e; padding: 0.85em 1em; background: #fff5f5; border: 1px solid #ffd0d4; border-radius: 6px; font-size: 0.95em; }
 .verifier .target { color: #57606a; font-size: 0.9em; margin: 0 0 0.5em; }
 </style>
@@ -121,17 +124,21 @@ Someone hands you a URL. They claim it points to a TEE-hosted app whose source i
     else if (promoteEntry) auditCk = { status: 'pass', detail: audit.length + ' entr' + (audit.length===1?'y':'ies') + ', includes <code>promote</code>' };
     else auditCk = { status: 'partial', detail: audit.length + ' entries, no <code>promote</code> recorded' };
 
-    const overallPass = sourceCk.status === 'pass' && quoteCk.status === 'pass' && auditCk.status !== 'fail';
+    const checks = [sourceCk, quoteCk, auditCk];
+    const verdict = checks.some(c => c.status === 'fail') ? 'fail'
+                  : checks.every(c => c.status === 'pass') ? 'pass' : 'partial';
+    const verdictText = verdict === 'pass'
+      ? '→ Trust chain verified. You can read the source and decide whether to trust what the code does.'
+      : verdict === 'fail'
+      ? '→ One or more checks failed. Do not trust the output until you understand why.'
+      : '→ Some checks are inconclusive. Review the details above before deciding.';
 
     out.innerHTML =
       '<p class="target">Project: <strong>' + escape(name) + '</strong> · mode: <code>' + escape(project.mode || '?') + '</code></p>' +
       row('Source', sourceCk, sourceLink) +
       row('TEE quote', quoteCk, '') +
       row('Audit log', auditCk, '') +
-      '<div class="verdict">' + (overallPass
-        ? '→ Trust chain verified. You can read the source and decide whether to trust what the code does.'
-        : '→ Some checks did not pass. Review the details above before trusting the output.') +
-      '</div>';
+      '<div class="verdict ' + verdict + '">' + verdictText + '</div>';
     btn.disabled = false;
   }
 

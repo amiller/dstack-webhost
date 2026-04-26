@@ -46,7 +46,13 @@ BUILD_STEPS = {
 }
 
 
-async def git_clone(source: str, ref: str, dest: str) -> str:
+async def git_clone(source: str, ref: str, dest: str) -> tuple[str, str]:
+    """Clone source@ref to dest. Returns (commit_sha, git_tree_sha).
+
+    The git_tree_sha is the SHA-1 of the commit's tree object — the same
+    value GitHub exposes via /repos/<owner>/<repo>/git/commits/<sha>. A
+    relying party can verify it without cloning, by querying the GitHub API.
+    """
     if os.path.exists(dest):
         shutil.rmtree(dest)
     url = source if source.startswith(("https://", "http://", "/")) else f"https://{source}"
@@ -63,7 +69,13 @@ async def git_clone(source: str, ref: str, dest: str) -> str:
         "git", "-C", dest, "rev-parse", "HEAD",
         stdout=asyncio.subprocess.PIPE)
     stdout, _ = await proc2.communicate()
-    return stdout.decode().strip()
+    commit_sha = stdout.decode().strip()
+    proc3 = await asyncio.create_subprocess_exec(
+        "git", "-C", dest, "rev-parse", "HEAD^{tree}",
+        stdout=asyncio.subprocess.PIPE)
+    stdout, _ = await proc3.communicate()
+    git_tree_sha = stdout.decode().strip()
+    return commit_sha, git_tree_sha
 
 
 def extract_tarball(data: bytes, dest: str) -> None:
@@ -145,13 +157,14 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         raise ValueError(f"Invalid project name: {name!r}")
 
     files_dir = store.files_dir(name)
+    git_tree_sha = ""
     if files_data is not None:
         extract_tarball(files_data, files_dir)
         commit_sha = manifest.get("commit_sha", "")
     else:
         if not source:
             raise ValueError("Missing source (provide git source or upload tarball via multipart)")
-        commit_sha = await git_clone(source, ref, files_dir)
+        commit_sha, git_tree_sha = await git_clone(source, ref, files_dir)
 
     repo_manifest = detect_manifest(files_dir)
 
@@ -192,7 +205,10 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     if runtime not in VALID_RUNTIMES:
         raise ValueError(f"Unknown runtime: {runtime!r}")
 
-    tree_hash = compute_tree_hash(files_dir)
+    # For git-cloned deploys use the commit's git tree SHA so a relying
+    # party can verify it against the GitHub API. For tarball deploys,
+    # fall back to a SHA-256 over the working tree.
+    tree_hash = git_tree_sha or compute_tree_hash(files_dir)
 
     await run_build_step(docker, runtime, entry, files_dir)
 
