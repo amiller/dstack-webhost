@@ -147,11 +147,6 @@ Someone hands you a URL. They claim it points to a TEE-hosted app whose source i
 3. **Audit log.** Calls `GET /_api/projects/<name>/audit`. Confirms the audit log exists and contains the `promote` event that bound source to running code.
 4. **Verdict.** None of the above tells you whether the code is *correct*. It tells you what code ran. You read the source on GitHub and decide whether the logic does what it claims.
 
-## Current state of the live demo
+## Current state
 
-The verifier above will work end to end once two changes ship to hermes-staging:
-
-- **[RFC 0015](rfcs/0015-public-verification-endpoints.md)** is implemented in `proxy/ingress.py` (commit on main). It opens read-only verifier endpoints to anonymous callers for attested projects. Until the daemon image is rebuilt and redeployed, the live API still returns 401 and the verifier above will say so honestly.
-- **timelock needs to be promoted** from dev to attested via `POST /_api/projects/timelock/promote`. The promote API exists; this hasn't been exercised end-to-end on this CVM yet.
-
-This page is the demo. The boxes will fill in once the daemon catches up.
+Live. The form above hits the running daemon on hermes-staging (no admin token), and timelock is in attested mode with its source hash, TEE quote, and audit log all queryable from the public surface. RFC 0015 (open read-only verifier endpoints) and a CORS-on-the-public-paths fix are deployed. The same flow works for any attested project on any tee-daemon CVM — change the URL and project name above to point at a different one.
