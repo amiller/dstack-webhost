@@ -54,53 +54,7 @@ The example app is **timelock** — a TEE-backed time-lock encryption service wh
 
 [Try the live verifier on timelock →](verify.md)
 
-## Deployed on hermes-staging
-
-<div id="apps" class="apps" data-daemon="https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network">
-  <p class="muted">Loading…</p>
-</div>
-
-<style>
-.apps { margin: 1rem 0 1.5rem; }
-.apps .grid { display: grid; gap: 0.85rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-.apps .card { padding: 1rem 1.1rem; border: 1px solid #e1e4e8; border-radius: 8px; background: #fff; }
-.apps .card h3 { margin: 0 0 0.4rem; font-size: 1.05rem; }
-.apps .card .meta { color: #57606a; font-size: 0.85em; word-break: break-all; }
-.apps .card .links { margin-top: 0.6rem; display: flex; gap: 0.85rem; flex-wrap: wrap; font-size: 0.9em; }
-.apps .card .links a { color: #1f6feb; text-decoration: none; }
-.apps .card .links a:hover { text-decoration: underline; }
-.apps .muted { color: #57606a; font-size: 0.95em; }
-.apps .err { color: #cf222e; font-size: 0.95em; }
-</style>
-
-<script>
-(async function() {
-  const root = document.getElementById('apps');
-  const daemon = root.dataset.daemon.replace(/\/$/, '');
-  const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  try {
-    const r = await fetch(daemon + '/');
-    if (!r.ok) { root.innerHTML = '<p class="err">CVM returned ' + r.status + '</p>'; return; }
-    const data = await r.json();
-    const projects = data.projects || {};
-    const names = Object.keys(projects);
-    if (!names.length) { root.innerHTML = '<p class="muted">No attested apps deployed yet.</p>'; return; }
-    const cards = names.map(name => {
-      const p = projects[name];
-      const sourceLink = p.source && /github\.com/.test(p.source)
-        ? '<a href="' + escape(p.source) + (p.commit_sha ? '/tree/' + escape(p.commit_sha) : '') + '" target="_blank">source</a>'
-        : '';
-      const runLink = '<a href="' + escape(daemon) + '/' + escape(name) + '/" target="_blank">open</a>';
-      const verifyLink = '<a href="verify.html?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '">verify</a>';
-      const meta = p.commit_sha ? 'commit ' + escape(p.commit_sha.slice(0, 7)) : 'mode: ' + escape(p.mode);
-      return '<div class="card"><h3>' + escape(name) + '</h3><div class="meta">' + meta + '</div><div class="links">' + runLink + ' · ' + verifyLink + (sourceLink ? ' · ' + sourceLink : '') + '</div></div>';
-    }).join('');
-    root.innerHTML = '<div class="grid">' + cards + '</div>';
-  } catch (e) {
-    root.innerHTML = '<p class="err">Could not reach the CVM: ' + escape(e.message) + '</p>';
-  }
-})();
-</script>
+A working instance is at [hermes-staging.dstack.phala.network](https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/) — the CVM serves its own default viewer listing the attested apps it hosts, with verify links beside each one. The same shape works for any tee-daemon CVM.
 
 ## Status
 

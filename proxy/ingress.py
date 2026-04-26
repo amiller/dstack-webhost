@@ -64,8 +64,16 @@ class Ingress:
         name = parts[0] if parts[0] else ""
 
         if not name:
-            # Public listing: only attested projects (dev projects do not leak).
-            # An authenticated caller may use /_api/projects to see everything.
+            # Public listing. Browsers (Accept: text/html) get the default
+            # viewer page; programmatic callers get JSON. Anonymous callers
+            # see only attested projects (dev projects do not leak); an
+            # authenticated caller sees everything.
+            accept = request.headers.get("Accept", "")
+            if "text/html" in accept and "application/json" not in accept:
+                template_path = os.path.join(
+                    os.path.dirname(__file__), "templates", "index.html")
+                with open(template_path) as f:
+                    return web.Response(text=f.read(), content_type="text/html")
             auth = request.headers.get("Authorization", "")
             authed = (API_TOKEN and auth.startswith("Bearer ")
                       and hmac.compare_digest(auth[7:], API_TOKEN))
