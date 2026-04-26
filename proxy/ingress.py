@@ -423,22 +423,35 @@ class Ingress:
 
         # RFC 0015: read-only verifier endpoints are public for attested projects.
         # A relying party should not need the admin token to verify what is running.
+        # Public responses include CORS headers so browser-based verifiers work.
+        if method == "OPTIONS" and self._public_attested_path(path) is not None:
+            return web.Response(status=204, headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Max-Age": "86400",
+            })
+
         if method == "GET":
             public_name = self._public_attested_path(path)
             if public_name is not None:
                 try:
                     project = self.store.load(public_name)
                 except FileNotFoundError:
-                    return web.json_response({"error": "not found"}, status=404)
-                if project.mode != "attested":
-                    return web.json_response({"error": "not found"}, status=404)
-                if path.startswith("attest/"):
-                    return await self._api_attest(public_name)
-                if path.startswith("verification/"):
-                    return await self._api_verification(public_name)
-                if path.endswith("/audit"):
-                    return await self._api_audit(public_name)
-                return await self._api_status(public_name)
+                    resp = web.json_response({"error": "not found"}, status=404)
+                else:
+                    if project.mode != "attested":
+                        resp = web.json_response({"error": "not found"}, status=404)
+                    elif path.startswith("attest/"):
+                        resp = await self._api_attest(public_name)
+                    elif path.startswith("verification/"):
+                        resp = await self._api_verification(public_name)
+                    elif path.endswith("/audit"):
+                        resp = await self._api_audit(public_name)
+                    else:
+                        resp = await self._api_status(public_name)
+                resp.headers["Access-Control-Allow-Origin"] = "*"
+                return resp
 
         denied = self._check_auth(request)
         if denied:
