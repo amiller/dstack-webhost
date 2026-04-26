@@ -125,34 +125,26 @@ The repo should provide:
   at `/.well-known/tee-attestation` or similar
 
 
-## Current State
+## Status (2026-04-26)
 
-What exists now (the initial commit):
+The original "Next Steps" list is mostly landed:
 
-- Ingress proxy with project-based routing (port 8080)
-- Docker socket proxy with container tracking
-- dstack socket proxy for TEE attestation
-- Multi-runtime support (Deno, Node, Python, static files)
-- Git-based deployment via management API
-- Per-project manifest storage
-- Single trust mode (everything is "attested" by default, no dev separation)
-- No verification tooling yet
+- Network separation (`tee-apps-dev` and `tee-apps-attested`) — done.
+- `mode: dev|attested` on projects with promotion API — done.
+- Per-project audit log, attested-only — done.
+- Public read-only verifier endpoints (RFC 0015) so a relying party doesn't need the admin token — done.
+- Source hash recorded as the git tree SHA so it can be checked against GitHub — done.
+- [Verifier page](../verify.md) and [audit guide](../audit.md) on the docs site — done.
 
+The verifier page and audit guide together replace what RFC 0001 originally called the "verification page" and "agent skill." The substrate is small enough that a project audit reduces to reading the project's own handler against a known runtime contract; the audit guide is the runbook for that.
 
-## Next Steps
+What's still off:
 
-1. **Network separation**: Create `tee-apps-dev` and `tee-apps-attested`
-   networks, enforce isolation in the Docker proxy
-2. **Mode field on projects**: Add `mode: dev|attested` to the project
-   manifest, default to `dev` on deploy
-3. **Promotion API**: `POST /_api/projects/<name>/promote` with source hash
-   recording
-4. **Audit log**: Make it per-project, enable only for attested mode
-5. **Verification page**: Static endpoint that walks the trust chain
-6. **Agent skill**: Verification skill that can be pointed at any
-   dstack-webhost instance
-7. **Developer guide**: Step-by-step from local TypeScript to attested
-   production
+- Custom domains. Apps live at `<cvm>/<project-name>/`.
+- CI/CD-triggered redeploys. Available via API; no first-party hook.
+- Multi-CVM federation. Out of scope.
+- Pre-vetted packet libraries (community-published handler templates).
+- Auditor-side tooling that scripts the runbook against a verifier-bundle URL.
 
 
 ## Non-Goals (for now)

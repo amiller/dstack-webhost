@@ -1,16 +1,8 @@
-# tee-daemon
+# dstack-webhost
 
-A TEE app hosting platform for Phala dstack CVMs. Deploys and manages
-multi-language web apps inside a TEE with attestation guarantees.
+A personal Vercel for attestable web apps. Hosts many projects on a single Phala dstack CVM; each can be promoted to **attested** mode where the source hash binds into the TEE quote and the verifier endpoints become publicly readable.
 
-## What it does
-
-- **Ingress proxy** on port 8080 routes traffic to deployed apps by name
-- **Multi-runtime support**: Deno, Bun, Node.js, Python, static files, custom Dockerfiles
-- **Docker socket proxy** lets tenant containers use Docker safely (tracked + audited)
-- **dstack socket proxy** for TEE attestation (GetQuote, GetKey, etc.)
-- **Management API** at `/_api/...` for deploy/teardown/redeploy from git repos
-- **Attestation** per-project via dstack KMS
+The daemon (`tee-daemon`) is the substrate: it does the ingress, the shared language runtime, the audit log, and the verifier surface. Project authors write small handlers; this code does everything else, once, for every project on a CVM.
 
 ## Quick start
 
@@ -18,50 +10,21 @@ multi-language web apps inside a TEE with attestation guarantees.
 # Local dev
 docker compose up
 
-# Deploy to Phala CVM
+# Deploy to a Phala CVM
 phala deploy --cvm-name my-daemon -c docker-compose.yaml -e .env
 ```
 
-## API
+## Documentation
 
-```
-GET  /_api/projects              # list all projects
-POST /_api/projects              # deploy (JSON body)
-GET  /_api/projects/<name>       # status
-DELETE /_api/projects/<name>     # teardown
-POST /_api/projects/<name>/redeploy  # redeploy from git
-GET  /_api/attest/<name>         # get attestation for project
-GET  /_api/audit                 # audit log
-```
+- **Platform overview, vision, RFC log:** https://amiller.github.io/dstack-webhost
+- **Deploying a project:** [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
+- **Auditing a deployed project:** https://amiller.github.io/dstack-webhost/audit.html
+- **Verifying a deployed project (relying-party):** https://amiller.github.io/dstack-webhost/verify.html
 
-## Deploying an app
+## Source layout
 
-```bash
-curl -X POST http://localhost:8080/_api/projects \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-app",
-    "runtime": "deno",
-    "entry": "server.ts",
-    "source": "https://github.com/user/repo",
-    "ref": "main",
-    "attested": true
-  }'
-```
-
-Then access at `http://localhost:8080/my-app/`.
-
-## Architecture
-
-```
-Port 8080 (Ingress)
-  ├── /_api/...          → Management API
-  ├── /<project>/...     → Runtime containers (deno/node/python)
-  │                          via shared per-language routers
-  └── /<project>/...     → Static file serving
-
-Unix sockets (for sibling containers):
-  ├── /var/run/proxy/docker.sock  → Docker API proxy (audited)
-  └── /var/run/proxy/dstack.sock  → dstack TEE API proxy
-```
+- `proxy/ingress.py` — request routing, auth gate, public verifier endpoints.
+- `proxy/runtimes.py` — language-runtime container management; the Deno router that loads project handlers.
+- `proxy/deploy.py` — git-clone path, source-hash recording, project promotion.
+- `proxy/templates/index.html` — the default viewer page each CVM serves at `/`.
+- `rfcs/` — design discussion. Numbered, dated, status-tagged.

@@ -30,6 +30,10 @@ A function running inside a Phala dstack TEE can answer the question. The platfo
 
 A single CVM holds as many of each as you like. Most apps stay private. You share the URL of an attested project when someone needs to verify it.
 
+## Why audits stay small
+
+Every project on a tee-daemon CVM rides the same daemon, the same shared runtime, and the same verifier surface. An auditor learns that substrate once — it's [public source](https://github.com/amiller/dstack-webhost) — and reuses the understanding across every project they review on it. A specific project's audit reduces to "given this known substrate, does this small handler hold the invariant it claims?" The platform's payoff is keeping each per-project audit small.
+
 ## See it live
 
 A working instance is at [hermes-staging](https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/). The CVM serves its own list of attested apps with [verifier](verify.md) links beside each one.
@@ -40,12 +44,12 @@ Pre-v1. The hosting flow works across Deno, Node, Bun, Python, static, and custo
 
 ## Reading and discussion
 
-A working notebook for the project's design. The substance lives in the RFC log; issues track work falling out of those RFCs.
+The substance lives in the RFC log. Issues there track the work in flight.
 
-- [Platform vision (RFC 0001)](rfcs/0001-platform-vision.md)
-- [RFC log](rfcs/)
-- [Known issues](ISSUES.md)
-- [Developer guide](DEVELOPER_GUIDE.md)
+- [Platform vision (RFC 0001)](rfcs/0001-platform-vision.md) — the original framing, with a current-state update
+- [RFC log](rfcs/) — design notes, dated and status-tagged
+- [Developer guide](DEVELOPER_GUIDE.md) — deploying a project
+- [Audit guide](audit.md) — auditing a deployed project, agent-runnable
 - [GitHub repo](https://github.com/amiller/dstack-webhost)
 
 Open a [GitHub issue](https://github.com/amiller/dstack-webhost/issues). Most of the design is still up for revision.
