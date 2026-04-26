@@ -50,6 +50,7 @@ The substance lives in the RFC log. Issues there track the work in flight.
 - [RFC log](rfcs/) — design notes, dated and status-tagged
 - [Developer guide](DEVELOPER_GUIDE.md) — deploying a project
 - [Audit guide](audit.md) — auditing a deployed project, agent-runnable
+- [Verifier skill](verify-skill.md) — for an agent handed just a URL: walk the chain, produce a verdict
 - [GitHub repo](https://github.com/amiller/dstack-webhost)
 
 Open a [GitHub issue](https://github.com/amiller/dstack-webhost/issues). Most of the design is still up for revision.
