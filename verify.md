@@ -144,6 +144,12 @@ Someone hands you a URL. They claim it points to a TEE-hosted app whose source i
 
   document.getElementById('verifyBtn').addEventListener('click', verify);
   document.getElementById('verifier').addEventListener('keydown', e => { if (e.key === 'Enter') verify(); });
+
+  // Deep-link support: ?daemon=...&project=... pre-fills and auto-runs.
+  const params = new URLSearchParams(location.search);
+  if (params.get('daemon')) document.getElementById('daemonUrl').value = params.get('daemon');
+  if (params.get('project')) document.getElementById('projectName').value = params.get('project');
+  if (params.get('daemon') || params.get('project')) verify();
 })();
 </script>
 
