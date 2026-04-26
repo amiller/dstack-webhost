@@ -181,11 +181,19 @@ class Ingress:
                     content_type=resp.content_type)
 
     def update_port_map(self):
-        """Update the port map based on current projects."""
+        """Update the port map based on current projects.
+
+        Port 8080 is reserved for path-based routing on the default ingress
+        and is never registered for port-based routing, even if a project's
+        listen config requests it. Such a project is reachable at /<name>/
+        on port 8080 via path-based routing.
+        """
         self.port_map.clear()
         for project in self.store.list():
             if project.listen and project.listen.port:
                 port = project.listen.port
+                if port == 8080:
+                    continue
                 if port not in self.port_map:
                     self.port_map[port] = project.name
                 else:
