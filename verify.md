@@ -115,13 +115,27 @@ Most platforms cannot answer the first question. dstack-webhost answers it, auto
     ? '<a class="source-link" href="' + escape(p.source) + '/tree/' + escape(p.commit_sha) + '" target="_blank">' + escape(sourceLabel) + ' @ ' + escape(commitShort) + '</a>'
     : '<span>' + escape(sourceLabel) + '</span>';
 
+  // Audit summary: the verifier's question is "did anything change since promotion?"
+  const sortedAudit = [...audit].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  let latestPromote = null;
+  for (const e of sortedAudit) if (e.action === 'promote') latestPromote = e;
+  const sincePromote = latestPromote
+    ? sortedAudit.filter(e => (e.timestamp || 0) > (latestPromote.timestamp || 0))
+    : [];
+  const fmtDate = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '?';
+  let auditSummary;
+  if (!latestPromote) auditSummary = 'no promote event recorded';
+  else if (sincePromote.length === 0) auditSummary = 'promoted ' + fmtDate(latestPromote.timestamp) + ', no changes since';
+  else auditSummary = 'promoted ' + fmtDate(latestPromote.timestamp) + '; '
+       + sincePromote.length + ' change' + (sincePromote.length > 1 ? 's' : '') + ' since (last on ' + fmtDate(sincePromote[sincePromote.length-1].timestamp) + ')';
+
   const detailsHtml = '<details><summary>chain details</summary><ul>'
-    + '<li>Source: <code>' + escape(p.source || '?') + '</code></li>'
-    + '<li>Commit: <code>' + escape(p.commit_sha || '?') + '</code></li>'
-    + '<li>Tree hash (daemon): <code>' + escape(p.tree_hash || '?') + '</code></li>'
-    + (githubTreeSha ? '<li>Tree hash (GitHub): <code>' + escape(githubTreeSha) + '</code></li>' : '')
-    + '<li>TEE quote: <code>' + (quote.key ? escape(quote.key.slice(0, 32)) + '…' : '—') + '</code></li>'
-    + '<li>Audit entries: ' + audit.length + ' (' + audit.map(e => escape(e.action || '?')).join(', ') + ')</li>'
+    + '<li>Source on GitHub: <a href="' + escape(p.source || '#') + '" target="_blank"><code>' + escape(p.source || '?') + '</code></a></li>'
+    + '<li>Pinned to commit: <code>' + escape(p.commit_sha || '?') + '</code></li>'
+    + '<li>Tree SHA recorded by daemon: <code>' + escape(p.tree_hash || '?') + '</code></li>'
+    + (githubTreeSha ? '<li>Tree SHA from GitHub for that commit: <code>' + escape(githubTreeSha) + '</code> ' + (githubTreeOk ? '(matches)' : '(<strong>does not match</strong>)') + '</li>' : '')
+    + '<li>TEE quote: ' + (quote.quote || quote.key || quote.report ? 'present, dstack-signed' : '<strong>missing</strong>') + '</li>'
+    + '<li>Audit log: ' + escape(auditSummary) + '</li>'
     + '</ul></details>';
 
   if (issues.length === 0) {
