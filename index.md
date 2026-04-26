@@ -4,61 +4,39 @@ layout: default
 
 <div style="display:flex;align-items:center;gap:18px;margin:0.5em 0 1.5em">
   <img src="assets/logo.svg" alt="" width="56" height="56" style="flex:none"/>
-  <span>A personal Vercel for attestable web apps. One Phala dstack CVM hosts many little apps you wrote yourself, and each one ships with evidence of what code actually ran.</span>
+  <span>A personal Vercel for attestable web apps. One Phala dstack CVM hosts many little apps you wrote yourself; each one ships with evidence of what code actually ran.</span>
 </div>
 
 <p style="text-align:center;margin:1.5em 0">
-  <img src="assets/diagram.svg" alt="A CVM hosts many apps; one app's attestation package goes to a counterparty who reads the source code and verifies the TEE quote." style="max-width:100%;height:auto"/>
+  <img src="assets/diagram.svg" alt="A CVM hosts many apps; one app's attestation goes to a recipient who reads the source code." style="max-width:100%;height:auto"/>
 </p>
 
-## The idea
+Lambda, Vercel, and Cloudflare Workers host code cheaply and call it on demand. None of them tell the consumer of the output what code ran. For most apps that's fine. For receipts, credentials, sealed-time releases, or evidence in disputes, it's the whole point.
 
-Most "deploy a function" platforms (Lambda, Vercel, Cloudflare Workers) give you cheap hosting. This one gives you that plus a proof you can hand to someone else. The proof is anchored in the TEE: an attestation package shows the source code that ran, the inputs the relying party already has, and the outputs, minus any private data or API keys you supplied.
+A function running inside a Phala dstack TEE can answer the question. The platform produces a hardware-rooted attestation that binds the running code's measurements into the output. dstack-webhost wraps that into a normal dev loop: push to a git repo, deploy to your CVM, promote to attested when you're ready, share the URL. Whoever you share with sees the source on GitHub and the running code as the same thing.
 
-Some things this lets you build:
+## Things you might build
 
-- A function that takes a prompt, calls a model provider, and returns the response with a proof of the exact prompt and response.
-- A function that decrypts a file escrowed on a blockchain, runs a computation on it, and returns the result with a proof of what was computed.
-- A function that generates a credential via ZK-TLS and signs it inside the enclave.
+- **Prompt receipts.** Call a model provider through a TEE function and emit the response together with a signed record of the exact prompt and response.
+- **Timelock encryption.** Hold an encrypted message and only release the key after a deadline. The TEE seals the key; a quorum of clocks gates the release. A working demo runs on hermes-staging.
+- **ZK-TLS credentials.** Run an attested TLS session against a website where you have an account; emit a sealed claim the recipient can verify without seeing your password.
+- **Document gateways.** Take a document, run it through "standard rental-agreement-template-v3", return a signed parse. The packet's identity is its source hash, so the recipient trusts the published version rather than reading every byte of your custom code.
 
-You write code, your counterparty runs the output through a verifier, the verifier shows them what code ran. If they trust the sandbox, they can decide what to make of the source.
+## Two modes per project
 
-## There's always a counterparty
+**Dev** is for iteration. Push code, test, change it, throw it away. No audit log, no public verifier; trust is whatever you'd get on Vercel.
 
-Every use case implies someone on the receiving end: a landlord checking rental documents, a model consumer checking that a prompt was really sent. The relying party does not need to trust you. They need to trust the sandbox and read the code.
+**Attested** is the trust claim. The daemon records the source hash, opens an audit log, binds the hash into the TEE quote, and exposes the verifier endpoints to anonymous callers. Promotion is deliberate — like cutting a release.
 
-Two paths for the code itself:
+A single CVM holds as many of each as you like. Most apps stay private. You share the URL of an attested project when someone needs to verify it.
 
-- **Improvised.** You (or your agent) write something custom for the situation. The relying party reads it before deciding what it means.
-- **Pre-vetted.** A community publishes standard packets ("rental agreement v3", "model-provider receipt v1"). You pick one. The relying party trusts the packet by reputation rather than re-reading from scratch.
+## See it live
 
-## One CVM, many apps
-
-You don't need a CVM per app. A single CVM running tee-daemon hosts a hundred little apps cheaply. You share one with a counterparty; the other ninety-nine stay private.
-
-The counterparty does not see your other apps, but they do need to trust that those other apps cannot side-channel the one they care about. That trust lives in the sandbox boundary, not in each individual app. tee-daemon supports several isolation modes for that reason: Deno sandbox per app, isolated Docker per app, gVisor for stronger separation. Pick what the relationship calls for.
-
-Apps can be ephemeral (deploy, prove, throw away, no leftover state) or long-running. Both fit.
-
-Multi-tenant CVMs are possible but not the default. The default is one user, one CVM, many apps.
-
-## Try it as a relying party
-
-The most concrete way to feel what this platform is for: pretend someone shared an app with you and you want to know what code is actually running.
-
-<p style="text-align:center;margin:1.5em 0">
-  <img src="assets/verifier-mockup.svg" alt="Mockup of the verifier output: source, TEE quote, audit log, verdict." style="max-width:100%;height:auto"/>
-</p>
-
-The example app is **timelock** — a TEE-backed time-lock encryption service where the enclave holds decryption keys until a release time. The relying party reads four things: the source on GitHub, the daemon's manifest with its tree hash, the signed TEE quote, and the audit log. Then they decide whether to trust what the code actually does.
-
-[Try the live verifier on timelock →](verify.md)
-
-A working instance is at [hermes-staging.dstack.phala.network](https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/) — the CVM serves its own default viewer listing the attested apps it hosts, with verify links beside each one. The same shape works for any tee-daemon CVM.
+A working instance is at [hermes-staging](https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/). The CVM serves its own list of attested apps with [verifier](verify.md) links beside each one.
 
 ## Status
 
-Pre-v1. The dev-mode hosting flow works today across Deno, Node, Bun, Python, static, and custom Dockerfiles. The attested-promotion and end-to-end verification chain are designed but not yet exercised end-to-end. Closing that gap is the main thing in flight.
+Pre-v1. The hosting flow works across Deno, Node, Bun, Python, static, and custom Dockerfiles. Attested promotion, the audit log, and public verifier endpoints landed in late April. Next milestones live in the [RFC log](rfcs/).
 
 ## Reading and discussion
 
