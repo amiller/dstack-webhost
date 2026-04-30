@@ -32,6 +32,16 @@ runc default:  "0          0 4294967295"      ← trivial, no remap
 
 The probe's verdict is "consistent" when the substrate's claim and the tenant's `uid_map` agree on which regime is in force.
 
+## What the substrate layers on top of the runtime
+
+The OCI runtime is one layer. dstack-webhost adds three substrate-level mechanisms that go beyond what `sysbox-runc` alone provides:
+
+- **Per-project Docker network.** Image-runtime tenants and `isolation: container` deno tenants each get `tee-proj-<name>-<mode>`; only the daemon is connected. A sibling tenant cannot reach another by IP, by container name, or by Docker DNS — the bridge drops the traffic. ([`proxy/runtimes.py::_ensure_project_network`](https://github.com/amiller/dstack-webhost/blob/main/proxy/runtimes.py))
+- **Per-project named volume.** `isolation: container` tenants mount `tee-projdata-<name>` at `/data`. They never see other tenants' subdirs of the daemon's shared data volume. ([`proxy/runtimes.py::start_isolated`](https://github.com/amiller/dstack-webhost/blob/main/proxy/runtimes.py))
+- **Scoped Deno permissions.** `isolation: container` deno tenants run under `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`, `--allow-read` scoped to the project's own files. `manifest.env` is passed via Deno args (not env permission), so the handler sees `ctx.env` but cannot read other tenants' env values.
+
+The shared deno runtime is *intentionally co-trust*: tenants there share a V8 isolate, share `/daemon-data` rw, and share a network. That's the model — opting into the shared runtime is opting into co-trust with its peers. Strong inter-tenant isolation requires `isolation: container` or `runtime: image`.
+
 ## Why sysbox-runc and not gVisor
 
 [gVisor](https://gvisor.dev/) is the stronger answer: a userspace kernel intercepts syscalls, so the host kernel's attack surface visible to the tenant shrinks from ~330 syscalls to ~50. It addresses kernel-CVE-based escape as a class — sysbox does not.
@@ -40,14 +50,24 @@ The constraint inside Phala dstack: nested KVM is not exposed in the TDX CVM, so
 
 `sysbox-runc` is registered as a Docker runtime on stock dstack today. It's a hardened `runc` (automatic user-namespace remap, virtualised `/proc` and `/sys`, scoped capabilities) — meaningfully better than plain runc against namespace/capability escapes, weaker than gVisor against kernel CVEs. It's the isolation layer that's deployable now without changing the base image.
 
+## Open attack surface
+
+What this stack does *not* address, and is worth arguing about:
+
+- **Kernel CVEs.** `sysbox-runc` hardens the namespace/capability boundary; it does not shrink the host kernel's syscall attack surface. A tenant that exploits a kernel bug (`io_uring`, BPF, etc.) escapes the CVM and breaks every tenant's quote. The CVM is currently on `6.9.0-dstack` from May 2024, which has a year of post-release CVEs. This is the structural reason for the gVisor argument above; it just isn't deployable on stock dstack yet.
+- **Per-tenant resource limits.** No cgroup memory/CPU/disk caps today. A hostile tenant can OOM the host or starve sibling CPU. Easy to add — this is unfinished work, not a hard problem.
+- **Same-host side channels.** `/proc/loadavg`, RAM pressure, page-cache timing, CPU contention — `sysbox-runc` does not virtualise these. A tenant pair could plausibly establish a covert channel by modulating load and timing read-back. Quantifying the bandwidth would be its own demo, not yet built.
+- **Daemon TCB.** The daemon (`tee-daemon`) owns Docker, owns each tenant's per-project network, and is the authority behind `/_api/substrate`. A daemon compromise is a total compromise. The TEE attestation pins the daemon's image hash; a relying party walks the trust chain to the public source and audits it as part of the substrate.
+- **Inter-mode bridges.** The daemon connects itself to every per-project network so it can reverse-proxy. A tenant that compromised the daemon's network stack from inside its own network could in principle pivot. The exposed surface is the daemon's bridge interface plus its ingress port — small, but not zero.
+- **Verifier coverage of image-runtime tenants.** The current verifier page checks `tree_hash` against GitHub; for image-runtime tenants the integrity claim is `image_digest` against a registry, and the verifier page does not yet branch on this. Audit machinery, not a runtime hole.
+
+A natural next demo is a sibling probe that actually tries each of these channels and reports what worked. Not built yet — the substrate-level fixes (network, volume, Deno perms) closed the easier channels first; the side-channel work is harder and lower priority.
+
 ## Trying it on your own CVM
 
-```bash
-# Build & push (or use the published image)
-cd apps/isolation-probe
-docker build -t ghcr.io/<you>/tee-isolation-probe:v1 .
-docker push ghcr.io/<you>/tee-isolation-probe:v1
+The image is already published — you can deploy it directly without rebuilding:
 
+```bash
 # Make sure the substrate is configured for sysbox-runc:
 #   environment:
 #     - DAEMON_CONTAINER_RUNTIME=sysbox-runc
@@ -57,12 +77,14 @@ curl -X POST https://<cvm>/_api/projects \
   -H "Authorization: Bearer $TEE_DAEMON_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"probe","runtime":"image",
-       "image":"ghcr.io/<you>/tee-isolation-probe@sha256:...",
+       "image":"ghcr.io/amiller/tee-isolation-probe:v1",
        "image_port":8000}'
 
 # Visit
 open https://<cvm>/probe/
 ```
+
+To rebuild from source (`apps/isolation-probe/`), see the [README there](https://github.com/amiller/dstack-webhost/tree/main/apps/isolation-probe).
 
 ## Related
 
