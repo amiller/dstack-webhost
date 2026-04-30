@@ -29,13 +29,17 @@ class DockerClient:
 
     async def create_container(self, name: str, image: str, cmd: list[str],
                                binds: list[str], labels: dict, network: str,
-                               env: list[str] | None = None) -> str:
+                               env: list[str] | None = None,
+                               runtime: str = "") -> str:
+        host_config: dict = {"Binds": binds}
+        if runtime:
+            host_config["Runtime"] = runtime
         body = {
             "Image": image,
             "Cmd": cmd or None,
             "Labels": labels,
             "Env": env or [],
-            "HostConfig": {"Binds": binds},
+            "HostConfig": host_config,
             "NetworkingConfig": {"EndpointsConfig": {network: {}}},
         }
         status, data = await self._json_request("POST", f"/containers/create?name={name}", json=body)
@@ -97,6 +101,13 @@ class DockerClient:
         logs = await self.logs(cid, tail=200)
         await self.remove(cid, force=True)
         return exit_code, logs
+
+    async def ensure_volume(self, name: str):
+        """Idempotent volume create — Docker returns 201 with existing data if it exists."""
+        status, data = await self._json_request(
+            "POST", "/volumes/create", json={"Name": name})
+        if status >= 400:
+            raise RuntimeError(f"ensure_volume failed ({status}): {data}")
 
     async def container_exists(self, name: str) -> str | None:
         status, data = await self._json_request("GET", f"/containers/{name}/json")

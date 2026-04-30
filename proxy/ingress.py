@@ -1,6 +1,7 @@
 """Ingress reverse proxy + management API on port 8080."""
 
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
@@ -15,6 +16,7 @@ from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager
 from .deploy import deploy, teardown, promote
+from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
 
@@ -102,6 +104,17 @@ class Ingress:
         if project.runtime == "static":
             return self._serve_static(project, subpath)
 
+        if project.runtime == "image" or project.isolation == "container":
+            route = self.rtm.get_image_route(project.name)
+            if not route:
+                return web.json_response({"error": "image container not running"}, status=503)
+            ip, port = route
+            routed_path = subpath
+            qs = request.query_string
+            if qs:
+                routed_path += "?" + qs
+            return await self._proxy(request, ip, port, routed_path)
+
         route = self.rtm.get_route(project.runtime, project.mode)
         if not route:
             return web.json_response({"error": "runtime not running"}, status=503)
@@ -129,6 +142,16 @@ class Ingress:
 
         if project.runtime == "static":
             return self._serve_static(project, subpath)
+
+        if project.runtime == "image" or project.isolation == "container":
+            route = self.rtm.get_image_route(project.name)
+            if not route:
+                return web.json_response({"error": "image container not running"}, status=503)
+            ip, port = route
+            qs = request.query_string
+            if qs:
+                subpath += "?" + qs
+            return await self._proxy(request, ip, port, subpath)
 
         route = self.rtm.get_route(project.runtime, project.mode)
         if not route:
@@ -427,6 +450,18 @@ class Ingress:
             return web.json_response({"error": "invalid token"}, status=403)
         return None
 
+    def _substrate_info(self) -> dict:
+        rt = runtimes_mod.CONTAINER_RUNTIME
+        shim_sha = hashlib.sha256(
+            runtimes_mod._ENTRY_SHIM_DENO.encode()).hexdigest()
+        return {
+            "container_runtime": rt,
+            "effective_runtime": rt or "runc",
+            "isolation_modes": ["shared", "container"],
+            "deno_entry_shim_sha256": shim_sha,
+            "networks": [runtimes_mod.NETWORK_DEV, runtimes_mod.NETWORK_ATTESTED],
+        }
+
     def _public_attested_path(self, path: str) -> str | None:
         """RFC 0015: return project name if `path` is a public verifier endpoint."""
         parts = path.split("/")
@@ -451,6 +486,11 @@ class Ingress:
                 "Access-Control-Allow-Headers": "*",
                 "Access-Control-Max-Age": "86400",
             })
+
+        if method == "GET" and path == "substrate":
+            resp = web.json_response(self._substrate_info())
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
 
         if method == "GET":
             public_name = self._public_attested_path(path)
@@ -608,10 +648,14 @@ class Ingress:
     async def _api_redeploy(self, name: str) -> web.Response:
         project = self.store.load(name)
         old_sha = project.commit_sha
+        old_digest = project.image_digest
         manifest = {
             "name": project.name, "source": project.source, "ref": project.ref,
             "runtime": project.runtime, "entry": project.entry, "port": project.port,
             "mode": project.mode, "env": project.env,
+            "isolation": project.isolation,
+            "image": project.image, "image_port": project.image_port,
+            "volumes": project.volumes, "env_passthrough": project.env_passthrough,
         }
         if project.listen:
             manifest["listen"] = {
@@ -621,7 +665,10 @@ class Ingress:
         project = await deploy(
             self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
         result = asdict(project)
-        result["changed"] = project.commit_sha != old_sha
+        if project.runtime == "image":
+            result["changed"] = project.image_digest != old_digest
+        else:
+            result["changed"] = project.commit_sha != old_sha
         return web.json_response(result)
 
     async def _api_promote(self, name: str) -> web.Response:

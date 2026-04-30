@@ -23,6 +23,17 @@ VOLUME_MOUNT = os.environ.get("DAEMON_VOLUME_MOUNT", "/var/lib/tee-daemon")
 # to each handler. Projects use it for persistent state (DBs, subs, etc.).
 DATA_VOLUME_NAME = os.environ.get("DAEMON_DATA_VOLUME_NAME", "")
 DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
+# Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").
+# Empty string keeps Docker's default (runc).
+CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
+
+_ENTRY_SHIM_DENO = r"""
+const [ENTRY, FILES, DATA, ENV_JSON] = Deno.args;
+const env = JSON.parse(ENV_JSON || "{}");
+const mod = await import(`file://${FILES}/${ENTRY}`);
+const handler = mod.default;
+Deno.serve({ port: 3000 }, (req) => handler(req, { env, dataDir: DATA }));
+"""
 
 ROUTER_DENO = r"""
 const handlers = new Map();
@@ -245,6 +256,8 @@ class RuntimeManager:
         self.tracker = tracker
         self.runtime_ips: dict[tuple[str, str], str] = {}  # (runtime_key, mode) -> ip
         self.runtime_cids: dict[tuple[str, str], str] = {}  # (runtime_key, mode) -> cid
+        self.image_routes: dict[str, tuple[str, int]] = {}  # project name -> (ip, image_port)
+        self.image_cids: dict[str, str] = {}  # project name -> cid
 
     async def refresh(self, runtime: str):
         if runtime == "static" or runtime == "dockerfile":
@@ -259,7 +272,8 @@ class RuntimeManager:
         runtimes_served = [config_key]
         if config_key == "deno":
             runtimes_served.append("bun")
-        projects = [p for p in self.store.list() if p.runtime in runtimes_served]
+        projects = [p for p in self.store.list()
+                    if p.runtime in runtimes_served and p.isolation != "container"]
 
         # Handle dev and attested modes separately
         for mode in ["dev", "attested"]:
@@ -345,7 +359,8 @@ class RuntimeManager:
             ]
 
             cid = await self.docker.create_container(
-                cname, config["image"], cmd, binds, labels, network)
+                cname, config["image"], cmd, binds, labels, network,
+                runtime=CONTAINER_RUNTIME)
             await self.docker.start(cid)
             self.tracker.add(cid)
             ip = await self.docker.container_ip(cid, network)
@@ -354,8 +369,149 @@ class RuntimeManager:
             log.info("Runtime %s-%s -> %s (%s), serving %d projects",
                      config_key, mode_suffix, cid[:12], ip, len(mode_projects))
 
+    async def start_isolated(self, project) -> str:
+        """Per-project container for deno/bun with scoped Deno permissions.
+        Returns the runtime image digest."""
+        if project.runtime not in ("deno", "bun"):
+            raise ValueError(f"isolation=container not implemented for runtime {project.runtime}")
+        config = RUNTIME_CONFIG["deno"]
+        image = config["image"]
+        await self.docker.pull(image)
+
+        files_dir = self.store.files_dir(project.name)
+        entry_path = os.path.join(self.store._project_dir(project.name), "_entry.ts")
+        with open(entry_path, "w") as f:
+            f.write(_ENTRY_SHIM_DENO)
+
+        cname = f"tee-isolated-{project.name}-{project.mode}"
+        network = NETWORK_ATTESTED if project.mode == "attested" else NETWORK_DEV
+        existing = await self.docker.container_exists(cname)
+        if existing:
+            await self.docker.stop(existing)
+            await self.docker.remove(existing)
+            self.tracker.remove(existing)
+
+        if VOLUME_NAME:
+            rel_files = os.path.relpath(files_dir, VOLUME_MOUNT)
+            rel_entry = os.path.relpath(entry_path, VOLUME_MOUNT)
+            binds = [f"{VOLUME_NAME}:/daemon-vol:ro"]
+            files_in = f"/daemon-vol/{rel_files}"
+            entry_in = f"/daemon-vol/{rel_entry}"
+        else:
+            binds = [
+                f"{os.path.abspath(files_dir)}:/files:ro",
+                f"{os.path.abspath(entry_path)}:/_entry.ts:ro",
+            ]
+            files_in = "/files"
+            entry_in = "/_entry.ts"
+
+        data_dir_in = ""
+        if DATA_VOLUME_NAME:
+            binds.append(f"{DATA_VOLUME_NAME}:{DATA_VOLUME_MOUNT_IN_RUNTIME}:rw")
+            data_dir_in = f"{DATA_VOLUME_MOUNT_IN_RUNTIME}/{project.name}"
+
+        labels = {
+            "tee-proxy.managed": "true",
+            "tee-daemon.runtime": project.runtime,
+            "tee-daemon.isolation": "container",
+            f"tee-daemon.project.{project.name}": "true",
+        }
+        if project.mode == "attested":
+            labels["tee-daemon.attested"] = "true"
+
+        cmd = [
+            "deno", "run", "--no-prompt",
+            f"--allow-read={files_in},{entry_in}" + (f",{data_dir_in}" if data_dir_in else ""),
+            "--allow-net",
+            "--deny-env", "--deny-ffi", "--deny-run", "--deny-sys",
+        ]
+        if data_dir_in:
+            cmd.append(f"--allow-write={data_dir_in}")
+        cmd += [
+            entry_in,
+            project.entry or "server.ts",
+            files_in,
+            data_dir_in,
+            json.dumps(project.env or {}),
+        ]
+
+        cid = await self.docker.create_container(
+            cname, image, cmd, binds, labels, network,
+            runtime=CONTAINER_RUNTIME)
+        await self.docker.start(cid)
+        self.tracker.add(cid)
+        ip = await self.docker.container_ip(cid, network)
+        self.image_cids[project.name] = cid
+        self.image_routes[project.name] = (ip, 3000)
+        log.info("Isolated %s project %s -> %s (%s:3000)",
+                 project.runtime, project.name, cid[:12], ip)
+        return await self.docker.image_digest(image)
+
+    async def stop_isolated(self, name: str):
+        for mode in ("dev", "attested"):
+            cname = f"tee-isolated-{name}-{mode}"
+            existing = await self.docker.container_exists(cname)
+            if existing:
+                await self.docker.stop(existing)
+                await self.docker.remove(existing)
+                self.tracker.remove(existing)
+        self.image_routes.pop(name, None)
+        self.image_cids.pop(name, None)
+
+    async def start_image(self, project) -> str:
+        """Pull and start an image-runtime project's container. Returns image digest."""
+        cname = f"tee-image-{project.name}-{project.mode}"
+        network = NETWORK_ATTESTED if project.mode == "attested" else NETWORK_DEV
+        log.info("Pulling %s for project %s...", project.image, project.name)
+        await self.docker.pull(project.image)
+        existing = await self.docker.container_exists(cname)
+        if existing:
+            await self.docker.stop(existing)
+            await self.docker.remove(existing)
+            self.tracker.remove(existing)
+        binds = []
+        for v in project.volumes or []:
+            await self.docker.ensure_volume(v["name"])
+            binds.append(f"{v['name']}:{v['mount']}")
+        labels = {
+            "tee-proxy.managed": "true",
+            "tee-daemon.runtime": "image",
+            f"tee-daemon.project.{project.name}": "true",
+        }
+        if project.mode == "attested":
+            labels["tee-daemon.attested"] = "true"
+        env = [f"{k}={v}" for k, v in (project.env or {}).items()]
+        for key in project.env_passthrough or []:
+            val = os.environ.get(key)
+            if val is not None:
+                env.append(f"{key}={val}")
+        cid = await self.docker.create_container(
+            cname, project.image, [], binds, labels, network,
+            env=env, runtime=CONTAINER_RUNTIME)
+        await self.docker.start(cid)
+        self.tracker.add(cid)
+        ip = await self.docker.container_ip(cid, network)
+        self.image_cids[project.name] = cid
+        self.image_routes[project.name] = (ip, project.image_port)
+        log.info("Image project %s -> %s (%s:%d)", project.name, cid[:12], ip, project.image_port)
+        return await self.docker.image_digest(project.image)
+
+    async def stop_image(self, name: str):
+        for mode in ("dev", "attested"):
+            cname = f"tee-image-{name}-{mode}"
+            existing = await self.docker.container_exists(cname)
+            if existing:
+                await self.docker.stop(existing)
+                await self.docker.remove(existing)
+                self.tracker.remove(existing)
+        self.image_routes.pop(name, None)
+        self.image_cids.pop(name, None)
+
+    def get_image_route(self, name: str) -> tuple[str, int] | None:
+        return self.image_routes.get(name)
+
     def get_route(self, runtime: str, mode: str) -> tuple[str, int] | None:
-        if runtime == "static" or runtime == "dockerfile":
+        if runtime == "static" or runtime == "dockerfile" or runtime == "image":
             return None
         config_key = runtime
         if runtime == "bun":
@@ -370,8 +526,18 @@ class RuntimeManager:
 
     async def recover_all(self):
         runtimes_needed = set()
+        image_projects = []
+        isolated_projects = []
         for p in self.store.list():
-            if p.runtime not in ("static", "dockerfile"):
+            if p.runtime == "image":
+                image_projects.append(p)
+            elif p.isolation == "container" and p.runtime in ("deno", "bun"):
+                isolated_projects.append(p)
+            elif p.runtime not in ("static", "dockerfile"):
                 runtimes_needed.add(p.runtime)
         for rt in runtimes_needed:
             await self.refresh(rt)
+        for p in image_projects:
+            await self.start_image(p)
+        for p in isolated_projects:
+            await self.start_isolated(p)

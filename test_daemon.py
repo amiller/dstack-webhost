@@ -315,6 +315,255 @@ def test_redeploy():
     print("  Content updated ✓")
 
 
+def test_deploy_image():
+    print("\n--- Test: deploy image-runtime project (nginx) ---")
+    manifest = {
+        "name": "test-image",
+        "runtime": "image",
+        "image": "nginx:alpine",
+        "image_port": 80,
+    }
+    resp = api_post("/projects", json=manifest)
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    project = resp.json()
+    assert project["runtime"] == "image"
+    assert project["image"] == "nginx:alpine"
+    assert project["image_port"] == 80
+    assert project["image_digest"], "image_digest should be populated after pull"
+    print(f"  Deployed: image={project['image']} digest={project['image_digest'][:19]}")
+
+
+def test_ingress_image():
+    print("\n--- Test: image-runtime ingress (nginx serves /) ---")
+    for _ in range(20):
+        resp = requests.get(f"{INGRESS}/test-image/")
+        if resp.status_code == 200:
+            break
+        time.sleep(0.5)
+    assert resp.status_code == 200, f"nginx not reachable: {resp.status_code} {resp.text[:200]}"
+    assert "nginx" in resp.text.lower() or "<html" in resp.text.lower()
+    print(f"  nginx served {len(resp.text)} bytes ✓")
+    expected = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
+    result = subprocess.run(
+        ["docker", "inspect", "tee-image-test-image-dev",
+         "--format", "{{.HostConfig.Runtime}}"],
+        capture_output=True, text=True, check=True)
+    actual = result.stdout.strip()
+    if expected:
+        assert actual == expected, f"Expected runtime={expected}, got {actual!r}"
+    else:
+        assert actual in ("", "runc"), f"Expected default runtime, got {actual!r}"
+    print(f"  Image container runtime={actual or 'default'} ✓")
+
+
+def test_env_passthrough():
+    print("\n--- Test: image-runtime env_passthrough (hermes-shape secret flow) ---")
+    manifest = {
+        "name": "test-passthru",
+        "runtime": "image",
+        "image": "nginx:alpine",
+        "image_port": 80,
+        "env_passthrough": ["TEE_TEST_SECRET"],
+    }
+    resp = api_post("/projects", json=manifest)
+    assert resp.status_code == 201, f"Deploy failed: {resp.text}"
+    body = resp.json()
+    assert body["env_passthrough"] == ["TEE_TEST_SECRET"]
+    secret_val = os.environ.get("TEE_TEST_SECRET", "")
+    if secret_val:
+        assert secret_val not in json.dumps(body), "secret value leaked into project json"
+
+    cname = "tee-image-test-passthru-dev"
+    result = subprocess.run(
+        ["docker", "inspect", cname, "--format",
+         "{{range .Config.Env}}{{println .}}{{end}}"],
+        capture_output=True, text=True, check=True)
+    env_lines = result.stdout.strip().split("\n")
+    expected_val = os.environ.get("TEE_TEST_SECRET", "")
+    if expected_val:
+        assert any(line == f"TEE_TEST_SECRET={expected_val}" for line in env_lines), \
+            f"passthrough secret not in container env: {env_lines}"
+        print(f"  Container saw TEE_TEST_SECRET={expected_val} via passthrough ✓")
+    else:
+        assert not any(line.startswith("TEE_TEST_SECRET=") for line in env_lines), \
+            "should not be set when daemon env lacks the var"
+        print("  Daemon had no TEE_TEST_SECRET; container correctly missing it ✓")
+    api_delete("/projects/test-passthru")
+
+
+def test_image_redeploy():
+    print("\n--- Test: image-runtime redeploy preserves manifest ---")
+    manifest = {
+        "name": "test-redeploy-img",
+        "runtime": "image",
+        "image": "nginx:alpine",
+        "image_port": 80,
+        "volumes": [{"name": "tee-test-redeploy-vol", "mount": "/usr/share/nginx/html"}],
+    }
+    subprocess.run(["docker", "volume", "rm", "-f", "tee-test-redeploy-vol"],
+                   capture_output=True)
+    resp = api_post("/projects", json=manifest)
+    assert resp.status_code == 201, f"Initial deploy failed: {resp.text}"
+    initial = resp.json()
+    assert initial["image_digest"]
+
+    resp = api_post(f"/projects/test-redeploy-img/redeploy")
+    assert resp.status_code == 200, f"Redeploy failed: {resp.status_code} {resp.text}"
+    after = resp.json()
+    assert after["runtime"] == "image"
+    assert after["image"] == "nginx:alpine"
+    assert after["image_port"] == 80
+    assert after["volumes"] == manifest["volumes"], f"volumes lost: {after.get('volumes')}"
+    assert after["image_digest"] == initial["image_digest"]
+    assert "changed" in after
+    print(f"  Redeploy preserved image, image_port, volumes ✓")
+    api_delete("/projects/test-redeploy-img")
+    subprocess.run(["docker", "volume", "rm", "-f", "tee-test-redeploy-vol"],
+                   capture_output=True)
+
+
+def test_substrate_endpoint():
+    print("\n--- Test: public /_api/substrate exposes runtime identity ---")
+    resp = requests.get(f"{API}/substrate")
+    assert resp.status_code == 200, f"unexpected: {resp.status_code} {resp.text}"
+    info = resp.json()
+    expected = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
+    assert info["container_runtime"] == expected, info
+    assert info["effective_runtime"] == (expected or "runc"), info
+    assert "shared" in info["isolation_modes"] and "container" in info["isolation_modes"]
+    assert len(info["deno_entry_shim_sha256"]) == 64
+    print(f"  effective_runtime={info['effective_runtime']} shim_sha={info['deno_entry_shim_sha256'][:12]} ✓")
+
+
+def test_per_project_isolation():
+    print("\n--- Test: two deno projects with isolation=container can't see each other ---")
+    repo_a = create_test_repo("test-iso-a", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container",
+                                    "listen": {"port": 8080, "protocol": "http"},
+                                    "env": {"SECRET": "alpha-only"}}).encode(),
+        "server.ts": b"""
+export default async (req: Request, ctx: {env: Record<string,string>}) => {
+  const url = new URL(req.url);
+  if (url.pathname === "/me") {
+    return new Response(JSON.stringify({who: "A", secret: ctx.env.SECRET || ""}),
+      {headers: {"content-type": "application/json"}});
+  }
+  if (url.pathname === "/probe") {
+    let canReadB = false;
+    try {
+      await Deno.readTextFile("/files/../test-iso-b/files/server.ts");
+      canReadB = true;
+    } catch (_e) {}
+    return new Response(JSON.stringify({canReadB}),
+      {headers: {"content-type": "application/json"}});
+  }
+  return new Response("ok");
+};
+""",
+    })
+    repo_b = create_test_repo("test-iso-b", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container",
+                                    "listen": {"port": 8080, "protocol": "http"},
+                                    "env": {"SECRET": "beta-only"}}).encode(),
+        "server.ts": b"""
+export default (req: Request, ctx: {env: Record<string,string>}) => {
+  return new Response(JSON.stringify({who: "B", secret: ctx.env.SECRET || ""}),
+    {headers: {"content-type": "application/json"}});
+};
+""",
+    })
+    resp = api_post("/projects", json={"name": "test-iso-a", "source": repo_a})
+    assert resp.status_code == 201, f"A deploy failed: {resp.text}"
+    resp = api_post("/projects", json={"name": "test-iso-b", "source": repo_b})
+    assert resp.status_code == 201, f"B deploy failed: {resp.text}"
+
+    for _ in range(20):
+        a = requests.get(f"{INGRESS}/test-iso-a/me")
+        b = requests.get(f"{INGRESS}/test-iso-b/me")
+        if a.status_code == 200 and b.status_code == 200:
+            break
+        time.sleep(0.5)
+    a_data = a.json()
+    b_data = b.json()
+    assert a_data == {"who": "A", "secret": "alpha-only"}, a_data
+    assert b_data == {"who": "B", "secret": "beta-only"}, b_data
+    print(f"  A serves its own secret, B serves its own secret ✓")
+
+    probe = requests.get(f"{INGRESS}/test-iso-a/probe").json()
+    assert probe["canReadB"] is False, f"A should not be able to read B's files: {probe}"
+    print("  A cannot read B's files (Deno --allow-read scoped) ✓")
+
+    for who in ("test-iso-a", "test-iso-b"):
+        cname = f"tee-isolated-{who}-dev"
+        result = subprocess.run(
+            ["docker", "inspect", cname, "--format", "{{.HostConfig.Runtime}}"],
+            capture_output=True, text=True, check=True)
+        actual = result.stdout.strip()
+        expected = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
+        if expected:
+            assert actual == expected, f"{cname} runtime={actual!r}, want {expected}"
+    print("  Both isolated containers under sysbox-runc (when configured) ✓")
+
+    api_delete("/projects/test-iso-a")
+    api_delete("/projects/test-iso-b")
+
+
+def test_volume_adoption():
+    print("\n--- Test: image-runtime adopts an existing named volume ---")
+    vol = "tee-test-adopt-vol"
+    subprocess.run(["docker", "volume", "rm", "-f", vol], capture_output=True)
+    subprocess.run(
+        ["docker", "volume", "create", vol], capture_output=True, check=True)
+    seed_html = b"<html><body>from-volume</body></html>"
+    subprocess.run([
+        "docker", "run", "--rm", "-v", f"{vol}:/d", "alpine:latest",
+        "sh", "-c", f"printf '{seed_html.decode()}' > /d/index.html",
+    ], capture_output=True, check=True)
+
+    manifest = {
+        "name": "test-vol",
+        "runtime": "image",
+        "image": "nginx:alpine",
+        "image_port": 80,
+        "volumes": [{"name": vol, "mount": "/usr/share/nginx/html"}],
+    }
+    resp = api_post("/projects", json=manifest)
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    print(f"  Deployed test-vol with adopted volume {vol}")
+
+    for _ in range(20):
+        resp = requests.get(f"{INGRESS}/test-vol/")
+        if resp.status_code == 200 and "from-volume" in resp.text:
+            break
+        time.sleep(0.5)
+    assert resp.status_code == 200, f"served wrong status: {resp.status_code}"
+    assert "from-volume" in resp.text, f"adopted volume content not served: {resp.text[:200]}"
+    print("  Adopted volume content served by nginx ✓")
+
+    api_delete("/projects/test-vol")
+    inspect = subprocess.run(
+        ["docker", "volume", "inspect", vol], capture_output=True, text=True)
+    assert inspect.returncode == 0, "volume must survive project teardown"
+    print("  Volume survived project teardown ✓")
+    subprocess.run(["docker", "volume", "rm", "-f", vol], capture_output=True)
+
+
+def test_runtime_selection():
+    print("\n--- Test: container runtime selection ---")
+    expected = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
+    result = subprocess.run(
+        ["docker", "inspect", "tee-runtime-deno-dev",
+         "--format", "{{.HostConfig.Runtime}}"],
+        capture_output=True, text=True, check=True)
+    actual = result.stdout.strip()
+    if expected:
+        assert actual == expected, f"Expected runtime={expected}, got {actual!r}"
+        print(f"  Runtime={actual} (matches DAEMON_CONTAINER_RUNTIME) ✓")
+    else:
+        assert actual in ("", "runc"), f"Expected default runtime, got {actual!r}"
+        print(f"  Runtime={actual or 'default'} ✓")
+
+
 def test_audit_log():
     print("\n--- Test: audit log ---")
     resp = api_get("/audit")
@@ -341,10 +590,10 @@ def test_list_projects():
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-deno", "test-auto", "test-tarball"]:
+    for name in ["test-static", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-redeploy-img"]:
         resp = api_delete(f"/projects/{name}")
-        assert resp.status_code == 200
-        print(f"  Torn down: {name}")
+        if resp.status_code == 200:
+            print(f"  Torn down: {name}")
     resp = api_get("/projects")
     assert resp.json() == []
     print("  All projects removed ✓")
@@ -361,6 +610,14 @@ def main():
         test_playwright_static()
         test_deploy_deno()
         test_ingress_deno()
+        test_runtime_selection()
+        test_deploy_image()
+        test_ingress_image()
+        test_volume_adoption()
+        test_per_project_isolation()
+        test_env_passthrough()
+        test_image_redeploy()
+        test_substrate_endpoint()
         test_autodetect()
         test_deploy_multipart_static()
         test_deploy_multipart_missing_files()

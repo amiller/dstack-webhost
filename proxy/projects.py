@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 from dataclasses import dataclass, asdict, field
+from typing import List
 from typing import Optional
 
 
@@ -29,6 +30,11 @@ class Project:
     commit_sha: str = ""
     tree_hash: str = ""
     listen: Optional[ListenConfig] = None
+    image: str = ""
+    image_port: int = 0
+    volumes: List[dict] = field(default_factory=list)
+    isolation: str = "shared"
+    env_passthrough: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         if self.env is None:

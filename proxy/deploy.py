@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 NETWORK_DEV = "tee-apps-dev"
 NETWORK_ATTESTED = "tee-apps-attested"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-VALID_RUNTIMES = set(RUNTIME_CONFIG.keys()) | {"static", "dockerfile"}
+VALID_RUNTIMES = set(RUNTIME_CONFIG.keys()) | {"static", "dockerfile", "image"}
 
 DEFAULT_ENTRY = {
     "deno": "server.ts", "bun": "index.ts", "node": "index.js",
@@ -156,6 +156,9 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     if not name or not NAME_RE.match(name):
         raise ValueError(f"Invalid project name: {name!r}")
 
+    if manifest.get("runtime") == "image":
+        return await _deploy_image(store, audit_manager, rtm, manifest)
+
     files_dir = store.files_dir(name)
     git_tree_sha = ""
     if files_data is not None:
@@ -175,6 +178,9 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     if mode not in ("dev", "attested"):
         mode = "dev"
     env_vars = {**repo_manifest.get("env", {}), **manifest.get("env", {})}
+    isolation = manifest.get("isolation") or repo_manifest.get("isolation", "shared")
+    if isolation not in ("shared", "container"):
+        isolation = "shared"
 
     # Parse listen configuration with defaults
     listen_manifest = manifest.get("listen") or repo_manifest.get("listen")
@@ -219,14 +225,16 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         name=name, runtime=runtime, entry=entry, port=port, mode=mode,
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         source=source, ref=ref, commit_sha=commit_sha, tree_hash=tree_hash,
-        listen=listen_config,
+        listen=listen_config, isolation=isolation,
     )
     store.save(project)
 
-    if runtime not in ("static", "dockerfile"):
-        await rtm.refresh(runtime)
-
-    digest = await docker.image_digest(image) if config else ""
+    if isolation == "container" and runtime in ("deno", "bun"):
+        digest = await rtm.start_isolated(project)
+    else:
+        if runtime not in ("static", "dockerfile"):
+            await rtm.refresh(runtime)
+        digest = await docker.image_digest(image) if config else ""
     project.image_digest = digest
     store.save(project)
 
@@ -239,6 +247,57 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
                                "commit": commit_sha, "tree_hash": tree_hash})))
 
     log.info("Deployed %s from %s@%s (%s)", name, source, ref or "HEAD", commit_sha[:12])
+    return project
+
+
+async def _deploy_image(store: ProjectStore, audit_manager,
+                        rtm: RuntimeManager, manifest: dict) -> Project:
+    name = manifest["name"]
+    image = manifest.get("image", "")
+    image_port = int(manifest.get("image_port", 0))
+    if not image:
+        raise ValueError("runtime=image requires 'image' field")
+    if not image_port:
+        raise ValueError("runtime=image requires 'image_port' field")
+
+    mode = manifest.get("mode", "dev")
+    if mode not in ("dev", "attested"):
+        mode = "dev"
+    env_vars = manifest.get("env", {})
+
+    listen_manifest = manifest.get("listen") or {}
+    listen_port = int(listen_manifest.get("port", 8080)) or 8080
+    listen_protocol = listen_manifest.get("protocol", "http") or "http"
+    listen_config = ListenConfig(port=listen_port, protocol=listen_protocol)
+
+    if listen_port != 8080:
+        for existing in store.list():
+            if existing.name != name and existing.listen and existing.listen.port == listen_port:
+                raise ValueError(
+                    f"Port conflict: project '{name}' cannot bind to port {listen_port} "
+                    f"because it is already in use by project '{existing.name}'")
+
+    volumes = manifest.get("volumes", []) or []
+    env_passthrough = manifest.get("env_passthrough", []) or []
+    project = Project(
+        name=name, runtime="image", entry="", port=0, mode=mode,
+        env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
+        image=image, image_port=image_port, volumes=volumes,
+        env_passthrough=env_passthrough, listen=listen_config,
+    )
+    store.save(project)
+
+    digest = await rtm.start_image(project)
+    project.image_digest = digest
+    store.save(project)
+
+    if mode == "attested":
+        audit = audit_manager.get_audit_log(name)
+        await audit.record(AuditEntry(
+            timestamp=time.time(), action="deploy", image=image, image_digest=digest,
+            detail=json.dumps({"name": name, "image": image, "image_port": image_port})))
+
+    log.info("Deployed image project %s from %s (digest %s)", name, image, digest[:19])
     return project
 
 
@@ -255,7 +314,11 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
 
     store.delete(name)
 
-    if project.runtime not in ("static", "dockerfile"):
+    if project.runtime == "image":
+        await rtm.stop_image(name)
+    elif project.isolation == "container" and project.runtime in ("deno", "bun"):
+        await rtm.stop_isolated(name)
+    elif project.runtime not in ("static", "dockerfile"):
         await rtm.refresh(project.runtime)
 
     log.info("Torn down %s", name)
