@@ -1,0 +1,7 @@
+{
+  "runtime": "deno",
+  "entry": "server.ts",
+  "isolation": "container",
+  "listen": {"port": 8080, "protocol": "http"},
+  "env": {"VAULT_SECRET": "deadbeef"}
+}

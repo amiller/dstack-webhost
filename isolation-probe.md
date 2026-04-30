@@ -104,6 +104,61 @@ Bandwidth is low (loadavg updates over seconds), but the channel is structurally
 
 This is the strongest concrete reason to prefer runsc on this substrate that surfaced during the comparison work — the kernel-CVE argument was structural but abstract; this is a demonstrable cross-tenant information leak that flipping the runtime literally closes. (Higher-bandwidth channels — cache timing, memory pressure modulation — are harder to characterise and likely remain to some degree under any runtime when tenants share physical hardware.)
 
+## Disguised leaker: a leak runtime isolation does not close
+
+The `/proc` covert channel above is closed by switching runtimes. The harder threat — and the more honest one — is a tenant whose source review *passes*, whose attestation chain *holds*, but which leaks the very thing it claims to protect via a side channel the substrate cannot see. That's the rug-pull case: the relying party reads the source, accepts the attestation, and is wrong.
+
+The simplest demonstration of the class, deployed live on hermes-staging at `/vault/` (under `runsc` + `isolation: container` — the strongest substrate config we have):
+
+```ts
+// vault — a credential gate. Holds a secret token; only callers who present
+// the matching token via /check?t=<token> get a positive response.
+function check(candidate: string, SECRET: string): boolean {
+  if (candidate.length !== SECRET.length) return false;
+  let ok = true;
+  for (let i = 0; i < SECRET.length; i++) {
+    if (candidate[i] !== SECRET[i]) {
+      ok = false;
+    } else {
+      // jitter to harden against timing
+      const end = performance.now() + 50;
+      while (performance.now() < end) { /* spin */ }
+    }
+  }
+  return ok;
+}
+```
+
+The author's intent reads as "iterate fully so we don't short-circuit, add per-byte work to throw off timing analysis." The actual effect is that response time grows linearly in the matching prefix length: each correctly-guessed byte costs an extra ~50 ms of wall clock. From the public internet, with 10 timing samples per candidate per position, an attacker recovers the secret byte-by-byte:
+
+```
+target: https://...phala.network/vault/  length: 8  samples/byte: 10
+  pos 0: 'd'  (best=410.6ms  runner-up=378.6ms  gap=32.00ms)  so far: 'd'
+  pos 1: 'e'  (best=449.1ms  runner-up=443.6ms  gap= 5.51ms)  so far: 'de'
+  pos 2: 'a'  (best=511.9ms  runner-up=487.9ms  gap=24.00ms)  so far: 'dea'
+  pos 3: 'd'  (best=603.3ms  runner-up=565.1ms  gap=38.16ms)  so far: 'dead'
+  pos 4: 'b'  (best=614.9ms  runner-up=614.4ms  gap= 0.54ms)  so far: 'deadb'
+  pos 5: 'e'  (best=717.9ms  runner-up=655.4ms  gap=62.49ms)  so far: 'deadbe'
+  pos 6: 'e'  (best=717.9ms  runner-up=716.9ms  gap= 1.01ms)  so far: 'deadbee'
+  pos 7: 'f'  (best=818.5ms  runner-up=774.3ms  gap=44.23ms)  so far: 'deadbeef'
+
+recovered: 'deadbeef'  in 983.2s
+```
+
+Source for the project and the attack: [`apps/timing-leak-demo/`](https://github.com/amiller/dstack-webhost/tree/main/apps/timing-leak-demo). The substrate is doing its job — runsc mediates syscalls, per-project networks isolate the tenant, the daemon never sees the secret. The leak is *inside the project's own response time*, public to anyone with `curl`.
+
+### Why this matters and what's actually realistic
+
+The "jitter to harden" loop in this demo is contrived — a timing-aware reviewer would catch it on the second read. The honest version is when the leak falls out of a normal cryptographic primitive without any fishy flag in the source:
+
+- **Textbook RSA's `m^d mod n` via square-and-multiply**: one squaring per bit of `d` plus one extra multiplication per *set* bit. Total signing time leaks Hamming weight of the private exponent; Kocher-style chosen-message attacks recover individual bits.
+- **ECDSA scalar multiplication via double-and-add**: each signature leaks bits of that signature's `k`. Lattice attacks combine `(r, s, leaked_k_bits)` triples from many signatures into the private key. Real ECDSA implementations have been broken this way more than once.
+- **AES via T-table lookups**: cache-line timing leaks key bits. Bernstein 2005, OpenSSL's CVE-2016-2107 lineage.
+
+The takeaway is the same in all cases: the leak is in code that looks correct to source review, the attestation chain holds, and the substrate's runtime layer cannot see it. Closing it is *application-layer* work — constant-time primitives in the project's code, audits with timing-attack literacy, ideally automated timing-property tests.
+
+A follow-up demo with one of the above (probably textbook RSA — Hamming-weight recovery is the cleanest concrete signal to land in a docs page) is on the list. The current vault is the warmup that establishes the class.
+
 ## Known limitation: gVisor + Docker embedded DNS
 
 When the substrate runs under `runsc`, tenants that need outbound DNS resolution can hit a real interaction bug between gVisor's sandbox network stack and Docker's embedded DNS resolver at `127.0.0.11`. Docker forces `nameserver 127.0.0.11` into `/etc/resolv.conf` for any container on a user-defined bridge network (which is most of them, including the per-project `tee-proj-<name>-<mode>` networks the substrate creates). gVisor's own netstack doesn't route to that address. Result: DNS lookups return "Connection refused" even though the host's actual resolver is reachable.
