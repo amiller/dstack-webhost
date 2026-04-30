@@ -1,0 +1,71 @@
+---
+layout: default
+---
+
+# Isolation probe
+
+A multi-tenant TEE makes a strong claim — *your code ran here, the others' code can't tamper with yours* — but the TEE attestation only covers what code is running. It does not by itself say what's keeping co-tenants from each other's secrets and files. That's a job for the OCI runtime that brings up tenant containers.
+
+dstack-webhost runs every tenant under a runtime the substrate selects, and exposes the choice publicly at [`/_api/substrate`](https://github.com/amiller/dstack-webhost/blob/main/proxy/ingress.py). A relying party who wants to check the claim can deploy a tiny tenant whose only job is to expose its own kernel-namespace view, and then compare:
+
+- **What the substrate says** — the daemon's stated runtime (e.g. `sysbox-runc`).
+- **What the tenant sees** — the container's own `/proc/self/uid_map`, `user_ns`, etc.
+
+A malicious substrate can lie in `/_api/substrate`, but it cannot forge the tenant's own `/proc`. That's the corroboration loop the probe demonstrates.
+
+## Live demo
+
+The probe is deployed as a [Layer-1 tenant](rfcs/0001-platform-vision.md) on hermes-staging:
+
+→ **[hermes-staging.dstack-pha-prod7.phala.network/probe/](https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/probe/)**
+
+The page fetches `/_api/substrate` and the tenant's own `/api/probe`, then renders a verdict. Source: [`apps/isolation-probe/`](https://github.com/amiller/dstack-webhost/tree/main/apps/isolation-probe).
+
+## What the verdict means
+
+`uid_map` is the signature. Under `sysbox-runc`, root inside the container (UID 0) is mapped to a non-root UID on the host — an active user-namespace remap. Plain `runc` shows the trivial mapping `0 0 4294967295`: root inside is root outside.
+
+```
+sysbox-runc:   "0     231072      65536"     ← shifted, ns boundary active
+runc default:  "0          0 4294967295"      ← trivial, no remap
+```
+
+The probe's verdict is "consistent" when the substrate's claim and the tenant's `uid_map` agree on which regime is in force.
+
+## Why sysbox-runc and not gVisor
+
+[gVisor](https://gvisor.dev/) is the stronger answer: a userspace kernel intercepts syscalls, so the host kernel's attack surface visible to the tenant shrinks from ~330 syscalls to ~50. It addresses kernel-CVE-based escape as a class — sysbox does not.
+
+The constraint inside Phala dstack: nested KVM is not exposed in the TDX CVM, so gVisor's KVM platform is unavailable. The ptrace/systrap platform works but the runsc binary would have to ship in the dstack base image to be attestation-safe — running an untrusted binary downloaded at runtime defeats the purpose. That's a coordinated change with the dstack team.
+
+`sysbox-runc` is registered as a Docker runtime on stock dstack today. It's a hardened `runc` (automatic user-namespace remap, virtualised `/proc` and `/sys`, scoped capabilities) — meaningfully better than plain runc against namespace/capability escapes, weaker than gVisor against kernel CVEs. It's the isolation layer that's deployable now without changing the base image.
+
+## Trying it on your own CVM
+
+```bash
+# Build & push (or use the published image)
+cd apps/isolation-probe
+docker build -t ghcr.io/<you>/tee-isolation-probe:v1 .
+docker push ghcr.io/<you>/tee-isolation-probe:v1
+
+# Make sure the substrate is configured for sysbox-runc:
+#   environment:
+#     - DAEMON_CONTAINER_RUNTIME=sysbox-runc
+
+# Deploy as a tenant:
+curl -X POST https://<cvm>/_api/projects \
+  -H "Authorization: Bearer $TEE_DAEMON_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"probe","runtime":"image",
+       "image":"ghcr.io/<you>/tee-isolation-probe@sha256:...",
+       "image_port":8000}'
+
+# Visit
+open https://<cvm>/probe/
+```
+
+## Related
+
+- [Substrate endpoint](https://github.com/amiller/dstack-webhost/blob/main/proxy/ingress.py) — what the daemon exposes about its runtime configuration
+- [Platform vision (RFC 0001)](rfcs/0001-platform-vision.md) — Layer 1 vs Layer 2, attestation vs isolation
+- [Verifier skill](verify-skill.md) — agent-runnable audit of a deployed project

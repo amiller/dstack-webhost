@@ -19,6 +19,7 @@ A function running inside a Phala dstack TEE can answer the question. The platfo
 
 - **Prompt receipts.** Call a model provider through a TEE function and emit the response together with a signed record of the exact prompt and response.
 - **Timelock encryption.** Hold an encrypted message and only release the key after a deadline. The TEE seals the key; a quorum of clocks gates the release. A working demo runs on hermes-staging.
+- **Multi-tenant isolation, verifiable.** Two tenants of the same CVM, sandboxed from each other under `sysbox-runc`. A small probe app exposes its own kernel-namespace view so a relying party can corroborate the substrate's runtime claim from inside one tenant — covered on [the isolation probe page](isolation-probe.md).
 - **ZK-TLS credentials.** Run an attested TLS session against a website where you have an account; emit a sealed claim the recipient can verify without seeing your password.
 - **Document gateways.** Take a document, run it through "standard rental-agreement-template-v3", return a signed parse. The packet's identity is its source hash, so the recipient trusts the published version rather than reading every byte of your custom code.
 
@@ -51,6 +52,7 @@ The substance lives in the RFC log. Issues there track the work in flight.
 - [Developer guide](DEVELOPER_GUIDE.md) — deploying a project
 - [Audit guide](audit.md) — auditing a deployed project, agent-runnable
 - [Verifier skill](verify-skill.md) — for an agent handed just a URL: walk the chain, produce a verdict
+- [Isolation probe](isolation-probe.md) — a sample tenant that corroborates the substrate's OCI-runtime claim from inside one container
 - [GitHub repo](https://github.com/amiller/dstack-webhost)
 
 Open a [GitHub issue](https://github.com/amiller/dstack-webhost/issues). Most of the design is still up for revision.

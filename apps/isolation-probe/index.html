@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Isolation probe — dstack-webhost</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 2em auto; padding: 0 1em; line-height: 1.5; color: #222; }
+  h1, h2 { line-height: 1.2; }
+  h2 { margin-top: 1.6em; }
+  pre { background: #f4f4f4; padding: 1em; overflow-x: auto; border-radius: 4px; font-size: 13px; }
+  code { background: #f4f4f4; padding: 0 4px; border-radius: 3px; }
+  .signal { padding: 0.7em 1em; border-radius: 4px; margin: 1em 0; font-weight: 500; }
+  .ok { background: #d8f0d4; }
+  .info { background: #e0e8f0; }
+  .warn { background: #f5e2c8; }
+  small { color: #666; }
+  ul li { margin: 0.4em 0; }
+</style>
+</head>
+<body>
+<h1>Isolation probe</h1>
+
+<p>This page is served by an ordinary tenant of <a href="https://amiller.github.io/dstack-webhost">dstack-webhost</a>. Its job is to expose kernel-namespace evidence about itself so a relying party can corroborate — independently — what the substrate claims about which OCI runtime is mediating tenant syscalls inside the CVM.</p>
+
+<p>The substrate is the small daemon that brings up tenant containers. It claims a runtime via <a href="/_api/substrate"><code>/_api/substrate</code></a>. This page fetches that claim and the tenant's own <code>/proc</code>, then checks the two against each other.</p>
+
+<h2>Substrate claim</h2>
+<pre id="substrate">loading…</pre>
+
+<h2>Tenant evidence</h2>
+<pre id="probe">loading…</pre>
+
+<div id="verdict"></div>
+
+<h2>How to read this</h2>
+<ul>
+<li><strong><code>uid_map</code></strong> — under <code>sysbox-runc</code>, root inside the container (UID&nbsp;0) is mapped to a non-root UID on the host (e.g. <code>0 296608 65536</code> = container UIDs 0–65535 → host UIDs 296608+). Plain <code>runc</code> shows <code>0 0 4294967295</code> — root inside is root outside. The shifted form is the signature of an active user-namespace remap.</li>
+<li><strong><code>user_ns</code> / <code>pid_ns</code> / <code>mount_ns</code></strong> — namespace identities. Distinct values from the host = real namespace boundaries.</li>
+<li><strong><code>effective_runtime</code></strong> on the substrate — the daemon's stated choice of OCI runtime for tenants. This page corroborates that choice from inside one tenant; a malicious substrate could lie in <code>/_api/substrate</code> but cannot fake the tenant's own kernel-namespace view.</li>
+</ul>
+
+<h2>Why this matters</h2>
+<p>A multi-tenant TEE makes a strong claim — "your code ran here, others' code can't tamper with yours" — but that claim is only as good as the isolation between co-tenants. The TEE attestation says what code is running; it does not by itself say what's keeping co-tenants from each other's secrets and files. That's an OCI-runtime job.</p>
+
+<p>Two relevant runtimes: <a href="https://github.com/nestybox/sysbox"><code>sysbox-runc</code></a> hardens the existing kernel boundary (user-namespace remap, virtualised <code>/proc</code> and <code>/sys</code>, scoped capabilities). <a href="https://gvisor.dev/"><code>gVisor</code></a> goes further: a userspace kernel mediates syscalls so most kernel CVEs are unreachable. gVisor is stronger, but on Phala dstack TDX CVMs nested KVM isn't exposed, so gVisor would have to ship in the dstack base image (a coordinated change). <code>sysbox-runc</code> is registered as a Docker runtime on stock dstack today, so it's the isolation layer that's deployable now without changing the base image.</p>
+
+<p><a href="https://github.com/amiller/dstack-webhost/tree/main/apps/isolation-probe">Source for this probe.</a></p>
+
+<script>
+(async () => {
+  const fmt = (x) => JSON.stringify(x, null, 2);
+  let sub = null, p = null;
+  try {
+    const r = await fetch("/_api/substrate", {cache: "no-store"});
+    sub = await r.json();
+    document.getElementById("substrate").textContent = fmt(sub);
+  } catch (e) {
+    document.getElementById("substrate").textContent = "error: " + e.message;
+  }
+  try {
+    const r = await fetch("./api/probe", {cache: "no-store"});
+    p = await r.json();
+    document.getElementById("probe").textContent = fmt(p);
+  } catch (e) {
+    document.getElementById("probe").textContent = "error: " + e.message;
+  }
+
+  const verdict = document.getElementById("verdict");
+  if (!sub || !p) {
+    verdict.innerHTML = '<div class="signal warn">Could not gather both signals. Check the raw responses above.</div>';
+    return;
+  }
+  const uidMap = (p.uid_map || "").trim();
+  const trivial = uidMap.startsWith("0") && /\s+0\s+(4294967295|1[0-9]{8,})/.test(uidMap);
+  const isShifted = uidMap.length > 0 && !trivial && !uidMap.match(/^0\s+0\s/);
+  const claimed = sub.effective_runtime || "(unset)";
+
+  if (claimed === "sysbox-runc" && isShifted) {
+    verdict.innerHTML = '<div class="signal ok">✓ Substrate claims <code>sysbox-runc</code>, and the tenant\'s <code>uid_map</code> is shifted — consistent with an active user-namespace remap.</div>';
+  } else if (claimed === "runc" && !isShifted) {
+    verdict.innerHTML = '<div class="signal info">Substrate is on default <code>runc</code>. Tenant\'s <code>uid_map</code> is the trivial mapping — also consistent. No tenant-vs-tenant hardening from the runtime layer; only docker namespaces and seccomp.</div>';
+  } else {
+    verdict.innerHTML = '<div class="signal warn">Mixed signals: substrate claim <code>' + claimed + '</code> vs <code>uid_map</code> = <code>' + (uidMap || '(empty)') + '</code>. Worth investigating.</div>';
+  }
+})();
+</script>
+</body>
+</html>
