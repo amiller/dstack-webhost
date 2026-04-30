@@ -78,6 +78,19 @@ The runtime-choice implication:
 - **`runsc`** is an *opt-in upgrade* when the threat model justifies ~20% throughput and ~2× p99 tail for kernel-CVE resistance. It's not a free lunch.
 - Plain `runc` is no faster than sysbox-runc; there's no performance reason to prefer it on a multi-tenant TEE substrate.
 
+## Known limitation: gVisor + Docker embedded DNS
+
+When the substrate runs under `runsc`, tenants that need outbound DNS resolution can hit a real interaction bug between gVisor's sandbox network stack and Docker's embedded DNS resolver at `127.0.0.11`. Docker forces `nameserver 127.0.0.11` into `/etc/resolv.conf` for any container on a user-defined bridge network (which is most of them, including the per-project `tee-proj-<name>-<mode>` networks the substrate creates). gVisor's own netstack doesn't route to that address. Result: DNS lookups return "Connection refused" even though the host's actual resolver is reachable.
+
+`HostConfig.Dns` (the compose `dns:` field) does not fix this — it only changes the upstream resolvers Docker's embedded DNS forwards to, not the embedded DNS address Docker writes into `/etc/resolv.conf`. Workarounds for affected tenants:
+
+- Bake static IPs or known hosts into the application image instead of relying on DNS.
+- Use the application's own DNS-over-HTTPS resolver (bypasses the OS resolver entirely).
+- Run the tenant as `runtime: runc` (loses gVisor's protection but DNS works).
+- Pull the tenant out of the user-defined bridge entirely — daemon-side substrate change, not yet implemented.
+
+This affected hermes during the live runsc migration on hermes-staging; hermes is currently kept on `runc` for that reason. The isolation-probe doesn't make outbound network calls so it's not affected.
+
 ## Open attack surface
 
 What this stack does *not* address, and is worth arguing about:

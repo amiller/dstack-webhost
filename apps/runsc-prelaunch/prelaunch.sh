@@ -12,7 +12,7 @@
 set -euo pipefail
 
 RUNSC_URL="https://storage.googleapis.com/gvisor/releases/release/latest/x86_64/runsc"
-RUNSC_SHA512="9efeefada7b9a7bcc21dc3a1ad3531d11dfac267808cced45d047aab742f15ecb91b2bb635dea78a4ae36817f76e5ed223b7ad80f3165f15dd24de9b0c95726f"
+RUNSC_SHA512="9844ad2493999c579d0b4bcbde99ad3ed98e9f0ee175d87003b2e4da2e61f22efe452c378503cb911edac1b627820cb7985326e52b44dafe5d17e593d4b9095a"
 INSTALL_DIR="/dstack/persistent/bin"
 
 verify_sha512() {
