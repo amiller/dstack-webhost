@@ -125,7 +125,7 @@ The repo should provide:
   at `/.well-known/tee-attestation` or similar
 
 
-## Status (2026-04-26)
+## Status (2026-04-30)
 
 The original "Next Steps" list is mostly landed:
 
@@ -135,13 +135,18 @@ The original "Next Steps" list is mostly landed:
 - Public read-only verifier endpoints (RFC 0015) so a relying party doesn't need the admin token — done.
 - Source hash recorded as the git tree SHA so it can be checked against GitHub — done.
 - [Verifier page](../verify.md) and [audit guide](../audit.md) on the docs site — done.
+- Tenant isolation primitives: `sysbox-runc` as the daemon's configurable OCI runtime, `runtime: "image"` for Layer-1 tenants (an existing OCI image as a co-tenant, with named-volume adoption and `env_passthrough`), and opt-in `isolation: "container"` for deno/bun projects (per-project container, scoped Deno permissions). Public `/_api/substrate` exposes the runtime choice; `apps/isolation-probe` corroborates from inside one tenant. See [isolation-probe](../isolation-probe.md).
 
 The verifier page and audit guide together replace what RFC 0001 originally called the "verification page" and "agent skill." The substrate is small enough that a project audit reduces to reading the project's own handler against a known runtime contract; the audit guide is the runbook for that.
+
+**Correction to the section above on trust modes.** This RFC framed "TEE-isolated containers on a separate network" as part of attested mode, conflating attestation and isolation. The current model treats them as orthogonal: every tenant runs under the daemon's chosen OCI runtime regardless of mode (so dev tenants are also sandboxed against each other), and `isolation: "container"` is opt-in per-project independent of attestation. Promotion to attested adds a *publication* surface (source hash in the quote, public verifier endpoints, audit log) — it does not add the sandbox, because the sandbox is universal. Hermes, currently a peer service to tee-daemon in the dstack compose, is a tenant-shaped workload that bypasses tee-daemon's isolation policy; pulling it inside as a `runtime: "image"` tenant is a future migration (the substrate primitives now support it).
 
 What's still off:
 
 - **On-chain CVM anchoring.** The top link of the trust chain — Base smart contract → CVM app ID → dstack quote — isn't wired. CVMs are launched via Phala's cloud; the dstack quote is real, but operator identity (whose CVM this is) currently rides on the URL channel, not on-chain registration. The platform is effectively in "dev mode" at this layer. The [verifier skill](../verify-skill.md) is required to call this out in any verdict.
 - **Quote-parse tooling in the skill.** Even with no on-chain anchor, dstack quotes carry measurements that a relying party can parse and check against the tee-daemon image digest. The verifier skill does not wrap this yet.
+- **gVisor (`runsc`) for kernel-CVE-class isolation.** Strictly stronger than sysbox-runc against host-kernel attack surface, but out for now: Phala dstack TDX CVMs do not expose nested KVM, so gVisor's KVM platform is unavailable, and the ptrace/systrap platform would need `runsc` shipped in the dstack base image to be attestation-safe. Sysbox-runc is the deployable-now alternative — meaningful namespace/cap-escape protection, no kernel-CVE protection.
+- **Verifier coverage of image-runtime projects.** `_verify_source_code` checks `tree_hash` against GitHub; for image-runtime tenants the integrity claim is `image_digest` against a registry. Bundle JS still assumes the git path.
 - Custom domains. Apps live at `<cvm>/<project-name>/`.
 - CI/CD-triggered redeploys. Available via API; no first-party hook.
 - Multi-CVM federation. Out of scope.
