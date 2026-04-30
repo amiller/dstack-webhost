@@ -34,11 +34,13 @@
 <div id="verdict"></div>
 
 <h2>How to read this</h2>
+<p>Each OCI runtime leaves a different fingerprint inside the tenant. The substrate's <code>effective_runtime</code> claim should match the fingerprint we observe; if it doesn't, something is being misrepresented.</p>
 <ul>
-<li><strong><code>uid_map</code></strong> — under <code>sysbox-runc</code>, root inside the container (UID&nbsp;0) is mapped to a non-root UID on the host (e.g. <code>0 296608 65536</code> = container UIDs 0–65535 → host UIDs 296608+). Plain <code>runc</code> shows <code>0 0 4294967295</code> — root inside is root outside. The shifted form is the signature of an active user-namespace remap.</li>
-<li><strong><code>user_ns</code> / <code>pid_ns</code> / <code>mount_ns</code></strong> — namespace identities. Distinct values from the host = real namespace boundaries.</li>
-<li><strong><code>effective_runtime</code></strong> on the substrate — the daemon's stated choice of OCI runtime for tenants. This page corroborates that choice from inside one tenant; a malicious substrate could lie in <code>/_api/substrate</code> but cannot fake the tenant's own kernel-namespace view.</li>
+<li><strong><code>runc</code></strong> (default, no hardening) — <code>uid_map</code> = <code>0 0 4294967295</code> (trivial; root inside is root outside), <code>kernel_release</code> matches the host's actual kernel (e.g. <code>6.9.0-dstack</code>).</li>
+<li><strong><code>sysbox-runc</code></strong> (Nestybox; namespace/cap hardening) — <code>uid_map</code> is shifted (e.g. <code>0 100000 65536</code>; root inside is a non-zero UID on the host), <code>kernel_release</code> still matches the host. The shift is the signature of an active user-namespace remap.</li>
+<li><strong><code>runsc</code></strong> (gVisor; userspace kernel) — <code>uid_map</code> is trivial again, but <code>kernel_release</code> is something like <code>4.4.0</code> — gVisor's Sentry synthesises a fake kernel for the workload because Sentry <em>is</em> the kernel boundary. The fake kernel string is the signature; trivial <code>uid_map</code> alone wouldn't tell you anything.</li>
 </ul>
+<p>A malicious substrate could lie in <code>/_api/substrate</code>, but it cannot forge the tenant's own <code>/proc/self/uid_map</code> or what the kernel reports for <code>uname -a</code>.</p>
 
 <h2>Why this matters</h2>
 <p>A multi-tenant TEE makes a strong claim — "your code ran here, others' code can't tamper with yours" — but that claim is only as good as the isolation between co-tenants. The TEE attestation says what code is running; it does not by itself say what's keeping co-tenants from each other's secrets and files. That's an OCI-runtime job.</p>
@@ -72,17 +74,35 @@
     return;
   }
   const uidMap = (p.uid_map || "").trim();
-  const trivial = uidMap.startsWith("0") && /\s+0\s+(4294967295|1[0-9]{8,})/.test(uidMap);
-  const isShifted = uidMap.length > 0 && !trivial && !uidMap.match(/^0\s+0\s/);
-  const claimed = sub.effective_runtime || "(unset)";
+  const kernelRel = p.kernel_release || "";
+  const trivialMap = !!uidMap.match(/^0\s+0\s+\d+/);
+  const shiftedMap = !!uidMap.match(/^0\s+[1-9]\d*\s+\d+/);
+  // gVisor's Sentry synthesises an old kernel string (4.4.0) for the workload;
+  // that is irrefutable evidence Sentry is mediating syscalls.
+  const fakeKernel = kernelRel.match(/^4\.4\./) || kernelRel.match(/^[34]\.\d+\./);
 
-  if (claimed === "sysbox-runc" && isShifted) {
-    verdict.innerHTML = '<div class="signal ok">✓ Substrate claims <code>sysbox-runc</code>, and the tenant\'s <code>uid_map</code> is shifted — consistent with an active user-namespace remap.</div>';
-  } else if (claimed === "runc" && !isShifted) {
-    verdict.innerHTML = '<div class="signal info">Substrate is on default <code>runc</code>. Tenant\'s <code>uid_map</code> is the trivial mapping — also consistent. No tenant-vs-tenant hardening from the runtime layer; only docker namespaces and seccomp.</div>';
+  let detected = "unknown";
+  if (fakeKernel) detected = "runsc";
+  else if (shiftedMap) detected = "sysbox-runc";
+  else if (trivialMap) detected = "runc";
+
+  const claimed = sub.effective_runtime || "(unset)";
+  const matches = detected === claimed;
+
+  let cls = "warn", msg;
+  if (matches && detected === "runsc") {
+    cls = "ok";
+    msg = '✓ Substrate claims <code>runsc</code> (gVisor); tenant shows the Sentry signature — synthesised kernel <code>' + kernelRel + '</code> (not the host\'s actual kernel) and trivial <code>uid_map</code> (gVisor uses Sentry as its kernel boundary, not user namespaces).';
+  } else if (matches && detected === "sysbox-runc") {
+    cls = "ok";
+    msg = '✓ Substrate claims <code>sysbox-runc</code>; tenant shows the user-namespace-remap signature — shifted <code>uid_map</code> = <code>' + uidMap + '</code> with <code>kernel_release</code> = <code>' + kernelRel + '</code> matching the host.';
+  } else if (matches && detected === "runc") {
+    cls = "info";
+    msg = 'Substrate is on default <code>runc</code>; tenant shows the trivial mapping and host kernel. No tenant-vs-tenant hardening from the runtime layer.';
   } else {
-    verdict.innerHTML = '<div class="signal warn">Mixed signals: substrate claim <code>' + claimed + '</code> vs <code>uid_map</code> = <code>' + (uidMap || '(empty)') + '</code>. Worth investigating.</div>';
+    msg = 'Mixed signals: substrate claim <code>' + claimed + '</code>, tenant evidence suggests <code>' + detected + '</code>. <code>uid_map</code>=<code>' + (uidMap || '(empty)') + '</code>, <code>kernel_release</code>=<code>' + kernelRel + '</code>.';
   }
+  verdict.innerHTML = '<div class="signal ' + cls + '">' + msg + '</div>';
 })();
 </script>
 </body>
