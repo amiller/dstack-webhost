@@ -42,18 +42,21 @@ The OCI runtime is one layer. dstack-webhost adds three substrate-level mechanis
 
 The shared deno runtime is *intentionally co-trust*: tenants there share a V8 isolate, share `/daemon-data` rw, and share a network. That's the model — opting into the shared runtime is opting into co-trust with its peers. Strong inter-tenant isolation requires `isolation: container` or `runtime: image`.
 
-## Why sysbox-runc and not gVisor
+## Picking the runtime
 
-[gVisor](https://gvisor.dev/) is the stronger answer: a userspace kernel intercepts syscalls, so the host kernel's attack surface visible to the tenant shrinks from ~330 syscalls to ~50. It addresses kernel-CVE-based escape as a class — sysbox does not.
+The choice on this substrate is between three OCI runtimes, all of which can be made available on stock dstack:
 
-The constraint inside Phala dstack: nested KVM is not exposed in the TDX CVM, so gVisor's KVM platform is unavailable; the ptrace/systrap platform is the only viable mode (slower, but functional). `runsc` is not present on stock dstack today, but provisioning it does not require a coordinated base-image change. Two attestation-safe paths exist within the existing dstack flow:
+- **`runc`** — the default. No hardening; same syscall surface as a non-containerised process.
+- **`sysbox-runc`** — Nestybox's hardened runc. Adds automatic user-namespace remap, virtualised `/proc` and `/sys`, scoped capabilities. Already registered as a Docker runtime on stock dstack — no install step. Meaningful against namespace/capability escapes; **does not shrink the host kernel's syscall attack surface**, so kernel CVEs (`io_uring`, BPF, etc.) remain reachable.
+- **`runsc` (gVisor)** — Google's userspace kernel. Sentry intercepts syscalls; only ~50 of ~330 host syscalls are reachable from a tenant, behind a strict seccomp filter. Addresses kernel-CVE escape as a class. Not present on stock dstack, but installable via prelaunch script ([`apps/runsc-prelaunch/`](https://github.com/amiller/dstack-webhost/tree/main/apps/runsc-prelaunch)) — the script's hash is in the measured launch payload, the binary is pinned by sha512, the trust chain stays intact. (A privileged bootstrap container in the compose is a parallel attestation-safe path; not wired up because the prelaunch path was sufficient.)
 
-- **Prelaunch script.** dstack accepts a `--pre-launch-script` argument; the script's hash is part of the launch payload, hence measured. The script downloads `runsc` pinned by sha512 (verified before install), writes it to `/dstack/persistent/bin`, registers it in `/etc/docker/daemon.json`, and restarts docker. The pinned hash ties the actual bytes to the measured script. **This works:** [`apps/runsc-prelaunch/`](https://github.com/amiller/dstack-webhost/tree/main/apps/runsc-prelaunch) is the script we tested. A throwaway dstack CVM provisioned with it ran `docker run --runtime=runsc alpine uname -a` and reported gVisor's synthesised kernel `Linux 4.4.0 #1 SMP Sun Jan 10 15:06:54 PST 2016` instead of the host's `6.9.0-dstack` — Sentry is mediating syscalls.
-- **Privileged bootstrap container.** A short-lived container in the compose with `privileged: true` and the host filesystem mounted, whose image bakes the `runsc` binary in directly. The image digest is in the compose, so it's measured by dstack; the binary that lands on the host is fixed by the digest. Same shape as the existing `ssh-debug` sidecar. *Not wired up; the prelaunch path was sufficient for the demo.*
+For nested KVM (which would let gVisor use its faster KVM platform): not exposed in dstack TDX. The ptrace/systrap platform is what we use, with the perf cost measured below.
 
-What's still on the work list: measure ptrace/systrap performance against the workloads we run, decide whether `DAEMON_CONTAINER_RUNTIME=runsc` should be the operator switch on hermes-staging (sysbox-runc is fine for the present substrate; runsc is the next-tier upgrade for kernel-CVE protection).
+## Recommendation
 
-`sysbox-runc`, meanwhile, is already registered as a Docker runtime on stock dstack and needs nothing installed. It's a hardened `runc` (automatic user-namespace remap, virtualised `/proc` and `/sys`, scoped capabilities) — meaningfully better than plain runc against namespace/capability escapes, weaker than gVisor against kernel CVEs. It's the isolation layer that's *running today* on this CVM; gVisor is the next, more ambitious step.
+**`runsc` (gVisor) is the recommended runtime for this substrate.** Attestation is the product; the relying-party threat model genuinely values kernel-CVE resistance, which is the only thing `runsc` adds and `sysbox-runc` does not. The perf cost is ~20% throughput and ~2× p99 tail on a 1-vCPU CVM (see below) — tolerable for the small handlers and Layer-1 image apps this substrate hosts. **`sysbox-runc` is the right fallback** for tenants whose workloads can't accept that perf hit (a database under load, a latency-critical endpoint). **Plain `runc` has no place** on a multi-tenant TEE substrate when sysbox-runc is right there at zero cost.
+
+This was a working assumption the substrate started under (`DAEMON_CONTAINER_RUNTIME=sysbox-runc` is what hermes-staging runs today); the comparison below is the data that turned it from "deferred until we measure" into a real recommendation.
 
 ## Measured perf cost
 
