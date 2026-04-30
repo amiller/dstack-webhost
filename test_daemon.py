@@ -391,6 +391,96 @@ def test_env_passthrough():
     api_delete("/projects/test-passthru")
 
 
+def test_per_project_network_isolation():
+    print("\n--- Test: image-runtime tenants on separate networks ---")
+    for n in ("net-a", "net-b"):
+        api_post("/projects", json={
+            "name": n, "runtime": "image",
+            "image": "nginx:alpine", "image_port": 80,
+        })
+    cid_a = subprocess.run(
+        ["docker", "inspect", "tee-image-net-a-dev", "--format", "{{.Id}}"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    nets_a = subprocess.run(
+        ["docker", "inspect", cid_a, "--format",
+         "{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}"],
+        capture_output=True, text=True, check=True).stdout.strip().split()
+    nets_b = subprocess.run(
+        ["docker", "inspect", "tee-image-net-b-dev", "--format",
+         "{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}"],
+        capture_output=True, text=True, check=True).stdout.strip().split()
+    assert "tee-proj-net-a-dev" in nets_a, nets_a
+    assert "tee-proj-net-b-dev" in nets_b, nets_b
+    assert set(nets_a).isdisjoint(set(nets_b)), \
+        f"a and b share a network: {set(nets_a) & set(nets_b)}"
+    print(f"  net-a on {nets_a}; net-b on {nets_b}; disjoint ✓")
+
+    # Try to reach B from inside A's container — should fail
+    b_ip = subprocess.run(
+        ["docker", "inspect", "tee-image-net-b-dev", "--format",
+         "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}"],
+        capture_output=True, text=True, check=True).stdout.strip().split()[0]
+    probe = subprocess.run([
+        "docker", "exec", "tee-image-net-a-dev",
+        "wget", "-q", "-T", "2", "-O-", f"http://{b_ip}/",
+    ], capture_output=True, text=True)
+    assert probe.returncode != 0, \
+        f"net-a should NOT reach net-b directly, but got: {probe.stdout[:200]}"
+    print(f"  wget from a -> b ip {b_ip} blocked (rc={probe.returncode}) ✓")
+
+    api_delete("/projects/net-a")
+    api_delete("/projects/net-b")
+
+
+def test_isolated_per_project_data_volume():
+    print("\n--- Test: isolation:container gets a per-project data volume ---")
+    repo = create_test_repo("data-iso", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container",
+                                    "listen": {"port": 8080, "protocol": "http"}}).encode(),
+        "server.ts": b"""
+export default async (req: Request, ctx: {env: Record<string,string>; dataDir: string}) => {
+  const url = new URL(req.url);
+  if (url.pathname === "/list-data") {
+    let entries: string[] = [];
+    let parentEntries: string[] = [];
+    let canReadParent = false;
+    try { for await (const e of Deno.readDir(ctx.dataDir)) entries.push(e.name); } catch {}
+    try {
+      for await (const e of Deno.readDir(ctx.dataDir + "/..")) parentEntries.push(e.name);
+      canReadParent = true;
+    } catch {}
+    return new Response(JSON.stringify({dataDir: ctx.dataDir, entries, canReadParent, parentEntries}),
+      {headers: {"content-type": "application/json"}});
+  }
+  return new Response("ok");
+};
+""",
+    })
+    resp = api_post("/projects", json={"name": "data-iso", "source": repo})
+    assert resp.status_code == 201, resp.text
+
+    for _ in range(20):
+        r = requests.get(f"{INGRESS}/data-iso/list-data")
+        if r.status_code == 200:
+            break
+        time.sleep(0.5)
+    info = r.json()
+    assert info["dataDir"] == "/data", info
+    assert info["canReadParent"] is False or info["parentEntries"] == [], \
+        f"isolated tenant must not see siblings via parent dir: {info}"
+    print(f"  dataDir={info['dataDir']}, parent unreadable ✓")
+
+    vol_check = subprocess.run(
+        ["docker", "volume", "inspect", "tee-projdata-data-iso"],
+        capture_output=True, text=True)
+    assert vol_check.returncode == 0, "per-project volume must exist"
+    print("  per-project volume tee-projdata-data-iso created ✓")
+
+    api_delete("/projects/data-iso")
+    subprocess.run(["docker", "volume", "rm", "-f", "tee-projdata-data-iso"],
+                   capture_output=True)
+
+
 def test_image_redeploy():
     print("\n--- Test: image-runtime redeploy preserves manifest ---")
     manifest = {
@@ -590,7 +680,7 @@ def test_list_projects():
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-redeploy-img"]:
+    for name in ["test-static", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -615,6 +705,8 @@ def main():
         test_ingress_image()
         test_volume_adoption()
         test_per_project_isolation()
+        test_per_project_network_isolation()
+        test_isolated_per_project_data_volume()
         test_env_passthrough()
         test_image_redeploy()
         test_substrate_endpoint()

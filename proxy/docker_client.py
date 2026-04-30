@@ -102,6 +102,13 @@ class DockerClient:
         await self.remove(cid, force=True)
         return exit_code, logs
 
+    async def create_network(self, name: str):
+        """Idempotent: 201 on create, 409 if exists, both fine."""
+        status, data = await self._json_request(
+            "POST", "/networks/create", json={"Name": name, "Driver": "bridge"})
+        if status not in (201, 409):
+            raise RuntimeError(f"create_network failed ({status}): {data}")
+
     async def ensure_volume(self, name: str):
         """Idempotent volume create — Docker returns 201 with existing data if it exists."""
         status, data = await self._json_request(

@@ -77,7 +77,7 @@ Drop this in the project's repo root to declare the runtime contract alongside t
 }
 ```
 
-For deno/bun projects that want stronger sandboxing than the shared runtime, add `"isolation": "container"`. Each such project gets its own container running deno with `--allow-read` scoped to its own files, `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`. `manifest.env` is passed via Deno args (not env permission) so handlers still see `ctx.env` but can't read other tenants' secrets.
+For deno/bun projects that want stronger sandboxing than the shared runtime, add `"isolation": "container"`. Each such project gets its own container running deno with `--allow-read` scoped to its own files, `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`. `manifest.env` is passed via Deno args (not env permission) so handlers still see `ctx.env` but can't read other tenants' secrets. The container is placed on a per-project Docker network (`tee-proj-<name>-<mode>`), so siblings are not reachable by IP or container name. `ctx.dataDir` points at `/data`, backed by a per-project named volume — siblings' data is not visible.
 
 ## Image runtime (Layer 1)
 
@@ -104,7 +104,7 @@ curl -X POST $CVM/_api/projects \
 | `volumes` | Optional `[{name, mount}]`. Named volumes are referenced by name and adopted idempotently — pre-existing data survives. |
 | `env_passthrough` | Optional list of env-var names; the daemon forwards values from its own environment, keeping secrets out of `project.json`. |
 
-The container runs under the daemon's configured OCI runtime (see `/_api/substrate`). On a CVM with `DAEMON_CONTAINER_RUNTIME=sysbox-runc`, all image-runtime tenants get user-namespace remap and virtualised `/proc` for free. See the [isolation probe](isolation-probe.md) for a worked example.
+The container runs under the daemon's configured OCI runtime (see `/_api/substrate`). On a CVM with `DAEMON_CONTAINER_RUNTIME=sysbox-runc`, all image-runtime tenants get user-namespace remap and virtualised `/proc` for free. The container is placed on a per-project Docker network — sibling tenants are not reachable by IP or hostname; only the daemon proxies traffic in and out. See the [isolation probe](isolation-probe.md) for a worked example.
 
 ## Promote to attested
 

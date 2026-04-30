@@ -369,6 +369,17 @@ class RuntimeManager:
             log.info("Runtime %s-%s -> %s (%s), serving %d projects",
                      config_key, mode_suffix, cid[:12], ip, len(mode_projects))
 
+    async def _ensure_project_network(self, project_name: str, mode: str) -> str:
+        net_name = f"tee-proj-{project_name}-{mode}"
+        await self.docker.create_network(net_name)
+        daemon_hostname = os.environ.get("HOSTNAME", "")
+        if daemon_hostname:
+            try:
+                await self.docker.connect_network(daemon_hostname, net_name)
+            except Exception as e:
+                log.debug("daemon connect_network %s: %s", net_name, e)
+        return net_name
+
     async def start_isolated(self, project) -> str:
         """Per-project container for deno/bun with scoped Deno permissions.
         Returns the runtime image digest."""
@@ -384,7 +395,7 @@ class RuntimeManager:
             f.write(_ENTRY_SHIM_DENO)
 
         cname = f"tee-isolated-{project.name}-{project.mode}"
-        network = NETWORK_ATTESTED if project.mode == "attested" else NETWORK_DEV
+        network = await self._ensure_project_network(project.name, project.mode)
         existing = await self.docker.container_exists(cname)
         if existing:
             await self.docker.stop(existing)
@@ -405,10 +416,11 @@ class RuntimeManager:
             files_in = "/files"
             entry_in = "/_entry.ts"
 
-        data_dir_in = ""
-        if DATA_VOLUME_NAME:
-            binds.append(f"{DATA_VOLUME_NAME}:{DATA_VOLUME_MOUNT_IN_RUNTIME}:rw")
-            data_dir_in = f"{DATA_VOLUME_MOUNT_IN_RUNTIME}/{project.name}"
+        # Per-project data volume — only this project's data is visible to it.
+        proj_data_volume = f"tee-projdata-{project.name}"
+        await self.docker.ensure_volume(proj_data_volume)
+        binds.append(f"{proj_data_volume}:/data:rw")
+        data_dir_in = "/data"
 
         labels = {
             "tee-proxy.managed": "true",
@@ -461,7 +473,7 @@ class RuntimeManager:
     async def start_image(self, project) -> str:
         """Pull and start an image-runtime project's container. Returns image digest."""
         cname = f"tee-image-{project.name}-{project.mode}"
-        network = NETWORK_ATTESTED if project.mode == "attested" else NETWORK_DEV
+        network = await self._ensure_project_network(project.name, project.mode)
         log.info("Pulling %s for project %s...", project.image, project.name)
         await self.docker.pull(project.image)
         existing = await self.docker.container_exists(cname)
