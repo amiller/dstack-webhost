@@ -55,6 +55,26 @@ What's still on the work list: measure ptrace/systrap performance against the wo
 
 `sysbox-runc`, meanwhile, is already registered as a Docker runtime on stock dstack and needs nothing installed. It's a hardened `runc` (automatic user-namespace remap, virtualised `/proc` and `/sys`, scoped capabilities) — meaningfully better than plain runc against namespace/capability escapes, weaker than gVisor against kernel CVEs. It's the isolation layer that's *running today* on this CVM; gVisor is the next, more ambitious step.
 
+## Measured perf cost
+
+A controlled comparison on the same dstack CVM (1 vCPU, 2 GB RAM), flipping `DAEMON_CONTAINER_RUNTIME` between the three runtimes and redeploying the probe each time. Workload: 20 concurrent clients hitting `/probe/api/probe` for 45s — moderately syscall-heavy (4 `/proc` reads + JSON serialise + HTTP serve per request).
+
+| Runtime | rps | p50 | p90 | p95 | p99 |
+|---|---|---|---|---|---|
+| `runc` | 221.6 | 80.3ms | 92.4ms | 111.2ms | 179.6ms |
+| `sysbox-runc` | 221.8 | 80.2ms | 93.2ms | 111.8ms | 182.7ms |
+| `runsc` (gVisor) | 175.2 | 101.6ms | 118.5ms | 137.4ms | **395.8ms** |
+
+**`sysbox-runc` is free.** Indistinguishable from `runc` on throughput and every latency percentile. Sysbox does its hardening at container *startup* (user-namespace setup, proc/sys virtualisation), not per syscall — once the container is running, syscalls go straight to the host kernel like with runc. Zero per-request cost.
+
+**`runsc` costs about 21% throughput, 27% median latency, and 2.2× p99 tail latency.** Sentry intercepts every syscall in userspace; on a 1-vCPU CVM with a syscall-heavy workload, that's the visible price. Workloads that are mostly network-bound without much per-request kernel work will see less. Databases, file-heavy services, anything chatty with the kernel will see more.
+
+The runtime-choice implication:
+
+- **`sysbox-runc`** is the right *default floor* — namespace/cap hardening for free.
+- **`runsc`** is an *opt-in upgrade* when the threat model justifies ~20% throughput and ~2× p99 tail for kernel-CVE resistance. It's not a free lunch.
+- Plain `runc` is no faster than sysbox-runc; there's no performance reason to prefer it on a multi-tenant TEE substrate.
+
 ## Open attack surface
 
 What this stack does *not* address, and is worth arguing about:
