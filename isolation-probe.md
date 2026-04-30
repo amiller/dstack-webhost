@@ -78,6 +78,32 @@ The runtime-choice implication:
 - **`runsc`** is an *opt-in upgrade* when the threat model justifies ~20% throughput and ~2× p99 tail for kernel-CVE resistance. It's not a free lunch.
 - Plain `runc` is no faster than sysbox-runc; there's no performance reason to prefer it on a multi-tenant TEE substrate.
 
+## A covert channel runsc actually closes: `/proc` is host-wide under runc and sysbox-runc
+
+While digging for residual cross-tenant channels on hermes-staging, the most striking real finding: `/proc/loadavg`, `/proc/stat`, `/proc/meminfo`, and `/proc/uptime` are all *host-wide* under `runc` and `sysbox-runc`. Reading them from inside any tenant gives back the host's actual values — including activity contributed by sibling tenants.
+
+Side-by-side, on the same host:
+
+```
+                  HOST        runsc        sysbox-runc          runc
+/proc/loadavg     1.89...     0.00 0.00    1.89... (host)       1.89... (host)
+/proc/uptime      1001 s      0.28 s       0.05 s               1003 s (host)
+/proc/stat cpu    173390      0 0 0 0      173496 (host)        173533 (host)
+/proc/meminfo     2444 free   3824 (sandboxed)  2389 (host)     2379 (host)
+```
+
+This is a working covert channel under runc/sysbox-runc:
+
+1. Tenant A busy-loops a CPU core in a deliberate pattern (e.g. spin 1s, idle 1s).
+2. Tenant B reads `/proc/loadavg` once per second.
+3. B reconstructs A's signal from the load oscillation.
+
+Bandwidth is low (loadavg updates over seconds), but the channel is structurally there and easy to demonstrate. Sysbox doesn't help — its FUSE-virtualised `/proc` covers some files but lets `loadavg`/`stat`/`uptime`/`meminfo` pass through to the host's view.
+
+**`runsc` (gVisor) closes this channel** by synthesising those `/proc` entries inside Sentry — the tenant only ever sees its own kernel-state-equivalent, never the host's. Sentry IS the kernel for the workload, so there's no host view to leak.
+
+This is the strongest concrete reason to prefer runsc on this substrate that surfaced during the comparison work — the kernel-CVE argument was structural but abstract; this is a demonstrable cross-tenant information leak that flipping the runtime literally closes. (Higher-bandwidth channels — cache timing, memory pressure modulation — are harder to characterise and likely remain to some degree under any runtime when tenants share physical hardware.)
+
 ## Known limitation: gVisor + Docker embedded DNS
 
 When the substrate runs under `runsc`, tenants that need outbound DNS resolution can hit a real interaction bug between gVisor's sandbox network stack and Docker's embedded DNS resolver at `127.0.0.11`. Docker forces `nameserver 127.0.0.11` into `/etc/resolv.conf` for any container on a user-defined bridge network (which is most of them, including the per-project `tee-proj-<name>-<mode>` networks the substrate creates). gVisor's own netstack doesn't route to that address. Result: DNS lookups return "Connection refused" even though the host's actual resolver is reachable.
