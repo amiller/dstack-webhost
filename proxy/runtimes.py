@@ -358,9 +358,16 @@ class RuntimeManager:
                 for c in cmd
             ]
 
+            # Shared-runtime containers stay on the docker default OCI runtime,
+            # not DAEMON_CONTAINER_RUNTIME. Co-tenants here are co-trust by
+            # construction (one V8 isolate, shared env, shared FS), so the
+            # kernel-CVE-class protection runsc adds doesn't pay off; meanwhile
+            # gVisor + Docker's embedded DNS at 127.0.0.11 (forced on user-
+            # defined bridges) breaks outbound DNS for these tenants. Per-project
+            # containers (image-runtime, isolation:container) keep CONTAINER_RUNTIME.
             cid = await self.docker.create_container(
                 cname, config["image"], cmd, binds, labels, network,
-                runtime=CONTAINER_RUNTIME)
+                runtime="")
             await self.docker.start(cid)
             self.tracker.add(cid)
             ip = await self.docker.container_ip(cid, network)
