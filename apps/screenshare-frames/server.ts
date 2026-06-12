@@ -80,12 +80,14 @@ const PAGE = `<!doctype html>
 <h1>screenshare → TEE</h1>
 <p>Click start, pick a window/screen. Browser samples 1 frame / 2 s, downsamples
 to 320 px wide JPEG, POSTs to the TEE. Server stores the last ${MAX_FRAMES}.</p>
+<p style="color:#a40;font-size:12px">Note: screen capture is desktop-only. Android/iOS browsers don't implement <code>getDisplayMedia</code>.</p>
 <button id="start">start</button>
 <button id="stop" disabled>stop</button>
 <label> interval (s) <input id="interval" type="number" value="2" min="0.2" step="0.2" style="width:5em"></label>
 <label> width (px) <input id="width" type="number" value="320" min="64" step="32" style="width:5em"></label>
 <label> quality <input id="quality" type="number" value="0.6" min="0.1" max="1" step="0.05" style="width:5em"></label>
 <div id="status">idle</div>
+<pre id="log" style="background:#f4f4f4;border:1px solid #ddd;padding:.5em;font-size:11px;white-space:pre-wrap;max-height:12em;overflow:auto"></pre>
 <video id="v" autoplay muted playsinline></video>
 <canvas id="c" style="display:none"></canvas>
 <div id="thumbs"></div>
@@ -94,19 +96,42 @@ const v = document.getElementById('v');
 const c = document.getElementById('c');
 const status = document.getElementById('status');
 const thumbs = document.getElementById('thumbs');
+const logEl = document.getElementById('log');
 let stream = null, timer = null;
 
+function log(...a) {
+  const line = a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ');
+  logEl.textContent += new Date().toLocaleTimeString() + ' ' + line + '\\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+window.addEventListener('error', e => log('ERROR', e.message, e.filename + ':' + e.lineno));
+window.addEventListener('unhandledrejection', e => log('UNHANDLED', String(e.reason && e.reason.message || e.reason)));
+
+log('UA', navigator.userAgent);
+log('mediaDevices', !!navigator.mediaDevices, 'getDisplayMedia', !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
+log('secure context', window.isSecureContext, 'protocol', location.protocol);
+
 document.getElementById('start').onclick = async () => {
-  stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-  v.srcObject = stream;
-  await v.play();
-  document.getElementById('start').disabled = true;
-  document.getElementById('stop').disabled = false;
-  const ms = Math.max(200, Number(document.getElementById('interval').value) * 1000);
-  timer = setInterval(capture, ms);
-  status.textContent = 'capturing every ' + ms + ' ms';
-  stream.getVideoTracks()[0].onended = stop;
-  refresh();
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      throw new Error('getDisplayMedia not available — desktop browser required');
+    }
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    v.srcObject = stream;
+    await v.play();
+    document.getElementById('start').disabled = true;
+    document.getElementById('stop').disabled = false;
+    const ms = Math.max(200, Number(document.getElementById('interval').value) * 1000);
+    timer = setInterval(capture, ms);
+    status.textContent = 'capturing every ' + ms + ' ms';
+    log('started, video', v.videoWidth + 'x' + v.videoHeight);
+    stream.getVideoTracks()[0].onended = stop;
+    refresh();
+  } catch (e) {
+    log('start failed:', e && e.name, e && e.message);
+    status.textContent = 'start failed: ' + (e && e.message);
+  }
 };
 
 document.getElementById('stop').onclick = stop;
