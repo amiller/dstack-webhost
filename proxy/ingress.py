@@ -19,8 +19,27 @@ from .deploy import deploy, teardown, promote
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
+from . import secp
 
 log = logging.getLogger(__name__)
+
+
+def _sanitize_getkey(data):
+    """dstack GetKey returns the derived PRIVATE key (k256 signing key) to the
+    in-TEE caller. This endpoint is public, so never echo it — derive and return
+    the compressed public key instead, keeping the signature_chain (the actual
+    KMS-rooted attestation)."""
+    if not isinstance(data, dict) or "key" not in data:
+        return data
+    try:
+        priv = bytes.fromhex(data["key"].replace("0x", ""))[:32]
+        out = {k: v for k, v in data.items() if k != "key"}
+        out["pubkey"] = secp.compressed_pubkey(priv).hex()
+        return out
+    except Exception as e:
+        log.warning("could not sanitize GetKey response: %s", e)
+        return {k: v for k, v in data.items() if k != "key"}
+
 
 DSTACK_SOCK = None  # set by main.py
 API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
@@ -702,7 +721,7 @@ class Ingress:
         async with aiohttp.ClientSession(connector=conn) as session:
             async with session.post("http://localhost/GetKey", json=body) as resp:
                 data = await resp.json()
-                return web.json_response(data, status=resp.status)
+                return web.json_response(_sanitize_getkey(data), status=resp.status)
 
     async def _api_verification(self, name: str) -> web.Response:
         """Get trust chain data for project verification."""
@@ -721,7 +740,7 @@ class Ingress:
                     async with aiohttp.ClientSession(connector=conn) as session:
                         async with session.post("http://localhost/GetKey", json=body) as resp:
                             if resp.status == 200:
-                                quote = await resp.json()
+                                quote = _sanitize_getkey(await resp.json())
                 except Exception as e:
                     log.warning("Failed to get dstack quote: %s", e)
 
