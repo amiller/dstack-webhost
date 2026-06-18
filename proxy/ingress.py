@@ -528,7 +528,7 @@ class Ingress:
                     elif path.endswith("/audit"):
                         resp = await self._api_audit(public_name)
                     else:
-                        resp = await self._api_status(public_name)
+                        resp = await self._api_status(public_name, public=True)
                 resp.headers["Access-Control-Allow-Origin"] = "*"
                 return resp
 
@@ -655,9 +655,13 @@ class Ingress:
                 self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
         return web.json_response(asdict(project), status=201)
 
-    async def _api_status(self, name: str) -> web.Response:
+    async def _api_status(self, name: str, public: bool = False) -> web.Response:
         project = self.store.load(name)
-        return web.json_response(asdict(project))
+        data = asdict(project)
+        if public and data.get("env"):
+            # RFC 0015 verifier endpoints are unauthenticated; never expose env values.
+            data["env"] = {k: "<redacted>" for k in data["env"]}
+        return web.json_response(data)
 
     async def _api_teardown(self, name: str) -> web.Response:
         await teardown(self.store, self.docker, self.audit_manager, self.tracker,
