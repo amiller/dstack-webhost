@@ -19,7 +19,7 @@ The probe is deployed as a [Layer-1 tenant](rfcs/0001-platform-vision.md) on her
 
 → **[hermes-staging.dstack-pha-prod7.phala.network/probe/](https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/probe/)**
 
-The page fetches `/_api/substrate` and the tenant's own `/api/probe`, then renders a verdict. Source: [`apps/isolation-probe/`](https://github.com/amiller/dstack-webhost/tree/main/apps/isolation-probe).
+The page fetches `/_api/substrate` and the tenant's own `/api/probe`, then renders a verdict. Source: [`examples/isolation-probe/`](https://github.com/amiller/dstack-webhost/tree/main/examples/isolation-probe).
 
 ## What the verdict means
 
@@ -48,7 +48,7 @@ The choice on this substrate is between three OCI runtimes, all of which can be 
 
 - **`runc`** — the default. No hardening; same syscall surface as a non-containerised process.
 - **`sysbox-runc`** — Nestybox's hardened runc. Adds automatic user-namespace remap, virtualised `/proc` and `/sys`, scoped capabilities. Already registered as a Docker runtime on stock dstack — no install step. Meaningful against namespace/capability escapes; **does not shrink the host kernel's syscall attack surface**, so kernel CVEs (`io_uring`, BPF, etc.) remain reachable.
-- **`runsc` (gVisor)** — Google's userspace kernel. Sentry intercepts syscalls; only ~50 of ~330 host syscalls are reachable from a tenant, behind a strict seccomp filter. Addresses kernel-CVE escape as a class. Not present on stock dstack, but installable via prelaunch script ([`apps/runsc-prelaunch/`](https://github.com/amiller/dstack-webhost/tree/main/apps/runsc-prelaunch)) — the script's hash is in the measured launch payload, the binary is pinned by sha512, the trust chain stays intact. (A privileged bootstrap container in the compose is a parallel attestation-safe path; not wired up because the prelaunch path was sufficient.)
+- **`runsc` (gVisor)** — Google's userspace kernel. Sentry intercepts syscalls; only ~50 of ~330 host syscalls are reachable from a tenant, behind a strict seccomp filter. Addresses kernel-CVE escape as a class. Not present on stock dstack, but installable via prelaunch script ([`examples/runsc-prelaunch/`](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch)) — the script's hash is in the measured launch payload, the binary is pinned by sha512, the trust chain stays intact. (A privileged bootstrap container in the compose is a parallel attestation-safe path; not wired up because the prelaunch path was sufficient.)
 
 For nested KVM (which would let gVisor use its faster KVM platform): not exposed in dstack TDX. The ptrace/systrap platform is what we use, with the perf cost measured below.
 
@@ -145,7 +145,7 @@ target: https://...phala.network/vault/  length: 8  samples/byte: 10
 recovered: 'deadbeef'  in 983.2s
 ```
 
-Source for the project and the attack: [`apps/timing-leak-demo/`](https://github.com/amiller/dstack-webhost/tree/main/apps/timing-leak-demo). The substrate is doing its job — runsc mediates syscalls, per-project networks isolate the tenant, the daemon never sees the secret. The leak is *inside the project's own response time*, public to anyone with `curl`.
+Source for the project and the attack: [`examples/timing-leak-demo/`](https://github.com/amiller/dstack-webhost/tree/main/examples/timing-leak-demo). The substrate is doing its job — runsc mediates syscalls, per-project networks isolate the tenant, the daemon never sees the secret. The leak is *inside the project's own response time*, public to anyone with `curl`.
 
 ### Why this matters and what's actually realistic
 
@@ -176,7 +176,7 @@ This affected hermes during the live runsc migration on hermes-staging; hermes i
 
 What this stack does *not* address, and is worth arguing about:
 
-- **Kernel CVEs.** `sysbox-runc` hardens the namespace/capability boundary; it does not shrink the host kernel's syscall attack surface. A tenant that exploits a kernel bug (`io_uring`, BPF, etc.) escapes the CVM and breaks every tenant's quote. The CVM is currently on `6.9.0-dstack` from May 2024, which has a year of post-release CVEs. This is the structural reason for the gVisor argument above. The provisioning path is now demonstrated to work via [prelaunch script](https://github.com/amiller/dstack-webhost/tree/main/apps/runsc-prelaunch); flipping hermes-staging onto runsc is a separate operational decision (perf, hermes compat) rather than a missing capability.
+- **Kernel CVEs.** `sysbox-runc` hardens the namespace/capability boundary; it does not shrink the host kernel's syscall attack surface. A tenant that exploits a kernel bug (`io_uring`, BPF, etc.) escapes the CVM and breaks every tenant's quote. The CVM is currently on `6.9.0-dstack` from May 2024, which has a year of post-release CVEs. This is the structural reason for the gVisor argument above. The provisioning path is now demonstrated to work via [prelaunch script](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch); flipping hermes-staging onto runsc is a separate operational decision (perf, hermes compat) rather than a missing capability.
 - **Weakest-link tenant on a shared kernel.** Every tenant on the CVM shares one Linux kernel, so the effective isolation floor for *any* tenant is whatever the *weakest* tenant's runtime exposes. A gVisor-protected app on the same CVM as a runc-protected sibling is no better off than the sibling against kernel-CVE escape — once the host kernel is compromised by the weak link, an attacker reads Sentry-protected memory from outside Sentry's mediation. This is the structural reason `DAEMON_CONTAINER_RUNTIME` is a CVM-level switch rather than a per-manifest field; per-project runtime choice would be a foot-gun for the attestation claim. (On hermes-staging the `hermes` and `ssh-debug` peer services run under default runc because they're outside the substrate's "design under test" boundary; for a serious deployment they'd need to share the floor.)
 - **Per-tenant resource limits.** No cgroup memory/CPU/disk caps today. A hostile tenant can OOM the host or starve sibling CPU. Easy to add — this is unfinished work, not a hard problem.
 - **Same-host side channels.** `/proc/loadavg`, RAM pressure, page-cache timing, CPU contention — `sysbox-runc` does not virtualise these. A tenant pair could plausibly establish a covert channel by modulating load and timing read-back. Quantifying the bandwidth would be its own demo, not yet built.
@@ -207,7 +207,7 @@ curl -X POST https://<cvm>/_api/projects \
 open https://<cvm>/probe/
 ```
 
-To rebuild from source (`apps/isolation-probe/`), see the [README there](https://github.com/amiller/dstack-webhost/tree/main/apps/isolation-probe).
+To rebuild from source (`examples/isolation-probe/`), see the [README there](https://github.com/amiller/dstack-webhost/tree/main/examples/isolation-probe).
 
 ## Related
 

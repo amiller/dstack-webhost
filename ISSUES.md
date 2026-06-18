@@ -66,7 +66,7 @@ Collected during end-to-end testing on hermes-staging CVM (2026-04-05).
 
 ### 8. Tunnel relay is slow (long-poll adds ~500ms+ latency)
 **Severity:** Medium (acceptable for demo, not for production)
-**Where:** `apps/tunnel/server.ts` + `apps/tunnel/client.ts`
+**Where:** `examples/tunnel/server.ts` + `examples/tunnel/client.ts`
 **Problem:** Every visitor request goes through: visitor -> ingress -> tunnel queues request -> client polls (500ms interval) -> client fetches localhost -> client POSTs relay -> tunnel resolves promise -> response goes back through ingress. Best case 500ms+ per request.
 **Fix:** Blocked by issue #2 (WebSocket/streaming). Once ingress supports streaming, switch to WebSocket relay for sub-100ms latency.
 

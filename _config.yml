@@ -7,7 +7,7 @@ relative_links:
   enabled: true
   collections: true
 exclude:
-  - apps/
+  - examples/
   - proxy/
   - workflows/
   - node_modules/
