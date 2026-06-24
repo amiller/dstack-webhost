@@ -7,8 +7,8 @@ Move tunnel authentication from URL path parameters to HTTP headers, preventing 
 The tunnel ID (authentication token) is in the URL path. This means it appears in browser history, server logs, referrer headers. While the 64-char hex token is unguessable, URL-based auth is a bad practice.
 
 ## Files to Modify
-- `apps/tunnel/server.ts` — accept auth via header
-- `apps/tunnel/client.ts` — send auth via header
+- `examples/tunnel/server.ts` — accept auth via header
+- `examples/tunnel/client.ts` — send auth via header
 
 ## Implementation
 1. Add support for `Authorization: Bearer <tunnel-id>` header as an alternative to the URL path parameter

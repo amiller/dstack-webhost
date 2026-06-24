@@ -92,7 +92,7 @@ The mechanical part — proving the code running on this CVM is the same code in
   if (!p.source) issues.push('No source URL recorded.');
   if (!p.commit_sha) issues.push('No commit SHA recorded.');
   if (!p.tree_hash) issues.push('No tree hash recorded.');
-  if (!(quote.quote || quote.key || quote.report)) issues.push('No TEE quote returned.');
+  if (!(quote.quote || quote.pubkey || quote.report)) issues.push('No TEE quote returned.');
   if (audit.length === 0) issues.push('Audit log is empty.');
   else if (!audit.some(e => e.action === 'promote')) issues.push('Audit log has no promote event.');
 
@@ -164,7 +164,7 @@ The mechanical part — proving the code running on this CVM is the same code in
     },
     {
       title: 'TEE attestation',
-      body: 'A dstack-signed quote is available at <a href="' + escape(attestUrl) + '" target="_blank">/_api/attest/' + escape(project) + '</a>. ' + (quote.quote || quote.key || quote.report ? 'It is present and binds this source hash to the running CVM.' : '<strong>Missing.</strong>'),
+      body: 'A dstack-signed quote is available at <a href="' + escape(attestUrl) + '" target="_blank">/_api/attest/' + escape(project) + '</a>. ' + (quote.quote || quote.pubkey || quote.report ? 'It is present and binds this source hash to the running CVM.' : '<strong>Missing.</strong>'),
       audit: 'An auditor verifies the quote\'s signature chain against the Phala base contract that anchors this CVM\'s app id.',
     },
     {

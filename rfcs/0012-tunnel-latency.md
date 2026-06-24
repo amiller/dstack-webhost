@@ -7,8 +7,8 @@ Reduce tunnel relay latency from ~500ms to sub-100ms by switching from long-poll
 Every visitor request goes through: visitor → ingress → tunnel queues request → client polls (500ms interval) → client fetches localhost → client POSTs relay → tunnel resolves promise → response goes back. Best case 500ms+ per request. Blocked by RFC 0005 (streaming support in ingress).
 
 ## Files to Modify
-- `apps/tunnel/server.ts` — switch from poll-based relay to WebSocket/SSE
-- `apps/tunnel/client.ts` — connect via WebSocket instead of polling
+- `examples/tunnel/server.ts` — switch from poll-based relay to WebSocket/SSE
+- `examples/tunnel/client.ts` — connect via WebSocket instead of polling
 - Depends on RFC 0005 for ingress WebSocket support
 
 ## Implementation

@@ -118,7 +118,7 @@ To fix this, `_proxy()` needs to:
 3. Relay frames bidirectionally between the visitor and the backend
 
 This is needed for apps like the tunnel (RFC 0003) which currently uses
-long-polling as a workaround. See also `apps/tunnel/` for the long-poll
+long-polling as a workaround. See also `examples/tunnel/` for the long-poll
 implementation that works without daemon changes.
 
 ## Out of Scope
