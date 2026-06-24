@@ -23,21 +23,25 @@ VOLUME_MOUNT = os.environ.get("DAEMON_VOLUME_MOUNT", "/var/lib/tee-daemon")
 # to each handler. Projects use it for persistent state (DBs, subs, etc.).
 DATA_VOLUME_NAME = os.environ.get("DAEMON_DATA_VOLUME_NAME", "")
 DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
-# Named volume backing the daemon's PROXY_SOCKET_DIR, which holds the already-
-# filtered dstack broker socket (proxy/main.py serves it at PROXY_DIR/dstack.sock).
-# Under Docker-in-Docker the daemon can't bind its own PROXY_DIR into sibling app
-# containers via a host path, so the broker must live on a named volume mounted by
-# both. When set, attested app containers mount it at /var/run so the broker
-# appears at /var/run/dstack.sock. Mirrors DAEMON_VOLUME_NAME.
-PROXY_VOLUME_NAME = os.environ.get("PROXY_VOLUME_NAME", "")
+# Named volume backing the daemon's BROKER_SOCKET_DIR, which holds ONLY the
+# already-filtered dstack broker socket (proxy/main.py serves it at
+# BROKER_SOCKET_DIR/dstack.sock). It is deliberately separate from PROXY_DIR,
+# which also holds docker.sock (the docker-control proxy) — apps must NOT get
+# that. Under Docker-in-Docker the daemon can't bind a host path into sibling
+# containers, so the broker lives on a named volume mounted by both. When set,
+# attested app containers mount it at /run/broker (broker at
+# /run/broker/dstack.sock; nothing else). Mirrors DAEMON_VOLUME_NAME.
+BROKER_VOLUME_NAME = os.environ.get("BROKER_VOLUME_NAME", "")
+BROKER_MOUNT_IN_APP = "/run/broker"
 
 
 def _attested_broker_binds(mode: str) -> list[str]:
-    """Bind the filtered dstack broker socket into attested app containers.
+    """Bind ONLY the filtered dstack broker socket into attested app containers,
+    at a dedicated path (no docker.sock, no /var/run clobber).
     Read-only is fine: connect() doesn't write the socket file."""
-    if mode != "attested" or not PROXY_VOLUME_NAME:
+    if mode != "attested" or not BROKER_VOLUME_NAME:
         return []
-    return [f"{PROXY_VOLUME_NAME}:/var/run:ro"]
+    return [f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"]
 # Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").
 # Empty string keeps Docker's default (runc).
 CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
@@ -449,7 +453,7 @@ class RuntimeManager:
 
         broker_binds = _attested_broker_binds(project.mode)
         binds += broker_binds
-        broker_sock = "/var/run/dstack.sock" if broker_binds else ""
+        broker_sock = f"{BROKER_MOUNT_IN_APP}/dstack.sock" if broker_binds else ""
 
         labels = {
             "tee-proxy.managed": "true",

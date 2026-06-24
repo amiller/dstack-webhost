@@ -13,22 +13,23 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/run/dstack.sock:/var/run/dstack.sock:ro
       - daemon_data:/var/lib/tee-daemon
-      # Named volume backing PROXY_SOCKET_DIR. The daemon serves the already-
-      # filtered dstack broker at <PROXY_SOCKET_DIR>/dstack.sock here; attested
-      # app containers mount the same volume at /var/run (see PROXY_VOLUME_NAME),
-      # so the broker appears at /var/run/dstack.sock inside them.
-      - proxy_sock:/var/run/proxy
+      # Broker-ONLY named volume. The daemon serves the already-filtered dstack
+      # broker at <BROKER_SOCKET_DIR>/dstack.sock here and nothing else (NOT
+      # docker.sock, which stays in PROXY_DIR off this volume). Attested app
+      # containers mount the same volume at /run/broker (see BROKER_VOLUME_NAME),
+      # so the broker appears at /run/broker/dstack.sock inside them.
+      - broker_sock:/var/run/broker
     environment:
       - TEE_DAEMON_TOKEN=${TEE_DAEMON_TOKEN}
       - DAEMON_VOLUME_NAME=${DAEMON_VOLUME_NAME:-}
       - DAEMON_VOLUME_MOUNT=${DAEMON_VOLUME_MOUNT:-/var/lib/tee-daemon}
-      # Set to the *resolved* docker volume name of proxy_sock (compose prefixes
-      # it with the project name, e.g. "dstack_proxy_sock"), mirroring how
-      # DAEMON_VOLUME_NAME is wired. When set, attested app containers get the
-      # broker mounted at /var/run/dstack.sock. Leave empty to disable.
-      - PROXY_VOLUME_NAME=${PROXY_VOLUME_NAME:-}
-      - PROXY_SOCKET_DIR=${PROXY_SOCKET_DIR:-/var/run/proxy}
+      # Set to the *resolved* docker volume name of broker_sock (compose prefixes
+      # it with the project name, e.g. "dstack_broker_sock"), mirroring how
+      # DAEMON_VOLUME_NAME is wired. When set, attested app containers get ONLY
+      # the broker mounted at /run/broker/dstack.sock. Leave empty to disable.
+      - BROKER_VOLUME_NAME=${BROKER_VOLUME_NAME:-}
+      - BROKER_SOCKET_DIR=${BROKER_SOCKET_DIR:-/var/run/broker}
 
 volumes:
   daemon_data:
-  proxy_sock:
+  broker_sock:
