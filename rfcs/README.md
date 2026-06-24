@@ -25,6 +25,7 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0019](0019-managed-hosting-teesql.md) | Managed Hosting via TeeSQL / AttestMesh | Draft |
 | [0020](0020-attestation-evidence-for-consumers.md) | Machine-Verifiable Attestation Evidence for App Consumers | Draft |
 | [0021](0021-app-self-improvement-evidence-spend.md) | App Self-Improvement via Attestation-Evidence Spend | Draft |
+| [0022](0022-spec-based-appraisal-curated-list.md) | Spec-Based Appraisal and Curated App List | Draft |
 
 ## Conventions
 
