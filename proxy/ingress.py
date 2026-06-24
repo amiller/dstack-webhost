@@ -627,33 +627,41 @@ class Ingress:
           - multipart/form-data: 'manifest' field (JSON) + 'files' field (tarball)
         """
         ct = request.headers.get("Content-Type", "")
-        if ct.startswith("multipart/"):
-            reader = await request.multipart()
-            manifest = None
-            files_data = None
-            while True:
-                part = await reader.next()
-                if part is None:
-                    break
-                if part.name == "manifest":
-                    try:
-                        manifest = json.loads(await part.text())
-                    except json.JSONDecodeError as e:
-                        return web.json_response({"error": f"manifest is not valid JSON: {e}"}, status=400)
-                elif part.name == "files":
-                    files_data = await part.read(decode=False)
-            if manifest is None:
-                return web.json_response({"error": "missing 'manifest' field"}, status=400)
-            if files_data is None:
-                return web.json_response({"error": "missing 'files' field"}, status=400)
-            project = await deploy(
-                self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
-                manifest, files_data=files_data)
-        else:
-            manifest = await request.json()
-            project = await deploy(
-                self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
-        return web.json_response(asdict(project), status=201)
+        try:
+            if ct.startswith("multipart/"):
+                reader = await request.multipart()
+                manifest = None
+                files_data = None
+                while True:
+                    part = await reader.next()
+                    if part is None:
+                        break
+                    if part.name == "manifest":
+                        try:
+                            manifest = json.loads(await part.text())
+                        except json.JSONDecodeError as e:
+                            return web.json_response({"error": f"manifest is not valid JSON: {e}"}, status=400)
+                    elif part.name == "files":
+                        files_data = await part.read(decode=False)
+                if manifest is None:
+                    return web.json_response({"error": "missing 'manifest' field"}, status=400)
+                if files_data is None:
+                    return web.json_response({"error": "missing 'files' field"}, status=400)
+                project = await deploy(
+                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
+                    manifest, files_data=files_data)
+            else:
+                manifest = await request.json()
+                project = await deploy(
+                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+            return web.json_response(asdict(project), status=201)
+        except ValueError as e:
+            # Bad manifest / port conflict etc. — the message is safe to return.
+            return web.json_response({"error": str(e)}, status=400)
+        except Exception as e:
+            import traceback
+            log.error("deploy failed: %s", traceback.format_exc())
+            return web.json_response({"error": str(e)}, status=500)
 
     async def _api_status(self, name: str, public: bool = False) -> web.Response:
         project = self.store.load(name)
@@ -679,6 +687,7 @@ class Ingress:
             "isolation": project.isolation,
             "image": project.image, "image_port": project.image_port,
             "volumes": project.volumes, "env_passthrough": project.env_passthrough,
+            "oci_runtime": project.oci_runtime,
         }
         if project.listen:
             manifest["listen"] = {

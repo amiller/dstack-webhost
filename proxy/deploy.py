@@ -185,8 +185,9 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     # Parse listen configuration with defaults
     listen_manifest = manifest.get("listen") or repo_manifest.get("listen")
     if listen_manifest is None:
-        # Default listen config: use detected port or fallback to 8080/http
-        listen_port = port or 8080
+        # Default listen config. Shared-isolation projects are served via
+        # path-based ingress on 8080; only container projects own a dedicated port.
+        listen_port = 8080 if isolation == "shared" else (port or 8080)
         listen_protocol = "http"
     else:
         listen_port = int(listen_manifest.get("port", port)) or 8080
@@ -226,6 +227,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         source=source, ref=ref, commit_sha=commit_sha, tree_hash=tree_hash,
         listen=listen_config, isolation=isolation,
+        env_passthrough=manifest.get("env_passthrough", []) or [],
+        oci_runtime=manifest.get("oci_runtime", ""),
     )
     store.save(project)
 
@@ -284,6 +287,7 @@ async def _deploy_image(store: ProjectStore, audit_manager,
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         image=image, image_port=image_port, volumes=volumes,
         env_passthrough=env_passthrough, listen=listen_config,
+        oci_runtime=manifest.get("oci_runtime", ""),
     )
     store.save(project)
 

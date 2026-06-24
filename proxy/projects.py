@@ -35,6 +35,7 @@ class Project:
     volumes: List[dict] = field(default_factory=list)
     isolation: str = "shared"
     env_passthrough: List[str] = field(default_factory=list)
+    oci_runtime: str = ""  # per-project OCI runtime, e.g. "runsc" (gVisor); falls back to CONTAINER_RUNTIME
 
     def __post_init__(self):
         if self.env is None:

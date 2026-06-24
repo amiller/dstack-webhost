@@ -474,17 +474,26 @@ class RuntimeManager:
         ]
         if write_paths:
             cmd.append(f"--allow-write={','.join(write_paths)}")
+        # env_passthrough: inject deploy-time secrets from the daemon's OWN env
+        # (e.g. SEAL_KEY) — never committed to the project's attested source.
+        # --deny-env makes argv the only channel, so fold them into ctx.env here.
+        # Mirrors start_image() (ISSUES.md #13).
+        env = dict(project.env or {})
+        for key in project.env_passthrough or []:
+            val = os.environ.get(key)
+            if val is not None:
+                env[key] = val
         cmd += [
             entry_in,
             project.entry or "server.ts",
             files_in,
             data_dir_in,
-            json.dumps(project.env or {}),
+            json.dumps(env),
         ]
 
         cid = await self.docker.create_container(
             cname, image, cmd, binds, labels, network,
-            runtime=CONTAINER_RUNTIME)
+            runtime=(project.oci_runtime or CONTAINER_RUNTIME))
         await self.docker.start(cid)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
@@ -534,7 +543,7 @@ class RuntimeManager:
                 env.append(f"{key}={val}")
         cid = await self.docker.create_container(
             cname, project.image, [], binds, labels, network,
-            env=env, runtime=CONTAINER_RUNTIME)
+            env=env, runtime=(project.oci_runtime or CONTAINER_RUNTIME))
         await self.docker.start(cid)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
