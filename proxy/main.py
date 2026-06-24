@@ -22,6 +22,9 @@ logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
 log = logging.getLogger("tee-daemon")
 
 PROXY_DIR = os.environ.get("PROXY_SOCKET_DIR", "/var/run/proxy")
+# Broker socket lives in its OWN dir, separate from PROXY_DIR (which holds
+# docker.sock). Only this dir is shared into attested apps — never docker.sock.
+BROKER_SOCKET_DIR = os.environ.get("BROKER_SOCKET_DIR", "/var/run/broker")
 DOCKER_SOCK = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
 DSTACK_SOCK = os.environ.get("DSTACK_SOCKET", "/var/run/dstack.sock")
 DATA_DIR = os.environ.get("DAEMON_DATA_DIR", "/var/lib/tee-daemon/projects")
@@ -32,6 +35,7 @@ INGRESS_PORT = int(os.environ.get("INGRESS_PORT", "8080"))
 
 async def start():
     os.makedirs(PROXY_DIR, exist_ok=True)
+    os.makedirs(BROKER_SOCKET_DIR, exist_ok=True)
 
     dstack_sock = DSTACK_SOCK if os.path.exists(DSTACK_SOCK) else None
     ingress_mod.DSTACK_SOCK = dstack_sock
@@ -75,14 +79,19 @@ async def start():
         dstack_proxy = DstackProxy(dstack_sock)
         dstack_app = web.Application()
         dstack_app.router.add_route("*", "/{path:.*}", dstack_proxy.handle)
-        dstack_sock_path = os.path.join(PROXY_DIR, "dstack.sock")
+        # Serve in BROKER_SOCKET_DIR (NOT PROXY_DIR) so apps can be given the
+        # broker without also getting docker.sock.
+        dstack_sock_path = os.path.join(BROKER_SOCKET_DIR, "dstack.sock")
         if os.path.exists(dstack_sock_path):
             os.unlink(dstack_sock_path)
         dstack_runner = web.AppRunner(dstack_app)
         await dstack_runner.setup()
         await web.UnixSite(dstack_runner, dstack_sock_path).start()
         os.chmod(dstack_sock_path, 0o666)
-        log.info("dstack proxy listening on %s", dstack_sock_path)
+        log.info("dstack proxy (filtered broker) listening on %s", dstack_sock_path)
+        if os.environ.get("BROKER_VOLUME_NAME"):
+            log.info("Broker shared to attested apps via BROKER_VOLUME_NAME=%s "
+                     "(appears at /run/broker/dstack.sock)", os.environ["BROKER_VOLUME_NAME"])
     else:
         log.warning("dstack socket not found — dstack proxy disabled")
 

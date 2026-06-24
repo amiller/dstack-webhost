@@ -23,6 +23,25 @@ VOLUME_MOUNT = os.environ.get("DAEMON_VOLUME_MOUNT", "/var/lib/tee-daemon")
 # to each handler. Projects use it for persistent state (DBs, subs, etc.).
 DATA_VOLUME_NAME = os.environ.get("DAEMON_DATA_VOLUME_NAME", "")
 DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
+# Named volume backing the daemon's BROKER_SOCKET_DIR, which holds ONLY the
+# already-filtered dstack broker socket (proxy/main.py serves it at
+# BROKER_SOCKET_DIR/dstack.sock). It is deliberately separate from PROXY_DIR,
+# which also holds docker.sock (the docker-control proxy) — apps must NOT get
+# that. Under Docker-in-Docker the daemon can't bind a host path into sibling
+# containers, so the broker lives on a named volume mounted by both. When set,
+# attested app containers mount it at /run/broker (broker at
+# /run/broker/dstack.sock; nothing else). Mirrors DAEMON_VOLUME_NAME.
+BROKER_VOLUME_NAME = os.environ.get("BROKER_VOLUME_NAME", "")
+BROKER_MOUNT_IN_APP = "/run/broker"
+
+
+def _attested_broker_binds(mode: str) -> list[str]:
+    """Bind ONLY the filtered dstack broker socket into attested app containers,
+    at a dedicated path (no docker.sock, no /var/run clobber).
+    Read-only is fine: connect() doesn't write the socket file."""
+    if mode != "attested" or not BROKER_VOLUME_NAME:
+        return []
+    return [f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"]
 # Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").
 # Empty string keeps Docker's default (runc).
 CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
@@ -331,6 +350,9 @@ class RuntimeManager:
                 binds.append(f"{DATA_VOLUME_NAME}:{DATA_VOLUME_MOUNT_IN_RUNTIME}:rw")
                 data_root = DATA_VOLUME_MOUNT_IN_RUNTIME
 
+            # Expose the filtered dstack broker to attested shared-runtime tenants.
+            binds += _attested_broker_binds(mode)
+
             # Write router with correct projects root, filtering by mode
             router_code = config["router_code"].replace("/projects/", f"{projects_root}/").replace('"/projects"', f'"{projects_root}"')
             router_code = router_code.replace("__DATA_ROOT__", data_root)
@@ -429,6 +451,10 @@ class RuntimeManager:
         binds.append(f"{proj_data_volume}:/data:rw")
         data_dir_in = "/data"
 
+        broker_binds = _attested_broker_binds(project.mode)
+        binds += broker_binds
+        broker_sock = f"{BROKER_MOUNT_IN_APP}/dstack.sock" if broker_binds else ""
+
         labels = {
             "tee-proxy.managed": "true",
             "tee-daemon.runtime": project.runtime,
@@ -438,14 +464,16 @@ class RuntimeManager:
         if project.mode == "attested":
             labels["tee-daemon.attested"] = "true"
 
+        read_paths = [files_in, entry_in] + ([data_dir_in] if data_dir_in else []) + ([broker_sock] if broker_sock else [])
+        write_paths = ([data_dir_in] if data_dir_in else []) + ([broker_sock] if broker_sock else [])
         cmd = [
             "deno", "run", "--no-prompt",
-            f"--allow-read={files_in},{entry_in}" + (f",{data_dir_in}" if data_dir_in else ""),
+            f"--allow-read={','.join(read_paths)}",
             "--allow-net",
             "--deny-env", "--deny-ffi", "--deny-run", "--deny-sys",
         ]
-        if data_dir_in:
-            cmd.append(f"--allow-write={data_dir_in}")
+        if write_paths:
+            cmd.append(f"--allow-write={','.join(write_paths)}")
         cmd += [
             entry_in,
             project.entry or "server.ts",
@@ -488,7 +516,7 @@ class RuntimeManager:
             await self.docker.stop(existing)
             await self.docker.remove(existing)
             self.tracker.remove(existing)
-        binds = []
+        binds = list(_attested_broker_binds(project.mode))
         for v in project.volumes or []:
             await self.docker.ensure_volume(v["name"])
             binds.append(f"{v['name']}:{v['mount']}")
