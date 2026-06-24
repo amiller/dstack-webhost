@@ -322,6 +322,10 @@ def test_deploy_image():
         "runtime": "image",
         "image": "nginx:alpine",
         "image_port": 80,
+        "source": "image://nginx",
+        "ref": "alpine",
+        "commit_sha": "nginx-alpine",
+        "tree_hash": "image-nginx-alpine",
     }
     resp = api_post("/projects", json=manifest)
     assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
@@ -329,6 +333,10 @@ def test_deploy_image():
     assert project["runtime"] == "image"
     assert project["image"] == "nginx:alpine"
     assert project["image_port"] == 80
+    assert project["source"] == "image://nginx"
+    assert project["ref"] == "alpine"
+    assert project["commit_sha"] == "nginx-alpine"
+    assert project["tree_hash"] == "image-nginx-alpine"
     assert project["image_digest"], "image_digest should be populated after pull"
     print(f"  Deployed: image={project['image']} digest={project['image_digest'][:19]}")
 
