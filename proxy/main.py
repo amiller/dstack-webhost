@@ -82,7 +82,10 @@ async def start():
         await dstack_runner.setup()
         await web.UnixSite(dstack_runner, dstack_sock_path).start()
         os.chmod(dstack_sock_path, 0o666)
-        log.info("dstack proxy listening on %s", dstack_sock_path)
+        log.info("dstack proxy (filtered broker) listening on %s", dstack_sock_path)
+        if os.environ.get("PROXY_VOLUME_NAME"):
+            log.info("Broker shared to attested apps via PROXY_VOLUME_NAME=%s "
+                     "(appears at /var/run/dstack.sock)", os.environ["PROXY_VOLUME_NAME"])
     else:
         log.warning("dstack socket not found — dstack proxy disabled")
 
