@@ -6,7 +6,9 @@ __pycache__/
 dist/
 build/
 node_modules/
+.venv/
 smithers.db*
+deploy/
 workflows/
 tsconfig.json
 package.json

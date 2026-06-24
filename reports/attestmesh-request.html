@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Showing what a small app does with your data</title>
+<style>
+  :root {
+    --ink: #1c2530; --soft: #54616e; --line: #e2e6ea;
+    --accent: #2c5a8a; --bg: #fbfcfd; --panel: #f4f7f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.65 Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 700px; margin: 0 auto; padding: 60px 28px 90px; }
+  header.doc { border-bottom: 2px solid var(--line); padding-bottom: 24px; margin-bottom: 36px; }
+  .kicker {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 12px;
+  }
+  h1 { font-size: 28px; line-height: 1.25; margin: 0; font-weight: 600; }
+  h2 {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 18px; margin: 38px 0 12px; font-weight: 600;
+  }
+  p { margin: 0 0 16px; }
+  .example {
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent); border-radius: 6px;
+    padding: 16px 20px; margin: 22px 0;
+    font-size: 16px; color: var(--soft);
+  }
+  .example b { color: var(--ink); font-weight: 600; }
+  ul { margin: 0 0 16px; padding-left: 22px; }
+  li { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header class="doc">
+    <p class="kicker">Problem and need</p>
+    <h1>Showing what a small app does with your data</h1>
+  </header>
+
+  <h2>The person using an app can't tell what it does with their data</h2>
+  <p>Say you make a small app where a friend pastes the draft of a hard text message and it suggests a gentler version, and you send them the link. From their side they see a box and a result, with nothing visible in between. They have no way to know whether the draft they paste is stored, sent somewhere, or read by you, and on ordinary hosting it is: you can see every input and you hold the logs. Whether their data is safe comes down to trusting you.</p>
+  <p>That is the general shape. The small, useful apps people most want to share are often the ones where someone enters something private, and those are exactly the ones where the person using it cannot tell what the app does with it.</p>
+
+  <h2>Attestation proves the source, not that the app is safe</h2>
+  <p>Running the app in a confidential environment, with attestation, is necessary but does not close the gap. Attestation is roughly the equivalent of verified source code on a block explorer: it lets someone see the exact code that is running and be sure it is really what runs. Smart contracts already show the limit of that. A contract can be "verified" on Etherscan and still drain your wallet, because verification only means the source is published, not that anyone read or judged it. Reading and judging code is the expensive, skilled part, and most people cannot do it. So even with the source available and provably running, an ordinary person still cannot tell whether a small app is safe to hand their data to.</p>
+
+  <h2>The guarantee people want is narrow: what happens to their data</h2>
+  <p>A way to convey a meaningful guarantee about what an app does with someone's data, cheap enough that it comes with the app rather than as a separate audit.</p>
+  <p>This is achievable, and not the full smart-contract auditing problem, because the guarantee people want is narrow. The question is not whether the whole program is correct. It is what the app can do with the input: whether it is kept, whether it can leave the machine, and where it is allowed to send things. Much of that can be enforced or shown by the environment the app runs in, rather than by reading the code.</p>
+  <div class="example">
+    For the message-rewriting app, a useful guarantee reads in plain language: <b>it keeps no copy of your draft, has no disk to store it on, and makes one outbound call, to the model it uses, and nowhere else.</b> That settles most of "is my data safe" without anyone reviewing the logic line by line.
+  </div>
+  <p>That gives a natural tiering:</p>
+  <ul>
+    <li>A structural guarantee about data handling, like the one above, can be produced almost automatically and come as standard.</li>
+    <li>A deeper judgment about whether the code does what it claims is the expensive part, and fits as a higher tier for the apps that warrant it.</li>
+  </ul>
+  <p>One way to make the structural guarantee easy is to produce the app and its evidence together, for example from a short description or a small amount of code that the service turns into a running app, so the account of what it does comes from how it was built rather than from auditing an opaque dump afterward.</p>
+  <p>Whatever the shape, the guarantee has to stay specific about what was checked and how deeply. The mistake to avoid is the smart-contract one, where "verified" got read as "safe" and gave people confidence they had not earned.</p>
+
+  <h2>Deployment is solved; the data-handling guarantee is not</h2>
+  <p>Deploying a small app into a confidential environment is largely solved, and so is pinning the running app to inspectable source. dstack-webhost does the first, attestation does the second. The unsolved part is the layer above them: turning the available source and the confidentiality boundary into a guarantee an ordinary person can use without auditing anything themselves.</p>
+</main>
+</body>
+</html>

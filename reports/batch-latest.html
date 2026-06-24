@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TEE Daemon - Batch Report</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #f5f7fa;
+    color: #2d3748;
+    line-height: 1.6;
+    padding: 20px;
+}
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 24px 32px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+header .timestamp {
+    font-size: 14px;
+    opacity: 0.9;
+}
+.summary-card {
+    background: white;
+    padding: 24px 32px;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    margin-bottom: 24px;
+}
+.summary-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+.stat {
+    text-align: center;
+    padding: 16px;
+    border-radius: 8px;
+    background: #f7fafc;
+}
+.stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    display: block;
+}
+.stat-label {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #718096;
+}
+.stat.total .stat-value { color: #4a5568; }
+.stat.done .stat-value { color: #48bb78; }
+.stat.in_progress .stat-value { color: #ecc94b; }
+.stat.backlog .stat-value { color: #a0aec0; }
+.stat.failed .stat-value { color: #f56565; }
+.progress-container {
+    margin-top: 16px;
+}
+.progress-bar {
+    height: 12px;
+    background: #e2e8f0;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #48bb78 0%, #38a169 100%);
+    transition: width 0.3s ease;
+    border-radius: 6px;
+}
+.progress-label {
+    text-align: center;
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #2d3748;
+}
+section {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    margin-bottom: 24px;
+    overflow: hidden;
+}
+section h2 {
+    padding: 20px 32px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #2d3748;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f7fafc;
+}
+.batch-list {
+    padding: 20px 32px;
+}
+.batch-item {
+    display: flex;
+    align-items: center;
+    padding: 16px;
+    background: #f7fafc;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+.batch-item:last-child {
+    margin-bottom: 0;
+}
+.batch-status {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 16px;
+    flex-shrink: 0;
+}
+.batch-status.pass { background: #48bb78; }
+.batch-status.fail { background: #f56565; }
+.batch-info {
+    flex: 1;
+}
+.batch-id {
+    font-weight: 600;
+    color: #2d3748;
+}
+.batch-title {
+    color: #718096;
+    font-size: 14px;
+    margin-left: 12px;
+}
+.batch-link {
+    color: #667eea;
+    text-decoration: none;
+    font-size: 14px;
+    padding: 6px 16px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s;
+}
+.batch-link:hover {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+.tasks-grid {
+    padding: 24px 32px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+.task-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.task-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+.task-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    margin-bottom: 12px;
+}
+.task-id {
+    font-size: 13px;
+    font-weight: 700;
+    color: #718096;
+}
+.task-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.task-badge.done { background: #c6f6d5; color: #276749; }
+.task-badge.in_progress { background: #fefcbf; color: #975a16; }
+.task-badge.backlog { background: #edf2f7; color: #4a5568; }
+.task-badge.ready { background: #bee3f8; color: #2c5282; }
+.task-badge.failed { background: #fed7d7; color: #9b2c2c; }
+.task-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+.task-rfc {
+    font-size: 12px;
+    color: #667eea;
+    margin-bottom: 16px;
+}
+.task-link {
+    display: inline-block;
+    padding: 8px 16px;
+    background: #667eea;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 13px;
+    transition: background 0.2s;
+}
+.task-link:hover {
+    background: #5a67d8;
+}
+.task-link.disabled {
+    background: #e2e8f0;
+    color: #a0aec0;
+    pointer-events: none;
+}
+footer {
+    text-align: center;
+    padding: 24px;
+    color: #a0aec0;
+    font-size: 14px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>TEE Daemon</h1>
+        <div class="timestamp">Generated: 2026-04-08 00:18:29 UTC</div>
+    </header>
+
+    <div class="summary-card">
+        <div class="summary-stats">
+            <div class="stat total">
+                <span class="stat-value">27</span>
+                <span class="stat-label">Total Tasks</span>
+            </div>
+            <div class="stat done">
+                <span class="stat-value">27</span>
+                <span class="stat-label">Done</span>
+            </div>
+            <div class="stat in_progress">
+                <span class="stat-value">0</span>
+                <span class="stat-label">In Progress</span>
+            </div>
+            <div class="stat backlog">
+                <span class="stat-value">0</span>
+                <span class="stat-label">Backlog</span>
+            </div>
+            <div class="stat failed">
+                <span class="stat-value">0</span>
+                <span class="stat-label">Failed</span>
+            </div>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: 100%"></div>
+            </div>
+            <div class="progress-label">100% Complete</div>
+        </div>
+    </div>
+
+    <section>
+        <h2>This Batch</h2>
+        <div class="batch-list">
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0004-1</span>
+                    <span class="batch-title">Add X-Forwarded-For and proxy headers to ingress</span>
+                </div>
+                <a href="tasks/0004-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0005-1</span>
+                    <span class="batch-title">Rewrite ingress for streaming and WebSocket support</span>
+                </div>
+                <a href="tasks/0005-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0006-1</span>
+                    <span class="batch-title">Add structured request logging to ingress</span>
+                </div>
+                <a href="tasks/0006-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0007-1</span>
+                    <span class="batch-title">Implement Deno runtime hot-reload on file change</span>
+                </div>
+                <a href="tasks/0007-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0008-1</span>
+                    <span class="batch-title">Standardize multipart deploy API format</span>
+                </div>
+                <a href="tasks/0008-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0009-1</span>
+                    <span class="batch-title">Add health check endpoint and post-deploy verification</span>
+                </div>
+                <a href="tasks/0009-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0010-1</span>
+                    <span class="batch-title">Fix refresh() to restart runtime when projects remain</span>
+                </div>
+                <a href="tasks/0010-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0011-1</span>
+                    <span class="batch-title">Add git to Deno runtime container image</span>
+                </div>
+                <a href="tasks/0011-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0012-1</span>
+                    <span class="batch-title">Switch tunnel relay from polling to WebSocket</span>
+                </div>
+                <a href="tasks/0012-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0013-1</span>
+                    <span class="batch-title">Move tunnel auth from URL to headers</span>
+                </div>
+                <a href="tasks/0013-1.html" class="batch-link">View Report</a>
+            </div>
+            <div class="batch-item">
+                <div class="batch-status pass"></div>
+                <div class="batch-info">
+                    <span class="batch-id">0014-1</span>
+                    <span class="batch-title">Pass project dir as env var instead of import.meta.url</span>
+                </div>
+                <a href="tasks/0014-1.html" class="batch-link">View Report</a>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>All Tasks</h2>
+        <div class="tasks-grid">
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0001-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Network separation</div>
+                <div class="task-rfc">RFC 0001-platform-vision</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0001-2</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Mode field on projects</div>
+                <div class="task-rfc">RFC 0001-platform-vision</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0001-3</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Promotion API</div>
+                <div class="task-rfc">RFC 0001-platform-vision</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0001-4</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Audit log</div>
+                <div class="task-rfc">RFC 0001-platform-vision</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0001-5</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Verification page</div>
+                <div class="task-rfc">RFC 0001-platform-vision</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0001-6</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Agent skill</div>
+                <div class="task-rfc">RFC 0001-platform-vision</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0001-7</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Developer guide</div>
+                <div class="task-rfc">RFC 0001-platform-vision</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0002-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Port binding in project manifest</div>
+                <div class="task-rfc">RFC 0002-multi-routing</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0002-2</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Port-based routing</div>
+                <div class="task-rfc">RFC 0002-multi-routing</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0002-3</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">TCP proxy mode</div>
+                <div class="task-rfc">RFC 0002-multi-routing</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0002-4</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Routing table endpoint</div>
+                <div class="task-rfc">RFC 0002-multi-routing</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0002-5</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Port conflict detection</div>
+                <div class="task-rfc">RFC 0002-multi-routing</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0003-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Tunnel API</div>
+                <div class="task-rfc">RFC 0003-temporary-proxy-access</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0003-2</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Tunnel proxy handler</div>
+                <div class="task-rfc">RFC 0003-temporary-proxy-access</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0003-3</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">WebSocket relay</div>
+                <div class="task-rfc">RFC 0003-temporary-proxy-access</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0003-4</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Tunnel lifecycle management</div>
+                <div class="task-rfc">RFC 0003-temporary-proxy-access</div>
+                <span class="task-link disabled">No Report</span>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0004-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Add X-Forwarded-For and proxy headers to ingress</div>
+                <div class="task-rfc">RFC 0004-ingress-proxy-headers</div>
+                <a href="tasks/0004-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0005-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Rewrite ingress for streaming and WebSocket support</div>
+                <div class="task-rfc">RFC 0005-streaming-websocket-ingress</div>
+                <a href="tasks/0005-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0006-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Add structured request logging to ingress</div>
+                <div class="task-rfc">RFC 0006-request-logging</div>
+                <a href="tasks/0006-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0007-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Implement Deno runtime hot-reload on file change</div>
+                <div class="task-rfc">RFC 0007-deno-hot-reload</div>
+                <a href="tasks/0007-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0008-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Standardize multipart deploy API format</div>
+                <div class="task-rfc">RFC 0008-consistent-deploy-api</div>
+                <a href="tasks/0008-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0009-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Add health check endpoint and post-deploy verification</div>
+                <div class="task-rfc">RFC 0009-runtime-health-checks</div>
+                <a href="tasks/0009-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0010-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Fix refresh() to restart runtime when projects remain</div>
+                <div class="task-rfc">RFC 0010-reliable-runtime-restart</div>
+                <a href="tasks/0010-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0011-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Add git to Deno runtime container image</div>
+                <div class="task-rfc">RFC 0011-git-in-deno-runtime</div>
+                <a href="tasks/0011-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0012-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Switch tunnel relay from polling to WebSocket</div>
+                <div class="task-rfc">RFC 0012-tunnel-latency</div>
+                <a href="tasks/0012-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0013-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Move tunnel auth from URL to headers</div>
+                <div class="task-rfc">RFC 0013-tunnel-header-auth</div>
+                <a href="tasks/0013-1.html" class="task-link">View Report</a>
+            </div>
+            <div class="task-card">
+                <div class="task-header">
+                    <span class="task-id">0014-1</span>
+                    <span class="task-badge done">Done</span>
+                </div>
+                <div class="task-title">Pass project dir as env var instead of import.meta.url</div>
+                <div class="task-rfc">RFC 0014-volume-mount-env-var</div>
+                <a href="tasks/0014-1.html" class="task-link">View Report</a>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        TEE Daemon Batch Report &copy; 2026
+    </footer>
+</div>
+</body>
+</html>

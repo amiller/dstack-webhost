@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task 0013-1: Move tunnel auth from URL to headers</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        a { color: #4a7c4a; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        h1 { color: #2c3e50; border-bottom: 2px solid #4a7c4a; padding-bottom: 10px; }
+        h2 { color: #4a7c4a; margin-top: 30px; }
+        h3 { color: #555; margin-top: 20px; }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "SFMono-Regular", Consolas, monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: "SFMono-Regular", Consolas, monospace;
+            font-size: 0.85em;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        .success { color: #4a7c4a; }
+        .error { color: #c0392b; }
+        .info { color: #2980b9; }
+        ul { padding-left: 20px; }
+        li { margin-bottom: 8px; }
+        .added { background: #d4edda; }
+        .removed { background: #f8d7da; text-decoration: line-through; }
+        .changed { background: #fff3cd; }
+        .before-after { margin-bottom: 20px; }
+        .before-after h4 { margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <p><a href="../batch-latest.html">&larr; Back to Latest Reports</a></p>
+
+    <h1>Task 0013-1: Move tunnel auth from URL to headers</h1>
+
+    <h2>Task Overview</h2>
+    <ul>
+        <li><strong>Task ID:</strong> 0013-1</li>
+        <li><strong>Title:</strong> Move tunnel auth from URL to headers</li>
+        <li><strong>RFC:</strong> 0013-tunnel-header-auth</li>
+        <li><strong>Status:</strong> Done</li>
+        <li><strong>Commit:</strong> b56afef9 - "smithers: implement 0013-1 -- Add header-based tunnel auth with deprecation warning"</li>
+    </ul>
+
+    <h3>RFC Requirements</h3>
+    <p>The RFC 0013 stated the following in its Next Steps section:</p>
+    <blockquote>
+        <strong>Implementation:</strong><br>
+        1. Add support for <code>Authorization: Bearer &lt;tunnel-id&gt;</code> header as an alternative to the URL path parameter<br>
+        2. Poll and relay endpoints check the header first, fall back to URL parameter<br>
+        3. For the WebSocket upgrade (RFC 0012), pass the token as a query parameter on the initial upgrade request only (this is standard for WebSocket auth since headers aren't supported in the browser WebSocket API)<br>
+        4. Document the new auth method<br>
+        5. Deprecation plan: log a warning when URL-based auth is used, remove in next major version
+    </blockquote>
+
+    <h3>Why This Feature Matters</h3>
+    <p>URL-based authentication exposes tokens in browser history, server logs, and referrer headers. While the 64-character hex tunnel ID is cryptographically unguessable, following security best practices by using HTTP headers for authentication prevents token leakage and provides a cleaner separation between the authentication mechanism and the request path.</p>
+
+    <h2>What Changed</h2>
+
+    <p>This task modified two files in the <code>apps/tunnel/</code> directory:</p>
+    <ul>
+        <li><code>apps/tunnel/server.ts</code> - Added header-based authentication extraction and deprecation warning</li>
+        <li><code>apps/tunnel/client.ts</code> - Updated to send <code>Authorization</code> header and fixed property name</li>
+    </ul>
+
+    <h3>File Modified: <code>apps/tunnel/server.ts</code></h3>
+
+    <div class="before-after">
+        <h4>Change 1: New function <code>getTunnelIdFromRequest()</code></h4>
+        <p>This new function extracts the tunnel ID from either the <code>Authorization</code> header (preferred) or the URL path (fallback).</p>
+        <pre><code><span class="success">+function getTunnelIdFromRequest(req: Request, urlTid: string): { tid: string; urlAuthUsed: boolean } {
+<span class="success">+  // Check Authorization header first
+<span class="success">+  const authHeader = req.headers.get("Authorization") || "";
+<span class="success">+  if (authHeader.startsWith("Bearer ")) {
+<span class="success">+    return { tid: authHeader.slice(7).trim(), urlAuthUsed: false };
+<span class="success">+  }
+<span class="success">+  // Fall back to URL path parameter
+<span class="success">+  return { tid: urlTid, urlAuthUsed: true };
+<span class="success">+}</span></code></pre>
+        <p><strong>Design Rationale:</strong> This function encapsulates the authentication logic and returns a flag indicating which method was used. The flag enables the deprecation warning while maintaining backward compatibility.</p>
+    </div>
+
+    <div class="before-after">
+        <h4>Change 2: Updated <code>POST /&lt;tid&gt;/poll</code> endpoint</h4>
+        <p><strong>Before:</strong></p>
+        <pre><code>  // POST /&lt;tid&gt;/poll -&gt; long-poll for requests
+  if (req.method === "POST" &amp;&amp; parts.length === 2 &amp;&amp; parts[1] === "poll") {
+    const t = tunnels.get(parts[0]);
+    if (!t) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "content-type": "application/json" } });
+    if (Date.now() &gt; t.expiresAt) { tunnels.delete(t.tid); return new Response(JSON.stringify({ error: "expired" }), { status: 410, headers: { "content-type": "application/json" } }); }</code></pre>
+
+        <p><strong>After:</strong></p>
+        <pre><code>  // POST /&lt;tid&gt;/poll -&gt; long-poll for requests
+  if (req.method === "POST" &amp;&amp; parts.length === 2 &amp;&amp; parts[1] === "poll") {
+<span class="success">+    const { tid, urlAuthUsed } = getTunnelIdFromRequest(req, parts[0]);
+<span class="success">+    if (urlAuthUsed) {
+<span class="success">+      console.warn("URL-based tunnel authentication is deprecated. Use 'Authorization: Bearer &lt;tid&gt;' header instead.");
+<span class="success">+    }
+<span class="info">    const t = tunnels.get(tid);</span>
+    if (!t) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "content-type": "application/json" } });
+    if (Date.now() &gt; t.expiresAt) { tunnels.delete(t.tid); return new Response(JSON.stringify({ error: "expired" }), { status: 410, headers: { "content-type": "application/json" } }); }</code></pre>
+
+        <p><strong>Key Change:</strong> Now uses <code>getTunnelIdFromRequest()</code> to get the tunnel ID, and logs a deprecation warning if URL-based auth was used.</p>
+    </div>
+
+    <div class="before-after">
+        <h4>Change 3: Updated <code>POST /&lt;tid&gt;/relay</code> endpoint</h4>
+        <p><strong>Before:</strong></p>
+        <pre><code>  // POST /&lt;tid&gt;/relay -&gt; send response back
+  if (req.method === "POST" &amp;&amp; parts.length === 2 &amp;&amp; parts[1] === "relay") {
+    const k = parts[0];
+    if (!tunnels.has(k)) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "content-type": "application/json" } });</code></pre>
+
+        <p><strong>After:</strong></p>
+        <pre><code>  // POST /&lt;tid&gt;/relay -&gt; send response back
+  if (req.method === "POST" &amp;&amp; parts.length === 2 &amp;&amp; parts[1] === "relay") {
+<span class="success">+    const { tid, urlAuthUsed } = getTunnelIdFromRequest(req, parts[0]);
+<span class="success">+    if (urlAuthUsed) {
+<span class="success">+      console.warn("URL-based tunnel authentication is deprecated. Use 'Authorization: Bearer &lt;tid&gt;' header instead.");
+<span class="success">+    }
+<span class="info">    if (!tunnels.has(tid)) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "content-type": "application/json" } });</span></code></pre>
+    </div>
+
+    <div class="before-after">
+        <h4>Change 4: Updated visitor traffic handler</h4>
+        <p><strong>Before:</strong></p>
+        <pre><code>  // Visitor traffic: /&lt;tid&gt;/&lt;path...&gt;
+  if (parts.length &gt;= 1) {
+    const t = tunnels.get(parts[0]);
+    if (!t) return new Response("not found", { status: 404 });</code></pre>
+
+        <p><strong>After:</strong></p>
+        <pre><code>  // Visitor traffic: /&lt;tid&gt;/&lt;path...&gt;
+  if (parts.length &gt;= 1) {
+<span class="success">+    const { tid, urlAuthUsed } = getTunnelIdFromRequest(req, parts[0]);
+<span class="success">+    if (urlAuthUsed) {
+<span class="success">+      console.warn("URL-based tunnel authentication is deprecated. Use 'Authorization: Bearer &lt;tid&gt;' header instead.");
+<span class="success">+    }
+<span class="info">    const t = tunnels.get(tid);</span>
+    if (!t) return new Response("not found", { status: 404 });</code></pre>
+    </div>
+
+    <h3>File Modified: <code>apps/tunnel/client.ts</code></h3>
+
+    <div class="before-after">
+        <h4>Change 1: Fixed property name from <code>tunnel.secret</code> to <code>tunnel.tid</code></h4>
+        <p><strong>Before:</strong></p>
+        <pre><code>const tunnel = await createResp.json();
+console.log(`\n  Tunnel created!`);
+console.log(`  Secret:   ${tunnel.secret}`);
+console.log(`  Expires:  ${tunnel.expiresAt}`);
+
+// Build the visitor URL from the tunnel URL
+const baseUrl = tunnelUrl.replace(/\/+$/, "");
+const visitorUrl = `${baseUrl}/${tunnel.secret}/`;
+const pollUrl = `${baseUrl}/${tunnel.secret}/poll`;
+const relayUrl = `${baseUrl}/${tunnel.secret}/relay`;</code></pre>
+
+        <p><strong>After:</strong></p>
+        <pre><code>const tunnel = await createResp.json();
+console.log(`\n  Tunnel created!`);
+<span class="info">console.log(`  Secret:   ${tunnel.tid}`);</span>
+console.log(`  Expires:  ${tunnel.expiresAt}`);
+
+// Build the visitor URL from the tunnel URL
+const baseUrl = tunnelUrl.replace(/\/+$/, "");
+<span class="info">const visitorUrl = `${baseUrl}/${tunnel.tid}/`;</span>
+<span class="info">const pollUrl = `${baseUrl}/${tunnel.tid}/poll`;</span>
+<span class="info">const relayUrl = `${baseUrl}/${tunnel.tid}/relay`;</span></code></pre>
+        <p><strong>Note:</strong> This was a bug fix - the server had always returned <code>tid</code> but the client was trying to access <code>secret</code> (which would be <code>undefined</code>). The URLs were still being constructed correctly with the <code>tid</code> in the path, so the bug didn't break functionality but caused incorrect logging.</p>
+    </div>
+
+    <div class="before-after">
+        <h4>Change 2: Added <code>Authorization</code> header to poll request</h4>
+        <p><strong>Before:</strong></p>
+        <pre><code>      const pollResp = await fetch(pollUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ afterSeq: lastSeq }),
+      });</code></pre>
+
+        <p><strong>After:</strong></p>
+        <pre><code>      const pollResp = await fetch(pollUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+<span class="success">+          "authorization": `Bearer ${tunnel.tid}`,
+</span>        },
+        body: JSON.stringify({ afterSeq: lastSeq }),
+      });</code></pre>
+    </div>
+
+    <div class="before-after">
+        <h4>Change 3: Added <code>Authorization</code> header to success relay request</h4>
+        <p><strong>Before:</strong></p>
+        <pre><code>        await fetch(relayUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id,
+            status: resp.status,
+            headers: respHeaders,
+            body: respBodyB64,
+          }),
+        });</code></pre>
+
+        <p><strong>After:</strong></p>
+        <pre><code>        await fetch(relayUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+<span class="success">+            "authorization": `Bearer ${tunnel.tid}`,
+</span>          },
+          body: JSON.stringify({
+            id,
+            status: resp.status,
+            headers: respHeaders,
+            body: respBodyB64,
+          }),
+        });</code></pre>
+    </div>
+
+    <div class="before-after">
+        <h4>Change 4: Added <code>Authorization</code> header to error relay request</h4>
+        <p><strong>Before:</strong></p>
+        <pre><code>        await fetch(relayUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id,
+            status: 502,
+            headers: { "content-type": "text/plain" },
+            body: btoa(`Backend error: ${(err as Error).message}`),
+          }),
+        });</code></pre>
+
+        <p><strong>After:</strong></p>
+        <pre><code>        await fetch(relayUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+<span class="success">+            "authorization": `Bearer ${tunnel.tid}`,
+</span>          },
+          body: JSON.stringify({
+            id,
+            status: 502,
+            headers: { "content-type": "text/plain" },
+            body: btoa(`Backend error: ${(err as Error).message}`),
+          }),
+        });</code></pre>
+    </div>
+
+    <h3>Design Decisions</h3>
+
+    <h4>Why Check Header First, Fall Back to URL?</h4>
+    <ul>
+        <li><strong>Backward compatibility:</strong> Existing clients using URL-based auth continue to work without modification.</li>
+        <li><strong>Gradual migration path:</strong> New clients can use header-based auth immediately, and the deprecation warning encourages others to migrate.</li>
+        <li><strong>Clear deprecation signal:</strong> The warning log provides visibility into which clients are still using the deprecated method.</li>
+    </ul>
+
+    <h4>Why Use <code>console.warn</code> for Deprecation?</h4>
+    <ul>
+        <li><strong>Server-side logging:</strong> The warning appears in server logs, making it visible to operators monitoring the system.</li>
+        <li><strong>Non-breaking:</strong> Clients aren't rejected, so existing deployments continue to work.</li>
+        <li><strong>Measurable:</strong> Log analytics can track adoption of the new header-based auth method.</li>
+    </ul>
+
+    <h4>Why the <code>tid</code> vs <code>secret</code> Property Name Fix?</h4>
+    <ul>
+        <li><strong>Consistency:</strong> The server's tunnel creation endpoint has always returned <code>tid</code> as the property name.</li>
+        <li><strong>Correctness:</strong> Using <code>tunnel.secret</code> (which is undefined) caused the "Secret" log message to show "undefined" even though the URLs were being constructed correctly with the path parameter.</li>
+    </ul>
+
+    <h2>How It Works</h2>
+
+    <h3>Authentication Flow</h3>
+
+    <ol>
+        <li><strong>Server receives request:</strong> The tunnel server handler receives a request at endpoints like <code>/&lt;tid&gt;/poll</code>, <code>/&lt;tid&gt;/relay</code>, or visitor paths.</li>
+        <li><strong>Extract tunnel ID:</strong> <code>getTunnelIdFromRequest()</code> is called:
+            <ul>
+                <li>First checks for <code>Authorization: Bearer &lt;tid&gt;</code> header</li>
+                <li>If found, returns the tid and sets <code>urlAuthUsed: false</code></li>
+                <li>If not found, extracts from URL path and sets <code>urlAuthUsed: true</code></li>
+            </ul>
+        </li>
+        <li><strong>Deprecation check:</strong> If <code>urlAuthUsed</code> is true, logs a warning message.</li>
+        <li><strong>Validate tunnel:</strong> Looks up the tunnel in the <code>tunnels</code> Map using the extracted tid.</li>
+        <li><strong>Process request:</strong> Continues with normal request processing.</li>
+    </ol>
+
+    <h3>Client Authentication</h3>
+
+    <ol>
+        <li><strong>Create tunnel:</strong> Client POSTs to create a tunnel and receives the <code>tid</code>.</li>
+        <li><strong>Build URLs:</strong> Constructs <code>pollUrl</code>, <code>relayUrl</code>, and <code>visitorUrl</code> using the <code>tid</code>.</li>
+        <li><strong>Add Authorization header:</strong> All poll and relay requests include <code>Authorization: Bearer ${tunnel.tid}</code> header.</li>
+        <li><strong>Server validates:</strong> Server extracts tid from header (preferred method) without triggering deprecation warning.</li>
+    </ol>
+
+    <h3>Data Structures</h3>
+
+    <p><strong>Tunnel Interface:</strong></p>
+    <pre><code>interface Tunnel {
+  tid: string;        // 64-character hex tunnel ID
+  createdAt: number;  // Timestamp
+  expiresAt: number;  // Expiration timestamp
+  pollSeq: number;    // Poll sequence number
+}</code></pre>
+
+    <p><strong>getTunnelIdFromRequest Return Value:</strong></p>
+    <pre><code>{ tid: string; urlAuthUsed: boolean }</code></pre>
+
+    <h2>Testing & Verification</h2>
+
+    <h3>Creating a Tunnel</h3>
+    <pre><code>curl -X POST http://localhost:8080/tunnel/ \
+  -H "Authorization: Bearer &lt;TUNNEL_TOKEN&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"timeout": 3600}'</code></pre>
+
+    <p>Expected Response:</p>
+    <pre><code>{
+  "tid": "a1b2c3d4e5f6...",
+  "pollUrl": "/a1b2c3d4e5f6.../poll",
+  "relayUrl": "/a1b2c3d4e5f6.../relay",
+  "visitorUrl": "/a1b2c3d4e5f6.../",
+  "expiresAt": "2026-04-09T00:01:00.000Z"
+}</code></pre>
+
+    <h3>Auth via Header (New Method - No Warning)</h3>
+    <pre><code>curl -X POST http://localhost:8080/tunnel/&lt;tid&gt;/poll \
+  -H "Authorization: Bearer &lt;tid&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"afterSeq": 0}'</code></pre>
+
+    <p>Expected: Returns JSON with pending requests or <code>{"empty": true}</code>. No deprecation warning in server logs.</p>
+
+    <h3>Auth via URL (Deprecated - Logs Warning)</h3>
+    <pre><code>curl -X POST http://localhost:8080/tunnel/&lt;tid&gt;/poll \
+  -H "Content-Type: application/json" \
+  -d '{"afterSeq": 0}'</code></pre>
+
+    <p>Expected: Returns JSON with pending requests or <code>{"empty": true}</code>. Server logs:</p>
+    <pre><code>URL-based tunnel authentication is deprecated. Use 'Authorization: Bearer <tid>' header instead.</code></pre>
+
+    <h3>Visitor Access with Header Auth</h3>
+    <pre><code>curl http://localhost:8080/api/data \
+  -H "Authorization: Bearer &lt;tid&gt;"</code></pre>
+
+    <p>Expected: Request is proxied to the tunnel's backend without deprecation warning.</p>
+
+    <h3>No Authentication</h3>
+    <pre><code>curl http://localhost:8080/api/data</code></pre>
+
+    <p>Expected: <code>404 not found</code> (tunnel not found) since no tunnel ID was provided.</p>
+
+    <h3>Wrong Token</h3>
+    <pre><code>curl http://localhost:8080/tunnel/wrongtid/poll \
+  -H "Content-Type: application/json" \
+  -d '{"afterSeq": 0}'</code></pre>
+
+    <p>Expected: <code>{"error": "not found"}</code> with status 404.</p>
+
+    <h3>Run the Tunnel Client</h3>
+    <pre><code>deno run --allow-net --allow-env apps/tunnel/client.ts \
+  http://localhost:8080/tunnel/ \
+  http://localhost:3000</code></pre>
+
+    <p>Expected: Client connects, creates tunnel, and waits for incoming requests. All poll/relay requests include the <code>Authorization</code> header.</p>
+
+    <h2>Issues & Follow-ups</h2>
+
+    <h3>Known Limitations</h3>
+    <ul>
+        <li><strong>URL-based auth still accepted:</strong> While deprecated, URL-based authentication still works. It will need to be removed in a future major version.</li>
+        <li><strong>WebSocket auth not addressed:</strong> The RFC mentioned passing the token as a query parameter for WebSocket connections, but this implementation doesn't add WebSocket-specific handling. The <code>apps/tunnel</code> system uses HTTP polling, not WebSocket (RFC 0012's WebSocket implementation is in <code>proxy/tunnel.py</code>).</li>
+        <li><strong>Logging only:</strong> Deprecation warning is only logged to console. In production, this should go to a proper logging system for monitoring adoption.</li>
+    </ul>
+
+    <h3>Dependencies</h3>
+    <ul>
+        <li><strong>None:</strong> This task is independent of other tasks. It adds a new authentication method while maintaining backward compatibility.</li>
+    </ul>
+
+    <h3>Incomplete Items</h3>
+    <ul>
+        <li><strong>Remove URL-based auth:</strong> Planned for next major version. No specific timeline set.</li>
+        <li><strong>Documentation update:</strong> RFC requested documentation of the new auth method. This should be added to the project's developer guide.</li>
+    </ul>
+
+    <h3>Related RFCs</h3>
+    <ul>
+        <li><strong>RFC 0003:</strong> Temporary proxy access - Original tunnel feature</li>
+        <li><strong>RFC 0012:</strong> Tunnel latency - WebSocket-based tunnel (separate tunnel system in proxy/)</li>
+    </ul>
+
+</body>
+</html>

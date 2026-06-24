@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task 0011-1: Add git clone validation to ensure non-empty directory</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .success-header {
+            color: #4a7c4a;
+            background: #f0f9f0;
+            padding: 10px;
+            border-left: 4px solid #4a7c4a;
+            margin: 20px 0;
+        }
+        .issue-header {
+            color: #c0392b;
+            background: #fdf5f5;
+            padding: 10px;
+            border-left: 4px solid #c0392b;
+            margin: 20px 0;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "Monaco", "Courier New", monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        .diff-added { color: #22863a; }
+        .diff-removed { color: #cb2431; }
+        .back-link {
+            background: #e8f4fd;
+            padding: 10px 15px;
+            border-radius: 5px;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        .back-link a {
+            text-decoration: none;
+            color: #0366d6;
+            font-weight: 500;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: #fff;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eaecef;
+        }
+        th {
+            font-weight: 600;
+            background: #f6f8fa;
+        }
+        .rfc-quote {
+            background: #e8f5e9;
+            border-left: 4px solid #4a7c4a;
+            padding: 15px 20px;
+            margin: 20px 0;
+            font-style: italic;
+            border-radius: 0 4px 4px 0;
+        }
+        .info-box {
+            background: #e1f0ff;
+            border-left: 4px solid #2196f3;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        .warning-box {
+            background: #fff5b1;
+            border-left: 4px solid #ffd33d;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="back-link">
+        <a href="../batch-latest.html">← Back to batch reports</a>
+    </div>
+
+    <h1>Task 0011-1: Add git clone validation to ensure non-empty directory</h1>
+
+    <h2>Task Overview</h2>
+    <p><strong>Task ID:</strong> 0011-1<br>
+    <strong>Title:</strong> Add git clone validation to ensure non-empty directory<br>
+    <strong>RFC:</strong> <code>0011-git-in-deno-runtime</code></p>
+
+    <h3>What the RFC Asked For</h3>
+    <p>From RFC 0011, Next Steps:</p>
+    <div class="rfc-quote">
+        <p>1. Add <code>RUN apt-get update &amp;&amp; apt-get install -y git &amp;&amp; rm -rf /var/lib/apt/lists/*</code> to the Deno runtime Dockerfile<br>
+        2. In the deploy code that handles git clone: check the exit code of <code>git clone</code> and return a clear error if it fails<br>
+        3. Add a validation step after clone: verify the target directory is non-empty (catches "clone succeeded but empty repo" case)<br>
+        4. Rebuild the Docker image and update the running container</p>
+    </div>
+
+    <h3>Why This Feature Matters</h3>
+    <p>The RFC identified a critical silent failure mode: git-clone-based deploys were succeeding but creating empty directories. This happened because the system would complete the deploy process even when no files were actually cloned from the repository. Users would deploy expecting their code to run, but instead get an empty directory, leading to confusing runtime failures. Adding proper validation ensures users receive clear, actionable error messages when git operations fail.</p>
+
+    <h2>What Changed</h2>
+
+    <h3>File: <code>proxy/deploy.py</code></h3>
+
+    <p>Modified the <code>git_clone()</code> function to add validation that ensures the cloned directory exists and is non-empty.</p>
+
+    <h4>Before (lines 57-65 in commit <code>b66f58ea^</code>):</h4>
+    <pre><code>    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise ValueError(f"git clone failed: {stderr.decode().strip()}")
+    proc2 = await asyncio.create_subprocess_exec(
+        "git", "-C", dest, "rev-parse", "HEAD",
+        stdout=asyncio.subprocess.PIPE)
+    stdout, _ = await proc2.communicate()
+    return stdout.decode().strip()</code></pre>
+
+    <h4>After (lines 57-69 in commit <code>b66f58ea</code>):</h4>
+    <pre><code>    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise ValueError(f"git clone failed: {stderr.decode().strip()}")
+    <span class="diff-added">    # Validate cloned directory is non-empty
+    if not os.path.exists(dest):
+        raise ValueError(f"git clone succeeded but destination directory does not exist: {dest}")
+    if not os.listdir(dest):
+        raise ValueError(f"git clone succeeded but destination directory is empty: {dest}")
+</span>    proc2 = await asyncio.create_subprocess_exec(
+        "git", "-C", dest, "rev-parse", "HEAD",
+        stdout=asyncio.subprocess.PIPE)
+    stdout, _ = await proc2.communicate()
+    return stdout.decode().strip()</code></pre>
+
+    <h4>Design Decisions</h4>
+
+    <p><strong>Two validation checks instead of one:</strong> The implementation includes both <code>os.path.exists(dest)</code> and <code>os.listdir(dest)</code> checks. This provides more specific error messages for two different failure scenarios:</p>
+    <ul>
+        <li><strong>Missing directory:</strong> Git clone succeeded somehow, but no directory was created (should be rare, but catches edge cases)</li>
+        <li><strong>Empty directory:</strong> Directory exists but has no files—this is the primary issue the RFC aimed to solve</li>
+    </ul>
+
+    <p><strong>Error messages after successful exit code:</strong> The validation runs <em>after</em> the <code>proc.returncode != 0</code> check. This means we first catch explicit git failures (network errors, authentication failures, etc.) and <em>then</em> validate the result. This two-stage approach provides clear differentiation between "git failed" and "git succeeded but produced invalid output."</p>
+
+    <p><strong>Validation location:</strong> The validation happens before the <code>git rev-parse HEAD</code> command, which would fail anyway on an empty directory. By validating first, we get a more descriptive error message and fail faster.</p>
+
+    <div class="info-box">
+        <strong>Architecture Note:</strong> The <code>git clone</code> operation runs on the <em>host daemon</em> system (inside the tee-daemon container), not inside the Deno runtime container. The main <code>Dockerfile</code> for tee-daemon already includes <code>git</code> installation (line 2 of <code>Dockerfile</code>). Therefore, RFC item #1 (adding git to Deno Dockerfile) was not necessary for this architecture. The files are made available to runtime containers via bind mounts.
+    </div>
+
+    <h2>How It Works</h2>
+
+    <h3>Invocation Flow</h3>
+
+    <p>The <code>git_clone()</code> function is invoked during the deploy process in the <code>deploy_project()</code> function (line 142 of <code>proxy/deploy.py</code>):</p>
+
+    <pre><code>files_dir = store.files_dir(name)
+commit_sha = await git_clone(source, ref, files_dir)</code></pre>
+
+    <h3>Complete Function Flow:</h3>
+
+    <ol>
+        <li><strong>Setup:</strong> Function receives <code>source</code> (git URL), <code>ref</code> (branch/tag), and <code>dest</code> (target directory)</li>
+        <li><strong>Clean existing:</strong> If destination directory exists, remove it (line 48-49)</li>
+        <li><strong>Build git command:</strong> Construct <code>git clone --depth 1 [--branch &lt;ref&gt;] &lt;url&gt; &lt;dest&gt;</code></li>
+        <li><strong>Execute git clone:</strong> Run subprocess and capture stdout/stderr (lines 55-57)</li>
+        <li><strong>Check exit code:</strong> If non-zero, raise error with stderr (lines 58-59)</li>
+        <li><strong><strong>NEW:</strong> Validate directory exists:</strong> Check if <code>os.path.exists(dest)</code>, raise error if false (lines 61-62)</li>
+        <li><strong><strong>NEW:</strong> Validate non-empty:</strong> Check if <code>os.listdir(dest)</code> returns files, raise error if empty (lines 63-64)</li>
+        <li><strong>Get commit SHA:</strong> Run <code>git rev-parse HEAD</code> to get the actual commit (lines 65-69)</li>
+        <li><strong>Return:</strong> Return commit SHA string (line 69)</li>
+    </ol>
+
+    <h3>Data Structures and APIs</h3>
+
+    <p><strong>Input:</strong></p>
+    <ul>
+        <li><code>source: str</code> - Git repository URL (can be full URL or bare repo name)</li>
+        <li><code>ref: str</code> - Git branch, tag, or commit (optional)</li>
+        <li><code>dest: str</code> - Local filesystem path for clone</li>
+    </ul>
+
+    <p><strong>Output:</strong></p>
+    <ul>
+        <li><code>str</code> - The 40-character SHA of the cloned commit</li>
+    </ul>
+
+    <p><strong>Exceptions:</strong></p>
+    <ul>
+        <li><code>ValueError</code> - Raised with descriptive message for any failure</li>
+    </ul>
+
+    <h3>Integration with Existing Code</h3>
+
+    <p>The <code>git_clone()</code> function is part of the deploy pipeline that:</p>
+
+    <ol>
+        <li>Receives a deploy request via POST <code>/_api/projects</code></li>
+        <li>Validates the manifest (either from request body or project.json in repo)</li>
+        <li><strong>Calls <code>git_clone()</code> to fetch source code</strong></li>
+        <li>Detects runtime, entry point, and configuration</li>
+        <li>Computes tree hash for verification</li>
+        <li>Runs build steps (e.g., <code>npm install</code>)</li>
+        <li>Saves project metadata</li>
+        <li>Refreshes runtime container</li>
+    </ol>
+
+    <h2>Testing &amp; Verification</h2>
+
+    <h3>Verification Methods</h3>
+
+    <h4>1. Successful Git Clone Deploy</h4>
+    <p>Deploy from a valid public repository:</p>
+    <pre><code>curl -X POST http://localhost:8080/_api/projects \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test-app",
+    "source": "https://github.com/username/public-repo",
+    "ref": "main"
+  }'</code></pre>
+
+    <p>Expected: Successful response with project details, files visible in container.</p>
+
+    <h4>2. Invalid Git URL (Network/Repository Error)</h4>
+    <pre><code>curl -X POST http://localhost:8080/_api/projects \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "bad-url-test",
+    "source": "https://github.com/nonexistent/repo-that-does-not-exist-12345"
+  }'</code></pre>
+
+    <p>Expected: <code>ValueError: git clone failed: ...</code> with git's error message</p>
+
+    <h4>3. Empty Repository (Triggers New Validation)</h4>
+    <p>This scenario tests the new validation code. While difficult to test with a real public repo, code would catch:</p>
+    <pre><code># Error message if git exits successfully but directory is empty:
+ValueError: git clone succeeded but destination directory is empty: /path/to/dest</code></pre>
+
+    <h4>4. Private Repository (Authentication Error)</h4>
+    <pre><code>curl -X POST http://localhost:8080/_api/projects \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "private-repo",
+    "source": "https://github.com/username/private-repo"
+  }'</code></pre>
+
+    <p>Expected: <code>ValueError: git clone failed: Authentication failed...</code></p>
+
+    <h3>Edge Cases and Error Handling</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Scenario</th>
+                <th>Before This Change</th>
+                <th>After This Change</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Network failure</td>
+                <td>Error with git stderr</td>
+                <td>Error with git stderr (unchanged)</td>
+            </tr>
+            <tr>
+                <td>Bad credentials</td>
+                <td>Error with git stderr</td>
+                <td>Error with git stderr (unchanged)</td>
+            </tr>
+            <tr>
+                <td>Git returns 0 but no files</td>
+                <td>Deploy "succeeds", empty directory, runtime error later</td>
+                <td>Clear error: "git clone succeeded but destination directory is empty"</td>
+            </tr>
+            <tr>
+                <td>Git returns 0 but no directory</td>
+                <td>Deploy "succeeds", later <code>git rev-parse</code> fails with cryptic error</td>
+                <td>Clear error: "git clone succeeded but destination directory does not exist"</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Issues &amp; Follow-ups</h2>
+
+    <h3>Implementation Notes</h3>
+
+    <div class="warning-box">
+        <strong>Note on RFC Scope:</strong> The RFC requested adding git to Deno Dockerfile, but actual architecture runs git operations in the proxy container (not the runtime containers). The proxy container's Dockerfile already includes git. The implemented solution addresses the core problem (silent empty directories) through validation, which is architecturally simpler and covers all runtimes, not just Deno.
+    </div>
+
+    <h3>Known Limitations</h3>
+
+    <ul>
+        <li><strong>No authentication handling:</strong> The system doesn't support private repositories with credentials (no SSH key or token support)</li>
+        <li><strong>Depth 1 clone only:</strong> Uses <code>--depth 1</code> for shallow clones; full history not available</li>
+        <li><strong>No submodule support:</strong> Git submodules would not be cloned</li>
+    </ul>
+
+    <h3>Dependencies on Other Tasks</h3>
+
+    <ul>
+        <li><strong>Independent task:</strong> This task has no dependencies on other tasks and can be deployed independently</li>
+        <li><strong>Follows task 0008-1:</strong> Uses the standardized deploy API format from task 0008-1</li>
+    </ul>
+
+    <h3>Commit Information</h3>
+
+    <ul>
+        <li><strong>Commit:</strong> <code>b66f58ea</code></li>
+        <li><strong>Message:</strong> "smithers: implement 0011-1 -- Add git clone validation to ensure non-empty directory"</li>
+        <li><strong>Date:</strong> Tue Apr 7 23:33:22 2026</li>
+        <li><strong>Files changed:</strong>
+            <ul>
+                <li><code>proxy/deploy.py</code>: +5 lines (validation code)</li>
+                <li><code>kanban.json</code>: status update</li>
+                <li>Various report files generated</li>
+            </ul>
+        </li>
+    </ul>
+
+    <div class="success-header">
+        <strong>Status: Complete</strong><br>
+        The validation code successfully addresses the silent failure mode identified in the RFC. Users will now receive clear error messages when git clone operations produce invalid or empty results.
+    </div>
+</body>
+</html>

@@ -11,8 +11,12 @@
 # of Sentry mediating syscalls.
 set -euo pipefail
 
+# NOTE 2026-06-12: 'latest' rolled to a newer gVisor release, so the old pinned
+# hash (9844ad24…) no longer matched and the integrity check aborted boot. Updated
+# to the current latest's verified sha512 (matches gVisor's published runsc.sha512).
+# TODO: pin a dated/immutable release URL instead of 'latest' so this can't recur.
 RUNSC_URL="https://storage.googleapis.com/gvisor/releases/release/latest/x86_64/runsc"
-RUNSC_SHA512="9844ad2493999c579d0b4bcbde99ad3ed98e9f0ee175d87003b2e4da2e61f22efe452c378503cb911edac1b627820cb7985326e52b44dafe5d17e593d4b9095a"
+RUNSC_SHA512="8ecbf845e50880ab65573153756aea01da2823d05a61bce23c6c24f4446d064ab5a253e7ee6a8b619c5934c373ea74487c7c2ab2754dfb1e0b27860c6e0d2014"
 INSTALL_DIR="/dstack/persistent/bin"
 
 verify_sha512() {
