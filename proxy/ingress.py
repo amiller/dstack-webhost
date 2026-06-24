@@ -518,10 +518,10 @@ class Ingress:
                     project = self.store.load(public_name)
                 except FileNotFoundError:
                     resp = web.json_response({"error": "not found"}, status=404)
-                else:
-                    if project.mode != "attested":
-                        resp = web.json_response({"error": "not found"}, status=404)
-                    elif path.startswith("attest/"):
+                    resp.headers["Access-Control-Allow-Origin"] = "*"
+                    return resp
+                if project.mode == "attested":
+                    if path.startswith("attest/"):
                         resp = await self._api_attest(public_name)
                     elif path.startswith("verification/"):
                         resp = await self._api_verification(public_name)
@@ -529,8 +529,8 @@ class Ingress:
                         resp = await self._api_audit(public_name)
                     else:
                         resp = await self._api_status(public_name, public=True)
-                resp.headers["Access-Control-Allow-Origin"] = "*"
-                return resp
+                    resp.headers["Access-Control-Allow-Origin"] = "*"
+                    return resp
 
         denied = self._check_auth(request)
         if denied:
@@ -547,6 +547,9 @@ class Ingress:
 
         if path == "routes" and method == "GET":
             return await self._api_routes()
+
+        if path == "audit" and method == "GET":
+            return await self._api_all_audit()
 
         if path == "projects" and method == "GET":
             return await self._api_list()
@@ -720,6 +723,15 @@ class Ingress:
             return web.json_response(audit.to_json())
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
+
+    async def _api_all_audit(self) -> web.Response:
+        """Get audit entries for all known projects."""
+        entries: list[dict] = []
+        for project in self.store.list():
+            audit = self.audit_manager.get_audit_log(project.name)
+            entries.extend(audit.to_json())
+        entries.sort(key=lambda e: e.get("timestamp", 0))
+        return web.json_response(entries)
 
     async def _api_attest(self, name: str) -> web.Response:
         project = self.store.load(name)
