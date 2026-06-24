@@ -279,11 +279,13 @@ async def _deploy_image(store: ProjectStore, audit_manager,
 
     volumes = manifest.get("volumes", []) or []
     env_passthrough = manifest.get("env_passthrough", []) or []
+    oci_runtime = manifest.get("oci_runtime", "")
     project = Project(
         name=name, runtime="image", entry="", port=0, mode=mode,
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         image=image, image_port=image_port, volumes=volumes,
         env_passthrough=env_passthrough, listen=listen_config,
+        oci_runtime=oci_runtime,
     )
     store.save(project)
 

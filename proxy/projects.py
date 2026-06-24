@@ -35,6 +35,7 @@ class Project:
     volumes: List[dict] = field(default_factory=list)
     isolation: str = "shared"
     env_passthrough: List[str] = field(default_factory=list)
+    oci_runtime: str = ""
 
     def __post_init__(self):
         if self.env is None:

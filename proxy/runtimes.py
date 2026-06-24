@@ -532,9 +532,10 @@ class RuntimeManager:
             val = os.environ.get(key)
             if val is not None:
                 env.append(f"{key}={val}")
+        runtime = project.oci_runtime or CONTAINER_RUNTIME
         cid = await self.docker.create_container(
             cname, project.image, [], binds, labels, network,
-            env=env, runtime=CONTAINER_RUNTIME)
+            env=env, runtime=runtime)
         await self.docker.start(cid)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
