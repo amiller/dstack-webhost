@@ -15,6 +15,7 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore
+from .tokens import TokenStore
 from . import ingress as ingress_mod
 from .ingress import Ingress
 
@@ -30,6 +31,7 @@ DSTACK_SOCK = os.environ.get("DSTACK_SOCKET", "/var/run/dstack.sock")
 DATA_DIR = os.environ.get("DAEMON_DATA_DIR", "/var/lib/tee-daemon/projects")
 AUDIT_DIR = os.environ.get("DAEMON_AUDIT_DIR", "/var/lib/tee-daemon/audit")
 TUNNEL_DIR = os.environ.get("DAEMON_TUNNEL_DIR", "/var/lib/tee-daemon/tunnels")
+TOKEN_DIR = os.environ.get("DAEMON_TOKEN_DIR", "/var/lib/tee-daemon/tokens")
 INGRESS_PORT = int(os.environ.get("INGRESS_PORT", "8080"))
 
 
@@ -46,6 +48,7 @@ async def start():
     store = ProjectStore(DATA_DIR)
     rtm = RuntimeManager(docker, store, tracker)
     tunnel_store = TunnelStore(TUNNEL_DIR)
+    token_store = TokenStore(TOKEN_DIR)
 
     # Docker socket proxy (existing)
     docker_proxy = DockerProxy(DOCKER_SOCK, tracker, audit_manager)
@@ -102,8 +105,12 @@ async def start():
     tunnel_store.recover()
     log.info("Recovered %d active tunnels", len(tunnel_store.list()))
 
+    # Recovery: restore scoped API tokens from disk
+    token_store.recover()
+    log.info("Recovered %d scoped API tokens", len(token_store.list()))
+
     # Ingress + API on TCP port(s)
-    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store)
+    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store, token_store)
 
     # Check for port conflicts. The default ingress port (INGRESS_PORT) is
     # path-based-routing-only — multiple projects may "request" it, but they
@@ -158,13 +165,14 @@ async def start():
 
     log.info("tee-daemon running")
 
-    # Background task: cleanup expired tunnels
-    async def cleanup_expired_tunnels():
+    # Background task: cleanup expired short-lived grants
+    async def cleanup_expired_grants():
         while True:
             await asyncio.sleep(60)  # Check every minute
             tunnel_store.cleanup_expired()
+            token_store.cleanup_expired()
 
-    cleanup_task = asyncio.create_task(cleanup_expired_tunnels())
+    cleanup_task = asyncio.create_task(cleanup_expired_grants())
 
     stop = asyncio.Event()
     for sig_name in ("SIGINT", "SIGTERM"):

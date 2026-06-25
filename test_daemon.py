@@ -72,6 +72,7 @@ def start_daemon():
         "DAEMON_DATA_DIR": os.path.join(tmpdir, "projects"),
         "DAEMON_AUDIT_DIR": os.path.join(tmpdir, "audit"),
         "DAEMON_TUNNEL_DIR": os.path.join(tmpdir, "tunnels"),
+        "DAEMON_TOKEN_DIR": os.path.join(tmpdir, "tokens"),
         "PROXY_SOCKET_DIR": os.path.join(tmpdir, "proxy"),
         "DOCKER_SOCKET": "/var/run/docker.sock",
         "DSTACK_SOCKET": "/nonexistent",
@@ -158,6 +159,41 @@ def test_ingress_static():
     assert resp.status_code == 200
     assert "Hello from TEE" in resp.text
     print("  Content verified")
+
+
+def test_scoped_tokens():
+    print("\n--- Test: scoped, revocable API tokens ---")
+    resp = api_post("/tokens", json={"scope": "projects/test-static", "ttl": 600})
+    assert resp.status_code == 201, f"token create failed: {resp.status_code} {resp.text}"
+    body = resp.json()
+    token_id = body["id"]
+    scoped_auth = {"Authorization": f"Bearer {body['token']}"}
+    assert body["scope"] == "projects/test-static"
+    assert body["revoked"] is False
+
+    resp = requests.get(f"{API}/projects/test-static", headers=scoped_auth)
+    assert resp.status_code == 200, f"scoped token should read project: {resp.status_code} {resp.text}"
+
+    resp = requests.get(f"{API}/routes", headers=scoped_auth)
+    assert resp.status_code == 403, f"scoped token must not read routes: {resp.status_code} {resp.text}"
+
+    resp = requests.get(f"{API}/tokens", headers=scoped_auth)
+    assert resp.status_code == 403, "scoped token must not access token admin API"
+
+    resp = api_get("/tokens")
+    assert resp.status_code == 200
+    tokens = resp.json()
+    created = [t for t in tokens if t["id"] == token_id]
+    assert created and "token" not in created[0] and "secret_hash" not in created[0]
+
+    resp = api_delete(f"/tokens/{token_id}")
+    assert resp.status_code == 200
+    resp = requests.get(f"{API}/projects/test-static", headers=scoped_auth)
+    assert resp.status_code == 403, "revoked token must fail closed immediately"
+
+    resp = api_get("/routes")
+    assert resp.status_code == 200, "owner token keeps full access"
+    print("  scoped allow/deny, revoke, owner compatibility ✓")
 
 
 def test_git_blocked():
@@ -726,6 +762,7 @@ def main():
         test_deploy_static()
         test_caps_require_attested()
         test_ingress_static()
+        test_scoped_tokens()
         test_git_blocked()
         test_playwright_static()
         test_deploy_deno()
