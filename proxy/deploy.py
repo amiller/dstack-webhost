@@ -285,6 +285,8 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     project = Project(
         name=name, runtime="image", entry="", port=0, mode=mode,
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
+        source=manifest.get("source", ""), ref=manifest.get("ref", ""),
+        commit_sha=manifest.get("commit_sha", ""), tree_hash=manifest.get("tree_hash", ""),
         image=image, image_port=image_port, volumes=volumes,
         env_passthrough=env_passthrough, listen=listen_config,
         oci_runtime=manifest.get("oci_runtime", ""),
