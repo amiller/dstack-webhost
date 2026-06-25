@@ -30,10 +30,13 @@ class DockerClient:
     async def create_container(self, name: str, image: str, cmd: list[str],
                                binds: list[str], labels: dict, network: str,
                                env: list[str] | None = None,
-                               runtime: str = "") -> str:
+                               runtime: str = "",
+                               restart_policy: dict | None = None) -> str:
         host_config: dict = {"Binds": binds}
         if runtime:
             host_config["Runtime"] = runtime
+        if restart_policy:
+            host_config["RestartPolicy"] = restart_policy
         body = {
             "Image": image,
             "Cmd": cmd or None,

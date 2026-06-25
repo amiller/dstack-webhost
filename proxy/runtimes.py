@@ -33,6 +33,7 @@ DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 # /run/broker/dstack.sock; nothing else). Mirrors DAEMON_VOLUME_NAME.
 BROKER_VOLUME_NAME = os.environ.get("BROKER_VOLUME_NAME", "")
 BROKER_MOUNT_IN_APP = "/run/broker"
+IMAGE_APP_RESTART_POLICY = {"Name": "on-failure", "MaximumRetryCount": 5}
 
 
 def _attested_broker_binds(mode: str) -> list[str]:
@@ -543,7 +544,8 @@ class RuntimeManager:
                 env.append(f"{key}={val}")
         cid = await self.docker.create_container(
             cname, project.image, [], binds, labels, network,
-            env=env, runtime=(project.oci_runtime or CONTAINER_RUNTIME))
+            env=env, runtime=(project.oci_runtime or CONTAINER_RUNTIME),
+            restart_policy=IMAGE_APP_RESTART_POLICY)
         await self.docker.start(cid)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
