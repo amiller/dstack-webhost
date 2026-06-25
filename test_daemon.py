@@ -686,6 +686,44 @@ def test_list_projects():
         assert p["tree_hash"]
 
 
+def test_export_import_pinned():
+    print("\n--- Test: export/import pinned restore ---")
+    resp = api_get("/export")
+    assert resp.status_code == 200, resp.text
+    exported = resp.json()
+    selected = [
+        p for p in exported["projects"]
+        if p["name"] in ("test-static", "test-deno")
+    ]
+    assert len(selected) == 2, selected
+    assert all("env" not in p for p in selected), selected
+    original = {p["name"]: p for p in selected}
+    bundle = {"version": 1, "projects": selected}
+    print(f"  Exported {sorted(original)} without env secrets")
+
+    for name in sorted(original):
+        resp = api_delete(f"/projects/{name}")
+        assert resp.status_code == 200, f"teardown {name}: {resp.status_code} {resp.text}"
+
+    resp = api_post("/import", json=bundle)
+    assert resp.status_code == 200, f"import failed: {resp.status_code} {resp.text}"
+    restored = {p["name"]: p for p in resp.json()["restored"]}
+    assert set(restored) == set(original)
+    for name, before in original.items():
+        after = restored[name]
+        assert after["commit_sha"] == before["commit_sha"], (name, before, after)
+        assert after["tree_hash"] == before["tree_hash"], (name, before, after)
+    print("  Import restored identical commit/tree pins")
+
+    tampered = json.loads(json.dumps(bundle))
+    tampered["projects"][0]["tree_hash"] = "0" * 40
+    resp = api_post("/import", json=tampered)
+    assert resp.status_code == 400, f"tampered import should fail: {resp.status_code} {resp.text}"
+    errors = resp.json().get("errors", [])
+    assert errors and "tree_hash mismatch" in errors[0]["error"], resp.text
+    print(f"  Tampered tree_hash hard-failed: {errors[0]['error']}")
+
+
 def test_teardown():
     print("\n--- Test: teardown ---")
     for name in ["test-static", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso"]:
@@ -726,6 +764,7 @@ def main():
         test_redeploy()
         test_audit_log()
         test_list_projects()
+        test_export_import_pinned()
         test_teardown()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:
