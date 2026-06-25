@@ -575,6 +575,12 @@ class Ingress:
         if path == "audit" and method == "GET":
             return await self._api_all_audit()
 
+        if path == "export" and method == "GET":
+            return await self._api_export()
+
+        if path == "import" and method == "POST":
+            return await self._api_import(request)
+
         if path == "projects" and method == "GET":
             return await self._api_list()
 
@@ -647,6 +653,31 @@ class Ingress:
                 })
 
         return web.json_response(routes)
+
+    async def _api_export(self) -> web.Response:
+        return web.json_response(self.store.export_bundle())
+
+    async def _api_import(self, request: web.Request) -> web.Response:
+        try:
+            bundle = await request.json()
+            manifests = self.store.import_manifests(bundle)
+        except (json.JSONDecodeError, ValueError) as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+        restored = []
+        errors = []
+        for manifest in manifests:
+            name = manifest.get("name", "")
+            try:
+                project = await deploy(
+                    self.store, self.docker, self.audit_manager, self.tracker,
+                    self.rtm, manifest, pinned=True)
+                restored.append(asdict(project))
+            except Exception as e:
+                log.error("import failed for %s: %s", name, e)
+                errors.append({"name": name, "error": str(e)})
+        status = 400 if errors else 200
+        return web.json_response({"restored": restored, "errors": errors}, status=status)
 
     async def _api_deploy(self, request: web.Request) -> web.Response:
         """Deploy a project. Accepts either:

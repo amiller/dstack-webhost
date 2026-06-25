@@ -78,6 +78,38 @@ async def git_clone(source: str, ref: str, dest: str) -> tuple[str, str]:
     return commit_sha, git_tree_sha
 
 
+async def git_clone_pinned(source: str, commit_sha: str, dest: str) -> tuple[str, str]:
+    """Clone source and check out exactly commit_sha. Returns (commit, tree)."""
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    if not commit_sha:
+        raise ValueError("Pinned restore requires commit_sha")
+    url = source if source.startswith(("https://", "http://", "/")) else f"https://{source}"
+    proc = await asyncio.create_subprocess_exec(
+        "git", "clone", url, dest,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise ValueError(f"git clone failed: {stderr.decode().strip()}")
+    proc2 = await asyncio.create_subprocess_exec(
+        "git", "-C", dest, "checkout", "--detach", commit_sha,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    _, stderr = await proc2.communicate()
+    if proc2.returncode != 0:
+        raise ValueError(f"git checkout {commit_sha} failed: {stderr.decode().strip()}")
+    proc3 = await asyncio.create_subprocess_exec(
+        "git", "-C", dest, "rev-parse", "HEAD",
+        stdout=asyncio.subprocess.PIPE)
+    stdout, _ = await proc3.communicate()
+    actual_commit = stdout.decode().strip()
+    proc4 = await asyncio.create_subprocess_exec(
+        "git", "-C", dest, "rev-parse", "HEAD^{tree}",
+        stdout=asyncio.subprocess.PIPE)
+    stdout, _ = await proc4.communicate()
+    git_tree_sha = stdout.decode().strip()
+    return actual_commit, git_tree_sha
+
+
 def extract_tarball(data: bytes, dest: str) -> None:
     if os.path.exists(dest):
         shutil.rmtree(dest)
@@ -148,7 +180,8 @@ async def run_build_step(docker: DockerClient, runtime: str, entry: str, files_d
 
 async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
                  tracker: ContainerTracker, rtm: RuntimeManager,
-                 manifest: dict, files_data: bytes | None = None) -> Project:
+                 manifest: dict, files_data: bytes | None = None,
+                 pinned: bool = False) -> Project:
     source = manifest.get("source", "")
     ref = manifest.get("ref", "")
     name = manifest.get("name", "")
@@ -157,17 +190,35 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         raise ValueError(f"Invalid project name: {name!r}")
 
     if manifest.get("runtime") == "image":
-        return await _deploy_image(store, audit_manager, rtm, manifest)
+        return await _deploy_image(store, audit_manager, rtm, manifest, pinned=pinned)
 
     files_dir = store.files_dir(name)
     git_tree_sha = ""
     if files_data is not None:
+        if pinned:
+            raise ValueError("Pinned restore does not support uploaded tarballs")
         extract_tarball(files_data, files_dir)
         commit_sha = manifest.get("commit_sha", "")
     else:
         if not source:
             raise ValueError("Missing source (provide git source or upload tarball via multipart)")
-        commit_sha, git_tree_sha = await git_clone(source, ref, files_dir)
+        if pinned:
+            restore_dir = f"{files_dir}.restore"
+            commit_sha, git_tree_sha = await git_clone_pinned(
+                source, manifest.get("commit_sha", ""), restore_dir)
+            expected_tree = manifest.get("tree_hash", "")
+            if not expected_tree:
+                shutil.rmtree(restore_dir, ignore_errors=True)
+                raise ValueError("Pinned restore requires tree_hash")
+            if git_tree_sha != expected_tree:
+                shutil.rmtree(restore_dir, ignore_errors=True)
+                raise ValueError(
+                    f"Pinned tree_hash mismatch for {name}: got {git_tree_sha}, expected {expected_tree}")
+            if os.path.exists(files_dir):
+                shutil.rmtree(files_dir)
+            os.rename(restore_dir, files_dir)
+        else:
+            commit_sha, git_tree_sha = await git_clone(source, ref, files_dir)
 
     repo_manifest = detect_manifest(files_dir)
 
@@ -254,7 +305,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
 
 
 async def _deploy_image(store: ProjectStore, audit_manager,
-                        rtm: RuntimeManager, manifest: dict) -> Project:
+                        rtm: RuntimeManager, manifest: dict,
+                        pinned: bool = False) -> Project:
     name = manifest["name"]
     image = manifest.get("image", "")
     image_port = int(manifest.get("image_port", 0))
@@ -292,9 +344,17 @@ async def _deploy_image(store: ProjectStore, audit_manager,
         env_passthrough=env_passthrough, listen=listen_config,
         oci_runtime=oci_runtime,
     )
-    store.save(project)
 
     digest = await rtm.start_image(project)
+    if pinned:
+        expected_digest = manifest.get("image_digest", "")
+        if not expected_digest:
+            await rtm.stop_image(name)
+            raise ValueError("Pinned image restore requires image_digest")
+        if digest != expected_digest:
+            await rtm.stop_image(name)
+            raise ValueError(
+                f"Pinned image_digest mismatch for {name}: got {digest}, expected {expected_digest}")
     project.image_digest = digest
     store.save(project)
 

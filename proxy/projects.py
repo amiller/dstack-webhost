@@ -1,5 +1,7 @@
 """Project model and disk-backed store."""
 
+from __future__ import annotations
+
 import json
 import os
 import shutil
@@ -86,3 +88,43 @@ class ProjectStore:
 
     def delete(self, name: str):
         shutil.rmtree(self._project_dir(name))
+
+    def export_bundle(self) -> dict:
+        return {
+            "version": 1,
+            "projects": [export_project(p) for p in self.list()],
+        }
+
+    def import_manifests(self, bundle: dict) -> list[dict]:
+        if not isinstance(bundle, dict):
+            raise ValueError("import bundle must be a JSON object")
+        if bundle.get("version") != 1:
+            raise ValueError(f"unsupported import bundle version: {bundle.get('version')!r}")
+        projects = bundle.get("projects")
+        if not isinstance(projects, list):
+            raise ValueError("import bundle must contain a projects list")
+        return [import_manifest(p) for p in projects]
+
+
+EXPORT_FIELDS = (
+    "name", "runtime", "entry", "port", "mode", "image_digest", "source",
+    "ref", "commit_sha", "tree_hash", "listen", "image", "image_port",
+    "volumes", "isolation", "env_passthrough", "oci_runtime",
+)
+
+
+def export_project(project: Project) -> dict:
+    data = asdict(project)
+    return {k: data[k] for k in EXPORT_FIELDS if k in data}
+
+
+def import_manifest(data: dict) -> dict:
+    if not isinstance(data, dict):
+        raise ValueError("project import entry must be a JSON object")
+    out = {k: data[k] for k in EXPORT_FIELDS if k in data}
+    out.pop("env", None)
+    if not out.get("name"):
+        raise ValueError("project import entry missing name")
+    if not out.get("runtime"):
+        raise ValueError(f"project {out['name']!r} missing runtime")
+    return out
