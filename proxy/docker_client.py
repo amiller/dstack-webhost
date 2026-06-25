@@ -30,10 +30,13 @@ class DockerClient:
     async def create_container(self, name: str, image: str, cmd: list[str],
                                binds: list[str], labels: dict, network: str,
                                env: list[str] | None = None,
-                               runtime: str = "") -> str:
+                               runtime: str = "",
+                               restart_policy: dict | None = None) -> str:
         host_config: dict = {"Binds": binds}
         if runtime:
             host_config["Runtime"] = runtime
+        if restart_policy:
+            host_config["RestartPolicy"] = restart_policy
         body = {
             "Image": image,
             "Cmd": cmd or None,
@@ -71,6 +74,10 @@ class DockerClient:
     async def pull(self, image: str):
         status, body = await self._raw_request("POST", f"/images/create?fromImage={image}")
         if status >= 400:
+            # Registry unreachable / rate-limited is fine if the image is already
+            # cached locally — use the cached image rather than blocking the deploy.
+            if await self.image_digest(image):
+                return
             raise RuntimeError(f"pull failed ({status}): {image}")
 
     async def container_ip(self, cid: str, network: str) -> str:

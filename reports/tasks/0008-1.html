@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task 0008-1: Standardize multipart deploy API format</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .back-link { display: block; margin-bottom: 30px; }
+        h1 { font-size: 28px; margin-bottom: 10px; }
+        .meta { color: #666; margin-bottom: 30px; }
+        h2 { font-size: 22px; margin-top: 40px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #eaecef; }
+        h3 { font-size: 18px; margin-top: 30px; margin-bottom: 15px; }
+        h3.success { color: #4a7c4a; }
+        h3.issue { color: #d73a49; }
+        p { margin-bottom: 15px; }
+        ul, ol { margin-bottom: 15px; padding-left: 30px; }
+        li { margin-bottom: 8px; }
+        code { background: #f6f8fa; padding: 2px 6px; border-radius: 3px; font-family: "SF Mono", "Consolas", monospace; font-size: 13px; }
+        pre { background: #f6f8fa; padding: 15px; border-radius: 6px; overflow-x: auto; margin: 20px 0; }
+        pre code { background: none; padding: 0; }
+        .file-change { background: #fff; border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; margin: 20px 0; }
+        .file-header { font-weight: 600; font-size: 15px; margin-bottom: 15px; color: #24292e; }
+        .code-added { background: #e6ffec; border-left: 3px solid #4a7c4a; padding: 10px; margin: 10px 0; }
+        .code-removed { background: #ffebe9; border-left: 3px solid #d73a49; padding: 10px; margin: 10px 0; }
+        .section { margin-bottom: 40px; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eaecef; }
+        th { font-weight: 600; }
+        .warning-box { background: #fff5b1; border-left: 4px solid #ffd33d; padding: 15px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <a href="../batch-latest.html" class="back-link">&larr; Back to latest batch</a>
+
+    <h1>Task 0008-1: Standardize multipart deploy API format</h1>
+    <div class="meta">
+        RFC: 0008-consistent-deploy-api | Status: <strong>done</strong> | Commit: <code>b7c19ef4</code>
+    </div>
+
+    <div class="section">
+        <h2>Task Overview</h2>
+        <p>Task 0008-1 addresses a critical interoperability problem between the running daemon on the CVM and the repository code. The RFC 0008: <strong>Consistent Multipart Deploy API</strong> identifies that the production daemon expects <code>multipart/form-data</code> requests with a <code>manifest</code> field and optional <code>files</code> fields, while the newer codebase expected a simple JSON body.</p>
+
+        <h3>What the RFC Asked For</h3>
+        <p>From RFC 0008's Implementation section:</p>
+        <blockquote>
+            <pre><code>3. Update the repo version to match the running daemon's expectations:
+   - `manifest` field: JSON string with project name, runtime type, ports, env vars
+   - `files` field(s): uploaded files (tar, zip, or individual files)
+4. Add validation: reject requests missing required fields with clear error messages
+5. Add backward compatibility: if a JSON body is sent (old format), wrap it in the multipart format internally
+6. Document the API contract in a docstring on the handler</code></pre>
+        </blockquote>
+
+        <h3>Why This Matters</h3>
+        <p>The mismatch made it impossible to deploy to the running daemon using the repo's own client code. Without fixing this, development workflows would be broken and testing against production would be impossible. The solution establishes <code>multipart/form-data</code> as the canonical format while maintaining backward compatibility for existing JSON-based clients.</p>
+    </div>
+
+    <div class="section">
+        <h2>What Changed</h2>
+
+        <div class="file-change">
+            <div class="file-header">proxy/ingress.py</div>
+            <p>The <code>_api_deploy()</code> method in the <code>Ingress</code> class was completely rewritten to support dual request formats.</p>
+
+            <h3>Before (Original Implementation)</h3>
+            <div class="code-removed">
+                <pre><code>async def _api_deploy(self, request: web.Request) -> web.Response:
+    manifest = await request.json()
+    project = await deploy(
+        self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+    return web.json_response(asdict(project), status=201)</code></pre>
+            </div>
+            <p>This was a simple implementation that only handled JSON requests via <code>await request.json()</code>. No validation of required fields was performed, and multipart/form-data was not supported at all.</p>
+
+            <h3>After (New Implementation)</h3>
+            <div class="code-added">
+                <pre><code>async def _api_deploy(self, request: web.Request) -> web.Response:
+    """
+    Deploy API endpoint.
+
+    Accepts two request formats:
+
+    1. multipart/form-data (canonical format):
+       - manifest: JSON string containing project name, source, ref, runtime, etc.
+       - files: uploaded files (optional, currently only git source is supported)
+
+    2. application/json (backward compatible):
+       - Direct JSON body with manifest fields
+
+    Example multipart request:
+       curl -F "manifest=@manifest.json" https://&lt;ingress&gt;/_api/projects
+
+    Example JSON request:
+       curl -H "Content-Type: application/json" -d '{"name":"test","source":"https://github.com/user/repo"}' https://&lt;ingress&gt;/_api/projects
+    """
+    content_type = request.headers.get("Content-Type", "")
+
+    if "multipart/form-data" in content_type:
+        # Handle multipart/form-data format (canonical)
+        try:
+            reader = await request.multipart()
+            manifest_str = None
+            files_received = []
+
+            async for field in reader:
+                if field.name == "manifest":
+                    manifest_str = await field.text()
+                elif field.name == "files":
+                    # Read file content (currently not used, but kept for future compatibility)
+                    content = await field.read()
+                    files_received.append(content)
+
+            if not manifest_str:
+                return web.json_response(
+                    {"error": "missing manifest field in multipart request"},
+                    status=400
+                )
+
+            # Parse manifest JSON string
+            try:
+                manifest = json.loads(manifest_str)
+            except json.JSONDecodeError as e:
+                return web.json_response(
+                    {"error": f"malformed JSON in manifest field: {str(e)}"},
+                    status=400
+                )
+
+            # Validate required fields
+            if "name" not in manifest:
+                return web.json_response(
+                    {"error": "missing required field 'name' in manifest"},
+                    status=400
+                )
+
+            if "source" not in manifest:
+                return web.json_response(
+                    {"error": "missing required field 'source' in manifest"},
+                    status=400
+                )
+
+        except Exception as e:
+            return web.json_response(
+                {"error": f"error processing multipart request: {str(e)}"},
+                status=400
+            )
+    else:
+        # Handle JSON body format (backward compatible)
+        try:
+            manifest = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response(
+                {"error": "invalid JSON in request body"},
+                status=400
+            )
+
+        # Validate required fields for JSON format
+        if "name" not in manifest:
+            return web.json_response(
+                {"error": "missing required field 'name'"},
+                status=400
+            )
+
+        if "source" not in manifest:
+            return web.json_response(
+                {"error": "missing required field 'source'"},
+                status=400
+            )
+
+    # Deploy the project
+    project = await deploy(
+        self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+    return web.json_response(asdict(project), status=201)</code></pre>
+            </div>
+
+            <h3>Key Design Decisions</h3>
+            <ul>
+                <li><strong>Content-Type Detection</strong>: Uses a substring check <code>"multipart/form-data" in content_type</code> to handle variations like charset parameters</li>
+                <li><strong>Async Iterator Pattern</strong>: Uses <code>await request.multipart()</code> and <code>async for field in reader</code> for efficient streaming of large uploads</li>
+                <li><strong>Field-by-Field Processing</strong>: Iterates through all form fields to find <code>manifest</code> and <code>files</code>, allowing for flexibility in field order</li>
+                <li><strong>Dual Validation Paths</strong>: Both multipart and JSON paths validate <code>name</code> and <code>source</code> fields, but with slightly different error messages to help debug which format was attempted</li>
+                <li><strong>Graceful Degradation</strong>: The <code>files</code> field is read but not currently used, preserving future compatibility for file-based deployments</li>
+                <li><strong>Error Handling</strong>: Catches exceptions broadly at the multipart processing level and returns detailed error messages</li>
+            </ul>
+        </div>
+
+        <div class="file-change">
+            <div class="file-header">proxy/runtimes.py</div>
+            <p>Minor changes were made to <code>runtimes.py</code> in the same commit, primarily adding a health check endpoint to the Deno router. This is tangentially related to task 0009-1 (runtime health checks) but was included in the same commit for implementation convenience.</p>
+
+            <div class="code-added">
+                <pre><code>// Health check endpoint
+if (parts.length === 1 && parts[0] === "_health") {
+  return new Response(
+    JSON.stringify({status: "ok", uptime: Math.floor((Date.now() - startTime) / 1000)}),
+    {status: 200, headers: {"content-type": "application/json"}}
+  );
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>How It Works</h2>
+        <p>The deploy API now follows this flow:</p>
+
+        <ol>
+            <li><strong>Request Reception</strong>: The <code>_api_deploy()</code> handler receives the incoming POST request to <code>/_api/projects</code></li>
+
+            <li><strong>Content-Type Inspection</strong>: The method checks the <code>Content-Type</code> header to determine the request format</li>
+
+            <li><strong>Format Branching</strong>:
+                <ul>
+                    <li><strong>Multipart path</strong>: If <code>multipart/form-data</code> is detected:
+                        <ul>
+                            <li>Creates an async multipart reader</li>
+                            <li>Iterates through all form fields</li>
+                            <li>Extracts the <code>manifest</code> field as text</li>
+                            <li>Optionally reads <code>files</code> fields</li>
+                            <li>Validates that <code>manifest</code> exists</li>
+                            <li>Parses the manifest JSON string</li>
+                            <li>Validates <code>name</code> and <code>source</code> fields</li>
+                        </ul>
+                    </li>
+                    <li><strong>JSON path</strong>: Otherwise (backward compatibility):
+                        <ul>
+                            <li>Parses the entire request body as JSON</li>
+                            <li>Validates <code>name</code> and <code>source</code> fields</li>
+                        </ul>
+                    </li>
+                </ul>
+            </li>
+
+            <li><strong>Deploy Invocation</strong>: Both paths converge at the <code>deploy()</code> function call with the parsed manifest</li>
+
+            <li><strong>Response</strong>: Returns the created project as JSON with status 201</li>
+        </ol>
+
+        <h3>Data Structures Involved</h3>
+        <p>The manifest is expected to contain project configuration fields:</p>
+        <ul>
+            <li><code>name</code> (required): Project identifier</li>
+            <li><code>source</code> (required): Git repository URL</li>
+            <li><code>ref</code> (optional): Git branch, tag, or commit</li>
+            <li><code>runtime</code> (optional): Runtime type (e.g., "deno", "static")</li>
+            <li><code>entry</code> (optional): Entry point file</li>
+            <li><code>port</code> (optional): Port number</li>
+            <li><code>mode</code> (optional): Deployment mode ("dev" or "attested")</li>
+            <li><code>env</code> (optional): Environment variables</li>
+        </ul>
+
+        <h3>Integration with Existing Code</h3>
+        <p>The new implementation integrates seamlessly with the existing codebase:
+            <ul>
+                <li>The <code>deploy()</code> function from <code>proxy/deploy.py</code> is called exactly as before</li>
+                <li>All existing middleware, authentication, and error handling remain unchanged</li>
+                <li>The response format is identical to the original implementation</li>
+                <li>The <code>Ingress</code> class structure is preserved</li>
+            </ul>
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>Testing & Verification</h2>
+
+        <h3>Success Cases</h3>
+
+        <h4>1. Multipart Deployment (Canonical Format)</h4>
+        <pre><code>cat > manifest.json &lt;&lt;'EOF'
+{
+  "name": "test-project",
+  "source": "https://github.com/example/repo",
+  "ref": "main",
+  "runtime": "deno",
+  "entry": "mod.ts"
+}
+EOF
+
+curl -F "manifest=@manifest.json" \
+     http://localhost:8000/_api/projects</code></pre>
+            <p>Expected response: <code>{"name": "test-project", ...}</code> with status 201</p>
+
+        <h4>2. JSON Deployment (Backward Compatibility)</h4>
+            <pre><code>curl -H "Content-Type: application/json" \
+     -d '{"name":"test-project","source":"https://github.com/example/repo"}' \
+     http://localhost:8000/_api/projects</code></pre>
+            <p>Expected response: <code>{"name": "test-project", ...}</code> with status 201</p>
+
+        <h3>Error Cases</h3>
+
+        <h4>1. Missing Manifest in Multipart Request</h4>
+            <pre><code>curl -F "files=@somefile.txt" \
+     http://localhost:8000/_api/projects</code></pre>
+            <p>Expected response: <code>{"error": "missing manifest field in multipart request"}</code> with status 400</p>
+
+        <h4>2. Malformed JSON in Manifest</h4>
+            <pre><code>curl -F "manifest={invalid json" \
+     http://localhost:8000/_api/projects</code></pre>
+            <p>Expected response: <code>{"error": "malformed JSON in manifest field: ..."}</code> with status 400</p>
+
+        <h4>3. Missing Required Field (name)</h4>
+            <pre><code>curl -F "manifest={\"source\":\"https://github.com/example/repo\"}" \
+     http://localhost:8000/_api/projects</code></pre>
+            <p>Expected response: <code>{"error": "missing required field 'name' in manifest"}</code> with status 400</p>
+
+        <h4>4. Missing Required Field (source)</h4>
+            <pre><code>curl -F "manifest={\"name\":\"test\"}" \
+     http://localhost:8000/_api/projects</code></pre>
+            <p>Expected response: <code>{"error": "missing required field 'source' in manifest"}</code> with status 400</p>
+
+        <h4>5. Invalid JSON Body</h4>
+            <pre><code>curl -H "Content-Type: application/json" \
+     -d '{invalid}' \
+     http://localhost:8000/_api/projects</code></pre>
+            <p>Expected response: <code>{"error": "invalid JSON in request body"}</code> with status 400</p>
+
+        <h3>Edge Cases & Error Handling</h3>
+        <ul>
+            <li><strong>Large file uploads</strong>: The async reader handles streaming, so large files won't block the event loop</li>
+            <li><strong>Multiple manifest fields</strong>: Only the last <code>manifest</code> field is used (standard multipart behavior)</li>
+            <li><strong>Charset in Content-Type</strong>: The substring check handles <code>multipart/form-data; charset=utf-8</code> correctly</li>
+            <li><strong>Empty manifest</strong>: Results in JSON decode error with clear message</li>
+            <li><strong>Unexpected fields</strong>: Additional fields are ignored (not validated, not rejected)</li>
+        </ul>
+
+        <h3>Verification of Deployment</h3>
+        <p>After a successful deployment, verify the project is running:</p>
+            <pre><code># Check the project status
+curl http://localhost:8000/_api/projects/test-project
+
+# Access the deployed application
+curl http://localhost:8000/test-project/</code></pre>
+    </div>
+
+    <div class="section">
+        <h2>Issues & Follow-ups</h2>
+
+        <h3>Known Limitations</h3>
+        <ul>
+            <li><strong>Files field unused</strong>: While the <code>files</code> field is read from multipart requests, its contents are not currently utilized. The deploy flow still relies on git cloning from the <code>source</code> URL. Future work could support direct tar/zip deployments using this field.</li>
+            <li><strong>No file size limits</strong>: The implementation doesn't enforce size limits on uploaded files, which could lead to resource exhaustion in production.</li>
+            <li><strong>No content validation</strong>: Beyond parsing JSON, the manifest structure is minimally validated (only checking for <code>name</code> and <code>source</code>). Invalid values for other fields will only be caught downstream in the deploy function.</li>
+        </ul>
+
+        <h3>Dependencies on Other Tasks</h3>
+        <p>This task has minimal dependencies on other RFCs but is related to:
+            <ul>
+                <li><strong>RFC 0009 (runtime health checks)</strong>: While technically a separate task, the commit for 0008-1 also added the <code>/_health</code> endpoint to the Deno router. These features work together to provide a more robust deployment experience.</li>
+                <li><strong>Existing deploy infrastructure</strong>: This task builds upon the existing <code>deploy()</code> function in <code>proxy/deploy.py</code>, which handles git cloning, container management, and project storage.</li>
+            </ul>
+        </p>
+
+        <h3>Incomplete Items</h3>
+        <p>The RFC's report requirements mention documenting the API contract, which has been partially addressed by the detailed docstring. However, formal API documentation beyond the docstring was not included in this implementation.</p>
+
+        <div class="warning-box">
+            <strong>Note</strong>: The commit <code>b7c19ef4</code> also removed the <code>health_check()</code> function from <code>runtimes.py</code> that was present in earlier versions. This suggests task 0009-1 may have been partially implemented or reverted during the development of 0008-1. The health check endpoint was re-added to the Deno router inline, but the Python-side health checking logic was removed.
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Summary</h2>
+        <p>Task 0008-1 successfully resolved the deploy API format mismatch between the running CVM daemon and the repository code. The implementation establishes <code>multipart/form-data</code> as the canonical format while maintaining backward compatibility with JSON-based clients. The code includes comprehensive validation, clear error messages, and detailed documentation via the expanded docstring.</p>
+        <p>While the <code>files</code> field support is currently dormant, the infrastructure is in place for future enhancements like direct file-based deployments. The implementation follows aiohttp best practices with async streaming and proper error handling.</p>
+    </div>
+</body>
+</html>

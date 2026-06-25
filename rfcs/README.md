@@ -19,6 +19,13 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0013](0013-tunnel-header-auth.md) | Tunnel Header-Based Auth | Draft |
 | [0014](0014-volume-mount-env-var.md) | Volume Mount Path Configuration | Draft |
 | [0015](0015-public-verification-endpoints.md) | Public Read-Only Verification Endpoints | Draft |
+| [0016](0016-fleet-console.md) | Fleet Console and Status Surface | Draft |
+| [0017](0017-state-durability-recovery.md) | State Durability and Recovery Across CVM Lifecycle | Draft |
+| [0018](0018-credential-broker.md) | Credential Broker — Scoped, Expiring, Auditable Delegations | Draft |
+| [0019](0019-managed-hosting-teesql.md) | Managed Hosting via TeeSQL / AttestMesh | Draft |
+| [0020](0020-attestation-evidence-for-consumers.md) | Machine-Verifiable Attestation Evidence for App Consumers | Draft |
+| [0021](0021-app-self-improvement-evidence-spend.md) | App Self-Improvement via Attestation-Evidence Spend | Draft |
+| [0022](0022-spec-based-appraisal-curated-list.md) | Spec-Based Appraisal and Curated App List | Draft |
 
 ## Conventions
 

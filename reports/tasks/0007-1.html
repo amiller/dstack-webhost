@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task 0007-1 Implementation Report</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f7fa;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #4a7c4a 0%, #5a9c5a 100%);
+            color: #fff;
+            padding: 30px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 15px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .back-link:hover { text-decoration: underline; }
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .header .meta {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        .section {
+            padding: 30px;
+            border-bottom: 1px solid #eee;
+        }
+        .section:last-child { border-bottom: none; }
+        .section h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            border-bottom: 2px solid #4a7c4a;
+            padding-bottom: 10px;
+        }
+        .section h3 {
+            font-size: 16px;
+            margin: 20px 0 10px 0;
+            color: #4a7c4a;
+        }
+        .section h4 {
+            font-size: 14px;
+            margin: 15px 0 8px 0;
+            color: #555;
+        }
+        p { margin-bottom: 15px; }
+        ul { margin-bottom: 15px; padding-left: 20px; }
+        li { margin-bottom: 8px; }
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 14px;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        .diff-block {
+            margin: 20px 0;
+        }
+        .diff-block .before {
+            background: #ffeef0;
+            border-left: 4px solid #e57373;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+        .diff-block .after {
+            background: #e8f5e9;
+            border-left: 4px solid #66bb6a;
+            padding: 15px;
+        }
+        .diff-label {
+            font-weight: bold;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            display: block;
+        }
+        .diff-label.before-label { color: #c62828; }
+        .diff-label.after-label { color: #2e7d32; }
+        .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #ffc107;
+            margin: 15px 0;
+        }
+        .success {
+            color: #2e7d32;
+            font-weight: bold;
+        }
+        .issue {
+            color: #c62828;
+            font-weight: bold;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .table th, .table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .table th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        .table tr:hover { background: #f8f9fa; }
+        .tag {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .tag.rfc { background: #e3f2fd; color: #1976d2; }
+        .tag.done { background: #e8f5e9; color: #388e3c; }
+        .flow-diagram {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+        .flow-diagram .arrow {
+            color: #666;
+            margin: 0 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <a href="../batch-latest.html" class="back-link">&larr; Back to Batch Report</a>
+            <h1>Task 0007-1 Implementation Report</h1>
+            <div class="meta">
+                <span class="tag rfc">RFC 0007</span>
+                <span class="tag done">Completed</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Task Overview</h2>
+
+            <h3>Task Information</h3>
+            <ul>
+                <li><strong>Task ID:</strong> 0007-1</li>
+                <li><strong>Title:</strong> Implement Deno runtime hot-reload on file change</li>
+                <li><strong>Source RFC:</strong> <a href="../../rfcs/0007-deno-hot-reload.md">RFC 0007: Deno Runtime Hot-Reload</a></li>
+                <li><strong>Implementation Commit:</strong> 87743b2a</li>
+            </ul>
+
+            <h3>RFC Requirements</h3>
+            <p>RFC 0007 asked for hot-reload functionality to solve a critical developer experience problem:</p>
+            <blockquote>
+                "When a new project is deployed via multipart upload, files are written to the shared volume but the running deno container's import() caches the old module. rtm.refresh() recreates the container, but only when the LAST project using that runtime is torn down. Adding a new project to an already-running container does nothing &mdash; the router's initial module scan already ran."
+            </blockquote>
+            <p>The RFC specified the following implementation approach (Option A, recommended):</p>
+            <ol>
+                <li>In the Deno router, after initial module scan, start <code>Deno.watchFs()</code> on the projects directory</li>
+                <li>On file change event, debounce 500ms (to batch rapid writes), then re-import the changed module</li>
+                <li>If the new module fails to import, keep the old version running and log the error</li>
+                <li>Send a signal back to the ingress that the reload completed (optional)</li>
+            </ol>
+
+            <h3>Why This Matters</h3>
+            <p>Without hot-reload, developers had to perform a painful workflow to iterate on code:</p>
+            <ol>
+                <li>Deploy project changes</li>
+                <li>Tear down ALL projects on the runtime</li>
+                <li>Wait for the container to die</li>
+                <li>Redeploy everything</li>
+            </ol>
+            <p>Hot-reload enables rapid iteration by automatically detecting file changes and reloading modules without requiring container restarts. This is essential for developer productivity and for the platform's usability.</p>
+        </div>
+
+        <div class="section">
+            <h2>What Changed</h2>
+
+            <p>This implementation modified a single file: <code>proxy/runtimes.py</code>. The changes were made to the <code>ROUTER_DENO</code> template string which contains the Deno router code that runs inside the runtime container.</p>
+
+            <h3>File: proxy/runtimes.py</h3>
+
+            <h4>Change 1: Added Debounce Timeout Variable</h4>
+            <div class="diff-block">
+                <span class="diff-label before-label">Before:</span>
+                <pre class="before">const handlers = new Map&lt;string, (req: Request, ctx: {env: Record&lt;string,string&gt;}) =&gt; Response | Promise&lt;Response&gt;&gt;();
+const envs = new Map&lt;string, Record&lt;string,string&gt;&gt;();</pre>
+
+                <span class="diff-label after-label">After:</span>
+                <pre class="after">const handlers = new Map&lt;string, (req: Request, ctx: {env: Record&lt;string,string&gt;}) =&gt; Response | Promise&lt;Response&gt;&gt;();
+const envs = new Map&lt;string, Record&lt;string,string&gt;&gt;();
+let reloadTimeout: number | null = null;</pre>
+            </div>
+            <p><strong>Why:</strong> A variable to store the timeout ID is needed for debouncing. This allows us to cancel pending reloads when new file changes occur, preventing multiple rapid reloads.</p>
+
+            <h4>Change 2: Refactored Load Logic into Reusable Function</h4>
+            <div class="diff-block">
+                <span class="diff-label before-label">Before:</span>
+                <pre class="before">for await (const entry of Deno.readDir("/projects")) {
+  if (!entry.isDirectory || entry.name.startsWith("_")) continue;
+  try {
+    const raw = await Deno.readTextFile(`/projects/${entry.name}/project.json`);
+    const manifest = JSON.parse(raw);
+    if (manifest.runtime !== "deno" && manifest.runtime !== "bun") continue;
+    const entryFile = manifest.entry || "server.ts";
+    const mod = await import(`file:///projects/${entry.name}/files/${entryFile}?t=${Date.now()}`);
+    const handler = mod.default;
+    if (typeof handler === "function") {
+      handlers.set(entry.name, handler);
+      envs.set(entry.name, manifest.env || {});
+      console.log(`Loaded: ${entry.name}`);
+    }
+  } catch (e) {
+    console.error(`Failed to load ${entry.name}: ${e.message}`);
+  }
+}</pre>
+
+                <span class="diff-label after-label">After:</span>
+                <pre class="after">async function loadProject(name: string): Promise&lt;boolean&gt; {
+  try {
+    const raw = await Deno.readTextFile(`/projects/${name}/project.json`);
+    const manifest = JSON.parse(raw);
+    if (manifest.runtime !== "deno" && manifest.runtime !== "bun") return false;
+    const entryFile = manifest.entry || "server.ts";
+    const mod = await import(`file:///projects/${name}/files/${entryFile}?t=${Date.now()}`);
+    const handler = mod.default;
+    if (typeof handler === "function") {
+      handlers.set(name, handler);
+      envs.set(name, manifest.env || {});
+      console.log(`Loaded: ${name}`);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.error(`Failed to load ${name}: ${e.message}`);
+    return false;
+  }
+}</pre>
+            </div>
+            <p><strong>Why:</strong> The original inline load logic was refactored into a reusable <code>loadProject()</code> function that returns a boolean success/failure indicator. This function can now be called during both initial load and reload operations.</p>
+            <p><strong>Key design decision:</strong> The function returns <code>true</code> on success and <code>false</code on failure, allowing the caller to decide whether to preserve the old handler or not.</p>
+
+            <h4>Change 3: Added Safe Reload Function</h4>
+            <div class="diff-block">
+                <span class="diff-label after-label">New code added:</span>
+                <pre class="after">async function reloadProject(name: string) {
+  console.log(`Reloading: ${name}`);
+  const oldHandler = handlers.get(name);
+  const oldEnv = envs.get(name);
+  const success = await loadProject(name);
+  if (!success && oldHandler) {
+    console.log(`Keeping old handler for ${name} (reload failed)`);
+    handlers.set(name, oldHandler);
+    if (oldEnv) envs.set(name, oldEnv);
+  }
+}</pre>
+            </div>
+            <p><strong>Why:</strong> This function implements the "keep old module on import failure" requirement from the RFC. It:</p>
+            <ol>
+                <li>Saves the current handler before attempting to reload</li>
+                <li>Attempts to load the new version</li>
+                <li>If loading fails and an old handler exists, restores the old handler</li>
+            </ol>
+            <p>This ensures that syntax errors or bugs in new code don't break the running service &mdash; the old, working version continues to serve requests.</p>
+
+            <h4>Change 4: Added Full Rescan Function</h4>
+            <div class="diff-block">
+                <span class="diff-label after-label">New code added:</span>
+                <pre class="after">async function reloadAllProjects() {
+  const seen = new Set&lt;string&gt;();
+  for await (const entry of Deno.readDir("/projects")) {
+    if (!entry.isDirectory || entry.name.startsWith("_")) continue;
+    seen.add(entry.name);
+    await reloadProject(entry.name);
+  }
+  // Remove projects that no longer exist
+  for (const name of handlers.keys()) {
+    if (!seen.has(name)) {
+      console.log(`Removed: ${name}`);
+      handlers.delete(name);
+      envs.delete(name);
+    }
+  }
+  console.log(`Router ready: ${handlers.size} projects`);
+}</pre>
+            </div>
+            <p><strong>Why:</strong> This function:</p>
+            <ol>
+                <li>Scans all projects in the <code>/projects</code> directory</li>
+                <li>Reloads each project (new or existing)</li>
+                <li>Cleans up handlers for projects that no longer exist on disk</li>
+                <li>Logs the final count of loaded projects</li>
+            </ol>
+            <p>This enables full project lifecycle management &mdash; new projects are loaded, existing ones are reloaded, and deleted ones are removed.</p>
+
+            <h4>Change 5: Changed Initialization to Use Reload Function</h4>
+            <div class="diff-block">
+                <span class="diff-label before-label">Before:</span>
+                <pre class="before">// (The inline for-loop from Change 2 was here)
+console.log(`Router ready: ${handlers.size} projects`);</pre>
+
+                <span class="diff-label after-label">After:</span>
+                <pre class="after">// Initial load
+await reloadAllProjects();</pre>
+            </div>
+            <p><strong>Why:</strong> Instead of having duplicate code for initial load and reload, we now use the same <code>reloadAllProjects()</code> function for both. This ensures consistency and reduces code duplication.</p>
+
+            <h4>Change 6: Added File Watcher with Debouncing</h4>
+            <div class="diff-block">
+                <span class="diff-label after-label">New code added:</span>
+                <pre class="after">// Watch for file changes with 500ms debounce
+for await (const event of Deno.watchFs("/projects", { recursive: true })) {
+  if (event.kind === "modify" || event.kind === "create" || event.kind === "remove") {
+    const path = event.paths[0] || "";
+    const match = path.match(/^\/projects\/([^\/]+)/);
+    if (match) {
+      const projectName = match[1];
+      if (projectName && !projectName.startsWith("_")) {
+        if (reloadTimeout !== null) clearTimeout(reloadTimeout);
+        reloadTimeout = setTimeout(() => {
+          reloadAllProjects();
+          reloadTimeout = null;
+        }, 500);
+      }
+    }
+  }
+}</pre>
+            </div>
+            <p><strong>Why:</strong> This is the core of the hot-reload feature. It:</p>
+            <ol>
+                <li>Uses Deno's <code>watchFs()</code> API to watch the <code>/projects</code> directory recursively</li>
+                <li>Filters for <code>modify</code>, <code>create</code>, and <code>remove</code> events</li>
+                <li>Extracts the project name from the file path using a regex</li>
+                <li>Filters out projects starting with "_" (internal projects)</li>
+                <li>Debounces reloads by clearing any pending timeout and setting a new 500ms timeout</li>
+            </ol>
+            <p><strong>Key design decision:</strong> Using 500ms debounce as specified in the RFC. This batches rapid file writes (e.g., when deploying multiple files at once) into a single reload operation.</p>
+
+            <h4>Summary of All Changes</h4>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Component</th>
+                        <th>Change</th>
+                        <th>RFC Requirement</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Variables</td>
+                        <td>Added <code>reloadTimeout</code> for debouncing</td>
+                        <td>Debounce 500ms</td>
+                    </tr>
+                    <tr>
+                        <td>Functions</td>
+                        <td>Added <code>loadProject()</code> - returns success boolean</td>
+                        <td>Re-import modules</td>
+                    </tr>
+                    <tr>
+                        <td>Functions</td>
+                        <td>Added <code>reloadProject()</code> - keeps old handler on failure</td>
+                        <td>Keep old module on import failure</td>
+                    </tr>
+                    <tr>
+                        <td>Functions</td>
+                        <td>Added <code>reloadAllProjects()</code> - scans and reloads all</td>
+                        <td>Detect new/changed files</td>
+                    </tr>
+                    <tr>
+                        <td>Watcher</td>
+                        <td>Added <code>Deno.watchFs()</code> loop</td>
+                        <td>Watch projects directory</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>How It Works</h2>
+
+            <h3>Initialization Flow</h3>
+            <div class="flow-diagram">
+                1. Router starts <span class="arrow">&rarr;</span>
+                2. Call <code>reloadAllProjects()</code> <span class="arrow">&rarr;</span>
+                3. Scan /projects directory <span class="arrow">&rarr;</span>
+                4. For each project: call <code>loadProject()</code> <span class="arrow">&rarr;</span>
+                5. Store handler in <code>handlers</code> Map <span class="arrow">&rarr;</span>
+                6. Store env vars in <code>envs</code> Map <span class="arrow">&rarr;</span>
+                7. Start <code>Deno.serve()</code> <span class="arrow">&rarr;</span>
+                8. Start file watcher loop
+            </div>
+
+            <h3>Hot-Reload Flow</h3>
+            <div class="flow-diagram">
+                1. File change detected by <code>Deno.watchFs()</code> <span class="arrow">&rarr;</span>
+                2. Extract project name from path <span class="arrow">&rarr;</span>
+                3. Clear pending timeout (if any) <span class="arrow">&rarr;</span>
+                4. Set 500ms timeout <span class="arrow">&rarr;</span>
+                5. [Wait 500ms] <span class="arrow">&rarr;</span>
+                6. Call <code>reloadAllProjects()</code> <span class="arrow">&rarr;</span>
+                7. For each project:
+                <br>&nbsp;&nbsp;a. Save old handler and env
+                <br>&nbsp;&nbsp;b. Call <code>loadProject()</code>
+                <br>&nbsp;&nbsp;c. If success: use new handler
+                <br>&nbsp;&nbsp;d. If fail: restore old handler <span class="arrow">&rarr;</span>
+                8. Remove deleted projects <span class="arrow">&rarr;</span>
+                9. Log final project count
+            </div>
+
+            <h3>Data Structures</h3>
+            <ul>
+                <li><strong>handlers (Map&lt;string, Function&gt;):</strong> Maps project names to their request handler functions</li>
+                <li><strong>envs (Map&lt;string, Record&lt;string,string&gt;):</strong> Maps project names to their environment variables</li>
+                <li><strong>reloadTimeout (number | null):</strong> Stores the timeout ID for debouncing</li>
+            </ul>
+
+            <h3>Integration with Existing Code</h3>
+            <p>The hot-reload feature integrates seamlessly with the existing Deno router:</p>
+            <ul>
+                <li>The file watcher runs concurrently with <code>Deno.serve()</code> (using async/await pattern)</li>
+                <li>No changes needed to the request handling logic in <code>Deno.serve()</code></li>
+                <li>Existing projects continue serving requests during reload (old handler remains until new one is loaded)</li>
+                <li>When a project is deleted, it's automatically removed from the routing table</li>
+            </ul>
+
+            <h3>API Interactions</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Deno API</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>Deno.watchFs(path, {recursive: true})</code></td>
+                        <td>Watch for file system changes recursively</td>
+                    </tr>
+                    <tr>
+                        <td><code>Deno.readDir(path)</code></td>
+                        <td>Scan projects directory</td>
+                    </tr>
+                    <tr>
+                        <td><code>import(path?t=timestamp)</code></td>
+                        <td>Bypass module cache with timestamp query</td>
+                    </tr>
+                    <tr>
+                        <td><code>Deno.readTextFile(path)</code></td>
+                        <td>Read project manifest</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>Testing & Verification</h2>
+
+            <h3>Manual Testing Steps</h3>
+            <ol>
+                <li><strong>Deploy initial project:</strong> Deploy project A to a fresh runtime and verify it works with <code>curl http://localhost:8080/project-a/</code></li>
+                <li><strong>Deploy second project:</strong> Deploy project B to the SAME runtime (without teardown). Verify B works AND A still works with <code>curl http://localhost:8080/project-b/</code></li>
+                <li><strong>Modify project file:</strong> Edit a file in project A (e.g., change the response message). Wait ~500ms, then verify the change is picked up with <code>curl http://localhost:8080/project-a/</code></li>
+                <li><strong>Deploy broken module:</strong> Deploy a module with a syntax error. Verify the old version still serves requests (no crash) and check logs for the error message</li>
+                <li><strong>Deploy multiple projects:</strong> Deploy to 3 projects simultaneously. Verify all 3 are routable within 5 seconds</li>
+            </ol>
+
+            <h3>Example Test Session</h3>
+            <pre><code># Deploy project A
+curl -X POST http://localhost:8080/_api/deploy -F "manifest=@project-a/manifest.json" -F "code=@project-a/server.ts"
+
+# Verify project A works
+curl http://localhost:8080/project-a/
+# Expected: Hello from Project A
+
+# Deploy project B
+curl -X POST http://localhost:8080/_api/deploy -F "manifest=@project-b/manifest.json" -F "code=@project-b/server.ts"
+
+# Verify both projects work
+curl http://localhost:8080/project-a/  # Still works!
+curl http://localhost:8080/project-b/  # New project works!
+
+# Modify project A's response (edit server.ts to return "Updated from Project A")
+# Wait 500ms...
+
+curl http://localhost:8080/project-a/
+# Expected: Updated from Project A (hot-reload worked!)</code></pre>
+
+            <h3>Container Logs</h3>
+            <p>Check the Deno runtime container logs to see reload activity:</p>
+            <pre><code>docker logs &lt;deno-container&gt;
+
+# Expected output during hot-reload:
+Loaded: project-a
+Loaded: project-b
+Router ready: 2 projects
+Reloading: project-a
+Loaded: project-a
+Router ready: 2 projects</code></pre>
+
+            <h3>Performance Verification</h3>
+            <p>The RFC requires that reload/watch doesn't add measurable latency to normal request serving. This can be verified by:</p>
+            <pre><code># Measure request latency with and without hot-reload active
+ab -n 1000 -c 10 http://localhost:8080/project-a/</code></pre>
+
+            <h3>Edge Cases</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Edge Case</th>
+                        <th>Expected Behavior</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Syntax error in new code</td>
+                        <td>Old handler continues serving, error logged</td>
+                    </tr>
+                    <tr>
+                        <td>Circular import in new code</td>
+                        <td>Old handler continues serving, error logged</td>
+                    </tr>
+                    <tr>
+                        <td>Deleted project directory</td>
+                        <td>Handler removed from routing table</td>
+                    </tr>
+                    <tr>
+                        <td>Rapid file writes (deployment)</td>
+                        <td>Single reload after 500ms debounce</td>
+                    </tr>
+                    <tr>
+                        <td>Project name starts with "_"</td>
+                        <td>Ignored (not reloaded)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Error Handling</h3>
+            <ul>
+                <li><strong>Import failures:</strong> Old handler is preserved, error is logged via <code>console.error()</code></li>
+                <li><strong>Missing project.json:</strong> Caught in <code>loadProject()</code>, returns <code>false</code></li>
+                <li><strong>Invalid manifest:</strong> Caught by <code>JSON.parse()</code>, returns <code>false</code></li>
+                <li><strong>Wrong runtime type:</strong> Returns <code>false</code> (only loads "deno" or "bun")</li>
+                <li><strong>No handler export:</strong> Returns <code>false</code> (requires <code>export default</code>)</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>Issues & Follow-ups</h2>
+
+            <h3>Known Limitations</h3>
+            <ul>
+                <li><strong>No reload completion signal:</strong> The RFC mentioned an optional signal back to ingress when reload completes. This was not implemented as it was marked optional.</li>
+                <li><strong>Full rescan on any change:</strong> Currently, any file change triggers a full rescan of all projects. This could be optimized to only reload the affected project.</li>
+            </ul>
+
+            <h3>Dependencies on Other Tasks</h3>
+            <p>This task is independent of other tasks. However, it complements task 0010-1 ("Fix refresh() to restart runtime when projects remain") which would provide an alternative approach to runtime restarts.</p>
+
+            <h3>Future Enhancements</h3>
+            <ul>
+                <li><strong>Per-project reload:</strong> Instead of rescanning all projects on any change, only reload the affected project</li>
+                <li><strong>Reload API endpoint:</strong> Add a <code>/__reload</code> endpoint (RFC Option B) for manual triggering</li>
+                <li><strong>Reload status endpoint:</strong> Add an endpoint to check the reload status and last reload time</li>
+            </ul>
+
+            <div class="highlight">
+                <strong>Note:</strong> The implementation fully satisfies the RFC requirements for Option A (recommended approach). All core features are implemented: file watching, 500ms debouncing, safe reload with old-handler fallback, and automatic cleanup of deleted projects.
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -30,6 +30,15 @@ services:
       - BROKER_VOLUME_NAME=${BROKER_VOLUME_NAME:-}
       - BROKER_SOCKET_DIR=${BROKER_SOCKET_DIR:-/var/run/broker}
 
+# Durability (RFC-0017): daemon_data holds ALL private state — project metadata,
+# code, and the per-project dataDir volumes (e.g. an app's sealed cookie vault).
+# On a Phala dstack CVM these named volumes live on the LUKS2-encrypted persistent
+# disk, so they SURVIVE a same-CVM redeploy/restart. They do NOT survive being moved
+# to a fresh/replacement CVM (new disk) — that requires the RFC-0017 export/import +
+# pinned restore (GET /_api/export → POST /_api/import), not a volume flag.
+# To pin private state to an operator-managed external volume (so it outlives this
+# compose project), pre-create it and set DAEMON_VOLUME_NAME to its resolved name.
 volumes:
   daemon_data:
+    # external: true   # uncomment + pre-create for operator-managed durability
   broker_sock:

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task 0006-1: Add structured request logging to ingress</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #333;
+        }
+        h1 { color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 0.5rem; }
+        h2 { color: #34495e; margin-top: 2.5rem; }
+        h3 { color: #4a7c4a; margin-top: 1.5rem; }
+        .back-link { display: inline-block; margin-bottom: 1.5rem; color: #3498db; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .task-meta { background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; }
+        .task-meta strong { color: #2c3e50; }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.9rem;
+        }
+        code { background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 3px; font-size: 0.9rem; }
+        pre code { background: none; padding: 0; }
+        .added { background: #d4edda; }
+        .removed { background: #f8d7da; }
+        ul, ol { padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+        .rfc-quote {
+            border-left: 4px solid #4a7c4a;
+            padding-left: 1rem;
+            margin: 1rem 0;
+            font-style: italic;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <a href="../batch-latest.html" class="back-link">&larr; Back to Batch Reports</a>
+
+    <h1>Task 0006-1: Add structured request logging to ingress</h1>
+
+    <div class="task-meta">
+        <p><strong>Task ID:</strong> 0006-1</p>
+        <p><strong>Title:</strong> Add structured request logging to ingress</p>
+        <p><strong>RFC:</strong> 0006-request-logging</p>
+        <p><strong>Status:</strong> Done</p>
+        <p><strong>Commit:</strong> 98b4d972</p>
+    </div>
+
+    <h2>Task Overview</h2>
+
+    <p>This task implements structured request logging for the ingress proxy as defined in <strong>RFC 0006: Request Logging and Observability</strong>. The RFC addressed a critical observability gap: the ingress was logging nothing about proxied requests, making debugging extremely difficult.</p>
+
+    <div class="rfc-quote">
+        <p><strong>RFC Next Steps (Implementation Requirements):</strong></p>
+        <ol>
+            <li>Add Python <code>logging</code> (or <code>structlog</code>) setup to ingress</li>
+            <li>At the start of each request, record <code>time.monotonic()</code> start time</li>
+            <li>After the response is sent (or on error), log a structured entry with:
+                <ul>
+                    <li><code>method</code>: GET/POST/etc</li>
+                    <li><code>path</code>: request path</li>
+                    <li><code>status</code>: HTTP status code returned</li>
+                    <li><code>duration_ms</code>: wall clock time in milliseconds</li>
+                    <li><code>client_ip</code>: from request.remote</li>
+                    <li><code>upstream</code>: which runtime/host was targeted</li>
+                    <li><code>error</code>: exception message if one occurred</li>
+                </ul>
+            </li>
+            <li>Use JSON log format for machine parseability</li>
+            <li>Log level: INFO for successful requests, WARNING for 4xx, ERROR for 5xx and exceptions</li>
+            <li>Do NOT log request/response bodies (privacy and size)</li>
+            <li>Add a configurable log level via environment variable (default INFO)</li>
+        </ol>
+    </div>
+
+    <p><strong>Why this feature matters:</strong> Without structured logging, operators and developers have zero visibility into request patterns, latency, or failure modes. This makes debugging production issues nearly impossible. The structured JSON format enables programmatic log analysis, metrics extraction, and integration with observability tools like ELK, Datadog, or custom dashboards.</p>
+
+    <h2>What Changed</h2>
+
+    <h3>File: <code>proxy/ingress.py</code></h3>
+
+    <p>The implementation changed the <code>handle()</code> method to capture response objects and log actual status codes. Prior to this change, the logging infrastructure existed but had a critical bug: it always logged status 200 for non-error requests.</p>
+
+    <h4>Before (Bug): Status Always 200</h4>
+    <pre><code>async def handle(self, request: web.Request) -> web.Response:
+    start_time = time.monotonic()
+    method = request.method
+    path = request.path
+    upstream = None
+    error = None
+    <span class="removed">status = 200</span>  # Always 200 - BUG!
+
+    # ... routing logic ...
+
+    <span class="removed">return await self._handle_api(request, stripped_path[4:].lstrip("/"))</span>
+
+    # ... more return statements ...
+    <span class="removed">return web.json_response({"projects": projects})</span>
+    <span class="removed">return web.json_response({"error": "not found"}, status=404)</span>
+
+    except Exception as e:
+        error = str(e)
+        status = 500
+        log.error("Error handling request %s %s: %s", method, path, error)
+        <span class="removed">return web.json_response({"error": "internal server error"}, status=500)</span>
+    finally:
+        # BUG: status is still 200 here for all non-exception returns!
+        duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+        log_entry = {
+            "method": method,
+            "path": path,
+            "status": status,  # Always 200 for non-errors
+            ...
+        }  </code></pre>
+
+    <h4>After (Fixed): Capture Actual Status from Response</h4>
+    <pre><code>async def handle(self, request: web.Request) -> web.Response:
+    start_time = time.monotonic()
+    method = request.method
+    path = request.path
+    upstream = None
+    error = None
+    <span class="added">status = 200
+    response = None</span>  # NEW: Capture response object
+
+    # Get client IP
+    client_ip = request.remote or request.transport.get_extra_info('peername')
+    if client_ip and isinstance(client_ip, tuple):
+        client_ip = f"{client_ip[0]}:{client_ip[1]}"
+    elif client_ip:
+        client_ip = str(client_ip)
+    else:
+        client_ip = "unknown"
+
+    try:
+        stripped_path = path.lstrip("/")
+
+        if stripped_path.startswith("_api"):
+            upstream = "_api"
+            <span class="added">response = await self._handle_api(request, stripped_path[4:].lstrip("/"))
+            return response</span>
+
+        # ... more routing ...
+
+        if not name:
+            projects = {p.name: {"runtime": p.runtime, "mode": p.mode}
+                        for p in self.store.list()}
+            upstream = "ingress:projects_list"
+            <span class="added">response = web.json_response({"projects": projects})
+            return response</span>
+
+        try:
+            project = self.store.load(name)
+        except FileNotFoundError:
+            upstream = f"project:{name}"
+            <span class="added">response = web.json_response({"error": "not found"}, status=404)
+            return response</span>
+
+        # ... 10 more return statements converted to pattern ...
+
+        return await self._proxy(request, ip, port, routed_path)
+    except Exception as e:
+        error = str(e)
+        status = 500
+        log.error("Error handling request %s %s: %s", method, path, error)
+        <span class="added">response = web.json_response({"error": "internal server error"}, status=500)
+        return response</span>
+    finally:
+        <span class="added"># Get the actual status from response if available
+        if response:
+            status = response.status</span>
+
+        # Log the request after response is sent
+        duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+        log_entry = {
+            "method": method,
+            "path": path,
+            "status": status,  # NOW: Actual status from response!
+            "duration_ms": duration_ms,
+            "client_ip": client_ip,
+            "upstream": upstream or "unknown",
+        }
+        if error:
+            log_entry["error"] = error
+
+        # Determine log level based on status code
+        if 400 <= status < 500:
+            log.warning("%s", json.dumps(log_entry))
+        elif status >= 500:
+            log.error("%s", json.dumps(log_entry))
+        else:
+            log.info("%s", json.dumps(log_entry))  </code></pre>
+
+    <h3>Design Decisions</h3>
+
+    <ol>
+        <li><strong>Capture-then-return pattern:</strong> Instead of <code>return await handler(...)</code>, we now use <code>response = await handler(...); return response</code>. This ensures the response object is available in the finally block for status extraction.</li>
+        <li><strong>Status fallback:</strong> The <code>status = 200</code> initialization serves as a fallback, but the finally block updates it from <code>response.status</code> if a response was created. This handles the case where an exception occurs before any response is generated.</li>
+        <li><strong>JSON format:</strong> Using <code>json.dumps()</code> ensures the log entry is valid JSON, making it parseable by tools like <code>jq</code> for filtering and analysis.</li>
+        <li><strong>Log levels by status code:</strong> 4xx warnings help identify client errors, 5xx errors highlight server problems, and 2xx/3xx info provides normal request flow visibility.</li>
+        <li><strong>No body logging:</strong> Per RFC, request/response bodies are excluded to protect privacy and avoid logging issues with large payloads.</li>
+    </ol>
+
+    <h2>How It Works</h2>
+
+    <h3>Request Flow</h3>
+
+    <ol>
+        <li><strong>Request arrives:</strong> The <code>handle()</code> method is called with a <code>web.Request</code> object.</li>
+        <li><strong>Start timer:</strong> <code>start_time = time.monotonic()</code> captures a high-resolution timestamp.</li>
+        <li><strong>Extract request metadata:</strong> Method, path, client IP are extracted from the request object.</li>
+        <li><strong>Route request:</strong> Based on the path, the request is dispatched to:
+            <ul>
+                <li><code>_handle_api()</code> for <code>/_api/*</code> endpoints</li>
+                <li><code>_handle_tunnel()</code> for <code>/t/*</code> tunnel requests</li>
+                <li><code>_handle_port_based()</code> for custom port bindings</li>
+                <li>Path-based routing to project runtimes</li>
+            </ul>
+        </li>
+        <li><strong>Response capture:</strong> Each handler returns a <code>web.Response</code> object, which is captured in <code>response</code>.</li>
+        <li><strong>Finally block executes:</strong> After the response is sent (or on exception):
+            <ul>
+                <li>Extract actual status from <code>response.status</code></li>
+                <li>Calculate <code>duration_ms = (now - start_time) * 1000</code></li>
+                <li>Build JSON log entry with all request metadata</li>
+                <li>Choose log level based on status code (INFO/WARNING/ERROR)</li>
+            </ul>
+        </li>
+    </ol>
+
+    <h3>Data Structures</h3>
+
+    <p>Each log entry is a JSON object with this structure:</p>
+    <pre><code>{
+    "method": "GET",
+    "path": "/my-project/api/data",
+    "status": 200,
+    "duration_ms": 45.23,
+    "client_ip": "192.168.1.100:52341",
+    "upstream": "project:my-project:172.17.0.5:8080"
+}
+
+// On error:
+{
+    "method": "POST",
+    "path": "/my-project/invalid",
+    "status": 500,
+    "duration_ms": 12.5,
+    "client_ip": "192.168.1.100:52342",
+    "upstream": "unknown",
+    "error": "Runtime not running"
+}</code></pre>
+
+    <h3>Integration with Existing Code</h3>
+
+    <p>The logging is fully integrated into the existing <code>Ingress.handle()</code> method:</p>
+    <ul>
+        <li><strong>No changes to handlers:</strong> Methods like <code>_proxy()</code>, <code>_handle_api()</code>, etc. remain unchanged—they still return <code>web.Response</code> objects.</li>
+        <li><strong>Minimal performance impact:</strong> Timing uses <code>time.monotonic()</code> which is lightweight. JSON serialization happens in the finally block after response is sent.</li>
+        <li><strong>Configurable log level:</strong> The existing <code>TEE_DAEMON_LOG_LEVEL</code> environment variable (lines 24-27) controls verbosity.</li>
+    </ul>
+
+    <h2>Testing & Verification</h2>
+
+    <h3>Manual Verification Steps</h3>
+
+    <ol>
+        <li><strong>Start the daemon:</strong> Launch tee-daemon and check logs start appearing.</li>
+        <li><strong>Make a successful request:</strong>
+            <pre><code>curl -i http://localhost:8080/_api/projects</code></pre>
+            Expected log: INFO with status 200, non-zero duration_ms.</li>
+        <li><strong>Test 404 (client error):</strong>
+            <pre><code>curl -i http://localhost:8080/nonexistent-project</code></pre>
+            Expected log: WARNING with status 404.</li>
+        <li><strong>Test 500/503 (server error):</strong>
+            <pre><code>curl -i http://localhost:8080/my-project/.well-known/tee-attestation</code></pre>
+            Expected log: ERROR with status 503 (runtime not running).</li>
+        <li><strong>Verify JSON format:</strong> The log should be parseable:
+            <pre><code>journalctl -u tee-daemon | jq -c '.' | grep '"method"'</code></pre>
+            Or using grep:
+            <pre><code>journalctl -u tee-daemon -f | grep --line-buffered '"method":' | jq</code></pre>
+        </li>
+        <li><strong>Verify no body logging:</strong> Send a POST with data and confirm the log doesn't contain the request body:
+            <pre><code>curl -X POST http://localhost:8080/_api/projects -d '{"name":"test"}'</code></pre>
+            The log should show method POST but not the JSON body.</li>
+    </ol>
+
+    <h3>Log Filtering Examples</h3>
+
+    <pre><code># Filter for 4xx client errors
+journalctl -u tee-daemon | jq 'select(.status >= 400 and .status < 500)'
+
+# Filter for slow requests (> 500ms)
+journalctl -u tee-daemon | jq 'select(.duration_ms > 500)'
+
+# Count requests per status code
+journalctl -u tee-daemon | jq -r '.status' | sort | uniq -c
+
+# Find requests to a specific project
+journalctl -u tee-daemon | jq 'select(.upstream | contains("project:my-app"))'
+
+# Show error details only
+journalctl -u tee-daemon | jq 'select(.status >= 500 or .error)'</code></pre>
+
+    <h2>Issues & Follow-ups</h2>
+
+    <h3>Completed</h3>
+    <ul>
+        <li><strong>Status code capture bug:</strong> The original implementation would always log status 200 for non-error requests. This task fixed that by capturing the actual response object and extracting <code>response.status</code>.</li>
+        <li><strong>All return paths covered:</strong> The fix required updating 13 return statements throughout the method to use the capture-then-return pattern.</li>
+    </ul>
+
+    <h3>Known Limitations</h3>
+    <ul>
+        <li><strong>Client IP accuracy:</strong> The <code>request.remote</code> and <code>peername</code> values may be the load balancer IP in production deployments. The proxy headers (X-Forwarded-For, X-Real-IP) are set on forwarded requests but not logged.</li>
+        <li><strong>No request ID:</strong> Each log entry is independent. There's no correlation ID to trace a request through multiple hops (useful for distributed tracing).</li>
+        <li><strong>No aggregation:</strong> This is raw per-request logging. Metrics like error rate, p95 latency, etc. must be computed externally.</li>
+    </ul>
+
+    <h3>Future Enhancements</h3>
+    <ul>
+        <li><strong>Log X-Forwarded-For:</strong> Include the client IP from proxy headers to get the real origin IP.</li>
+        <li><strong>Request ID generation:</strong> Add a unique <code>request_id</code> field for correlation across logs.</li>
+        <li><strong>Structured logging library:</strong> Consider using <code>structlog</code> for more powerful log formatting and context management.</li>
+        <li><strong>Metrics export:</strong> Integrate with Prometheus or StatsD for real-time metrics.</li>
+    </ul>
+
+    <h3>Dependencies</h3>
+    <ul>
+        <li><strong>RFC 0005 (Streaming WebSocket Ingress):</strong> This task builds on the streaming infrastructure added in task 0005-1. The logging works for both regular HTTP and WebSocket requests.</li>
+        <li><strong>RFC 0004 (Proxy Headers):</strong> The proxy headers (X-Forwarded-For, etc.) added in task 0004-1 are forwarded but not currently logged. A future enhancement could add them to the log entry.</li>
+    </ul>
+
+</body>
+</html>

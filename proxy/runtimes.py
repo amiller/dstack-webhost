@@ -33,6 +33,7 @@ DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 # /run/broker/dstack.sock; nothing else). Mirrors DAEMON_VOLUME_NAME.
 BROKER_VOLUME_NAME = os.environ.get("BROKER_VOLUME_NAME", "")
 BROKER_MOUNT_IN_APP = "/run/broker"
+IMAGE_APP_RESTART_POLICY = {"Name": "on-failure", "MaximumRetryCount": 5}
 
 
 def _attested_broker_binds(mode: str) -> list[str]:
@@ -474,17 +475,26 @@ class RuntimeManager:
         ]
         if write_paths:
             cmd.append(f"--allow-write={','.join(write_paths)}")
+        # env_passthrough: inject deploy-time secrets from the daemon's OWN env
+        # (e.g. SEAL_KEY) — never committed to the project's attested source.
+        # --deny-env makes argv the only channel, so fold them into ctx.env here.
+        # Mirrors start_image() (ISSUES.md #13).
+        env = dict(project.env or {})
+        for key in project.env_passthrough or []:
+            val = os.environ.get(key)
+            if val is not None:
+                env[key] = val
         cmd += [
             entry_in,
             project.entry or "server.ts",
             files_in,
             data_dir_in,
-            json.dumps(project.env or {}),
+            json.dumps(env),
         ]
 
         cid = await self.docker.create_container(
             cname, image, cmd, binds, labels, network,
-            runtime=CONTAINER_RUNTIME)
+            runtime=(project.oci_runtime or CONTAINER_RUNTIME))
         await self.docker.start(cid)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
@@ -535,7 +545,8 @@ class RuntimeManager:
         runtime = project.oci_runtime or CONTAINER_RUNTIME
         cid = await self.docker.create_container(
             cname, project.image, [], binds, labels, network,
-            env=env, runtime=runtime)
+            env=env, runtime=runtime,
+            restart_policy=IMAGE_APP_RESTART_POLICY)
         await self.docker.start(cid)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)

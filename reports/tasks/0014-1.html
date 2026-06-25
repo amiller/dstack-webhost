@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task 0014-1 Implementation Report</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f9f9f9;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            font-size: 1.8rem;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 15px;
+            color: #4a7c4a;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        section {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            color: #2c3e50;
+            font-size: 1.4rem;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            color: #4a7c4a;
+            font-size: 1.2rem;
+            margin: 20px 0 10px 0;
+        }
+
+        h4 {
+            color: #555;
+            font-size: 1rem;
+            margin: 15px 0 8px 0;
+        }
+
+        p {
+            margin-bottom: 12px;
+        }
+
+        ul, ol {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+
+        li {
+            margin-bottom: 6px;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.9em;
+            color: #d63384;
+        }
+
+        pre {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+            font-size: 0.9em;
+        }
+
+        .before-after {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 15px 0;
+        }
+
+        .before, .after {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid #ccc;
+        }
+
+        .before {
+            border-left-color: #dc3545;
+        }
+
+        .after {
+            border-left-color: #4a7c4a;
+        }
+
+        .before strong, .after strong {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #f8f9fa;
+            color: #2c3e50;
+        }
+
+        .success-header {
+            color: #4a7c4a;
+        }
+
+        .issue-header {
+            color: #dc3545;
+        }
+
+        .note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px;
+            margin: 15px 0;
+        }
+
+        .info-box {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            padding: 12px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="../batch-latest.html" class="back-link">&larr; Back to latest reports</a>
+        <h1>Task 0014-1 Implementation Report</h1>
+        <div class="subtitle">Pass project dir as env var instead of import.meta.url</div>
+    </header>
+
+    <section>
+        <h2 class="success-header">Task Overview</h2>
+
+        <ul>
+            <li><strong>Task ID:</strong> 0014-1</li>
+            <li><strong>Title:</strong> Pass project dir as env var instead of import.meta.url</li>
+            <li><strong>Source RFC:</strong> 0014-volume-mount-env-var</li>
+            <li><strong>Status:</strong> Completed</li>
+            <li><strong>Commit:</strong> 01534d5ae42bfdd279794a8388d356f81a9a93ba</li>
+        </ul>
+
+        <h3>What the RFC Asked For</h3>
+        <p>From <strong>RFC 0014: Volume Mount Path Configuration</strong>, the Next Steps specified:</p>
+        <blockquote style="border-left: 4px solid #4a7c4a; padding-left: 15px; margin: 15px 0; color: #555;">
+            <ol>
+                <li>When the router imports a project's module, set <code>process.env.__PROJECT_DIR</code> (or <code>Deno.env.set</code>) to the absolute path of the project's files directory</li>
+                <li>Update the handler template/documentation to use <code>Deno.env.get("__PROJECT_DIR")</code> instead of <code>new URL('.', import.meta.url).pathname</code></li>
+                <li>Keep <code>import.meta.url</code> as a fallback if the env var isn't set (backward compat)</li>
+            </ol>
+        </blockquote>
+
+        <h3>Why This Feature Matters</h3>
+        <p>The Deno handler previously used <code>import.meta.url</code> to find sibling files, but the exact path depends on how the router mounts and imports modules. The router imports from <code>/daemon-vol/projects/&lt;name&gt;/files/server.ts</code> so <code>import.meta.url</code> resolves to that directory. This worked but was fragile &mdash; any change to the mount structure would break handlers.</p>
+
+        <p>By providing the project directory as an environment variable (<code>__PROJECT_DIR</code>), handlers get a stable, explicit path that is independent of the internal mount structure. This makes the system more robust against internal refactoring while maintaining backward compatibility.</p>
+    </section>
+
+    <section>
+        <h2>What Changed</h2>
+
+        <p>This implementation modified two files:</p>
+        <ol>
+            <li><code>proxy/runtimes.py</code> &mdash; Added <code>__PROJECT_DIR</code> to environment variables for all three runtimes</li>
+            <li><code>DEVELOPER_GUIDE.md</code> &mdash; Updated documentation with new patterns and backward compatibility guidance</li>
+        </ol>
+
+        <h3>1. proxy/runtimes.py</h3>
+
+        <h4>Deno/Bun Runtime Router</h4>
+        <p>The <code>loadProject</code> function now sets <code>__PROJECT_DIR</code> in the environment:</p>
+
+        <div class="before-after">
+            <div class="before">
+                <strong>BEFORE (lines 38-41):</strong>
+                <pre><code>      if (typeof handler === "function") {
+        handlers.set(name, handler);
+        envs.set(name, manifest.env || {});
+        console.log(`Loaded: ${name}`);</code></pre>
+            </div>
+            <div class="after">
+                <strong>AFTER (lines 38-43):</strong>
+                <pre><code>      if (typeof handler === "function") {
+        handlers.set(name, handler);
+        const projectEnv = manifest.env || {};
+        projectEnv.__PROJECT_DIR = `/projects/${name}/files`;
+        envs.set(name, projectEnv);
+        console.log(`Loaded: ${name}`);</code></pre>
+            </div>
+        </div>
+
+        <p><strong>Why this change:</strong> Instead of directly assigning the manifest's environment object, we now create a local copy, inject the <code>__PROJECT_DIR</code> key, and then store it. This ensures every handler gets access to its project's file directory path.</p>
+
+        <h4>Node.js Runtime Router</h4>
+        <p>Similar change for Node.js projects during initialization:</p>
+
+        <div class="before-after">
+            <div class="before">
+                <strong>BEFORE (lines 140-143):</strong>
+                <pre><code>  try {
+    handlers[name] = require(modPath);
+    envs[name] = manifest.env || {};
+    console.log(`Loaded: ${name}`);</code></pre>
+            </div>
+            <div class="after">
+                <strong>AFTER (lines 142-146):</strong>
+                <pre><code>  try {
+    handlers[name] = require(modPath);
+    const projectEnv = manifest.env || {};
+    projectEnv.__PROJECT_DIR = `/projects/${name}/files`;
+    envs[name] = projectEnv;
+    console.log(`Loaded: ${name}`);</code></pre>
+            </div>
+        </div>
+
+        <h4>Python Runtime Router</h4>
+        <p>Same pattern applied to Python's module loader:</p>
+
+        <div class="before-after">
+            <div class="before">
+                <strong>BEFORE (lines 185-189):</strong>
+                <pre><code>        spec.loader.exec_module(mod)
+        if hasattr(mod, "handle"):
+            handlers[name] = mod.handle
+            envs[name] = manifest.get("env", {})
+            print(f"Loaded: {name}")</code></pre>
+            </div>
+            <div class="after">
+                <strong>AFTER (lines 189-194):</strong>
+                <pre><code>        spec.loader.exec_module(mod)
+        if hasattr(mod, "handle"):
+            handlers[name] = mod.handle
+            project_env = manifest.get("env", {})
+            project_env["__PROJECT_DIR"] = f"/projects/{name}/files"
+            envs[name] = project_env
+            print(f"Loaded: {name}")</code></pre>
+            </div>
+        </div>
+
+        <p><strong>Design Decision:</strong> The same pattern is applied across all three runtimes (Deno/Bun, Node.js, Python) for consistency. Each runtime receives <code>__PROJECT_DIR</code> as an environment variable containing the absolute path <code>/projects/{name}/files</code>.</p>
+
+        <h3>2. DEVELOPER_GUIDE.md</h3>
+
+        <h4>New Handler Export Pattern</h4>
+        <p>Added a new section showing how to write handlers for tee-daemon deployment:</p>
+
+        <pre><code>**For tee-daemon deployment (export handler):**
+```typescript
+// server.ts (tee-daemon)
+export default async (req: Request, ctx: {env: Record<string,string>}) => {
+  const url = new URL(req.url);
+
+  // Access project files using __PROJECT_DIR env var
+  const projectDir = ctx.env.__PROJECT_DIR || Deno.env.get("__PROJECT_DIR");
+
+  if (url.pathname === "/api/hello") {
+    return new Response(JSON.stringify({ message: "Hello from TEE!" }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  return new Response("Welcome to my TEE app!", {
+    headers: { "Content-Type": "text/plain" },
+  });
+};
+```</code></pre>
+
+        <h4>New Project Directory Environment Variable Section</h4>
+        <p>Added comprehensive documentation for using <code>__PROJECT_DIR</code> across all supported runtimes:</p>
+
+        <pre><code>### Project Directory Environment Variable
+
+Your handler has access to the project's files directory via the `__PROJECT_DIR` environment variable.
+This is the recommended way to access project files, as it's independent of the mount structure.
+
+**Deno/Bun (recommended):**
+```typescript
+export default async (req: Request, ctx: {env: Record<string,string>}) => {
+  const projectDir = ctx.env.__PROJECT_DIR || Deno.env.get("__PROJECT_DIR");
+  const filePath = `${projectDir}/data/config.json`;
+  const content = await Deno.readTextFile(filePath);
+  return new Response(content);
+};
+```
+
+**Node.js:**
+```javascript
+module.exports = (req, res, env) => {
+  const projectDir = env.__PROJECT_DIR || process.env.__PROJECT_DIR;
+  const fs = require('fs');
+  const content = fs.readFileSync(`${projectDir}/data/config.json`);
+  res.send(content);
+};
+```
+
+**Python:**
+```python
+def handle(method, path, headers, body, env):
+    project_dir = env.get("__PROJECT_DIR") or os.environ.get("__PROJECT_DIR")
+    with open(f"{project_dir}/data/config.json") as f:
+        content = f.read()
+    return (200, {"Content-Type": "application/json"}, content.encode())
+```
+
+**Backward Compatibility (fallback):**
+For older code using `import.meta.url` (Deno/Bun), you can use this pattern:
+```typescript
+const projectDir = Deno.env.get("__PROJECT_DIR") || new URL('.', import.meta.url).pathname;
+```</code></pre>
+
+        <p><strong>Design Decision:</strong> The documentation shows two ways to access the environment variable:
+        <br>1. <code>ctx.env.__PROJECT_DIR</code> &mdash; passed via the context object (preferred for handler pattern)
+        <br>2. <code>Deno.env.get("__PROJECT_DIR")</code> &mdash; direct Deno environment access (fallback)
+        <br>The fallback pattern ensures backward compatibility with existing code using <code>import.meta.url</code>.</p>
+    </section>
+
+    <section>
+        <h2>How It Works</h2>
+
+        <h3>Flow Overview</h3>
+        <p>The implementation adds project directory information during the handler loading phase. Here's the flow:</p>
+
+        <ol>
+            <li><strong>Runtime Initialization:</strong> When a runtime container starts, it initializes its router (Deno, Node.js, or Python router embedded in <code>runtimes.py</code>).</li>
+
+            <li><strong>Project Discovery:</strong> The router scans the <code>/projects</code> directory for project manifests.</li>
+
+            <li><strong>Manifest Parsing:</strong> For each project found, the router reads <code>/projects/{name}/project.json</code> to get the manifest.</li>
+
+            <li><strong>Environment Injection:</strong> The router creates a copy of the manifest's <code>env</code> object (or an empty object if none exists) and injects <code>__PROJECT_DIR = /projects/{name}/files</code>.</li>
+
+            <li><strong>Module Loading:</strong> The handler module is imported from <code>/projects/{name}/files/{entry}</code>.</li>
+
+            <li><strong>Handler Registration:</strong> The loaded handler is registered in the handlers map along with its environment object containing <code>__PROJECT_DIR</code>.</li>
+
+            <li><strong>Request Handling:</strong> When a request arrives for a project, the handler receives the environment object containing <code>__PROJECT_DIR</code>.</li>
+        </ol>
+
+        <h3>Data Structures Involved</h3>
+
+        <p><strong>Deno Router (TypeScript):</strong></p>
+        <pre><code>// Maps project name to handler function
+const handlers = new Map<string, Handler>();
+
+// Maps project name to environment variables (now includes __PROJECT_DIR)
+const envs = new Map<string, Record<string,string>>();
+
+// During loadProject():
+const projectEnv = manifest.env || {};
+projectEnv.__PROJECT_DIR = `/projects/${name}/files`;
+envs.set(name, projectEnv);</code></pre>
+
+        <p><strong>Node.js Router:</strong></p>
+        <pre><code>// Objects storing handlers and environments
+const handlers = {};
+const envs = {};
+
+// During initialization:
+handlers[name] = require(modPath);
+const projectEnv = manifest.env || {};
+projectEnv.__PROJECT_DIR = `/projects/${name}/files`;
+envs[name] = projectEnv;</code></pre>
+
+        <p><strong>Python Router:</strong></p>
+        <pre><code># Dictionaries for handlers and environments
+handlers = {}
+envs = {}
+
+# During initialization:
+handlers[name] = mod.handle
+project_env = manifest.get("env", {})
+project_env["__PROJECT_DIR"] = f"/projects/{name}/files"
+envs[name] = project_env</code></pre>
+
+        <h3>Integration with Existing Code</h3>
+        <p>The change is completely backward compatible:</p>
+        <ul>
+            <li>Handlers that don't use project files continue to work unchanged.</li>
+            <li>Handlers using <code>import.meta.url</code> can be updated gradually.</li>
+            <li>The new <code>__PROJECT_DIR</code> environment variable is available immediately without any code changes needed in the handlers.</li>
+        </ul>
+
+        <div class="info-box">
+            <strong>Note:</strong> The <code>__PROJECT_DIR</code> path follows the Docker volume mount structure. When runtime containers start, they mount the daemon's volume at <code>/projects</code>, giving them direct access to project files. The environment variable simply tells handlers where their specific project's files are located.
+        </div>
+    </section>
+
+    <section>
+        <h2>Testing & Verification</h2>
+
+        <h3>Verification Method 1: Check Environment Variable</h3>
+        <p>Deploy a handler that logs the environment variable:</p>
+
+        <pre><code>// server.ts
+export default async (req: Request, ctx: {env: Record<string,string>}) => {
+  const projectDir = ctx.env.__PROJECT_DIR || Deno.env.get("__PROJECT_DIR");
+  return new Response(JSON.stringify({ __PROJECT_DIR: projectDir }), {
+    headers: { "Content-Type": "application/json" },
+  });
+};</code></pre>
+
+        <p>Deploy and test:</p>
+        <pre><code>curl -X POST https://your-cvm.dstack.phala.network/_api/projects \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test-project-dir",
+    "runtime": "deno",
+    "entry": "server.ts",
+    "source": "https://github.com/your/test-repo"
+  }'
+
+curl https://your-cvm.dstack.phala.network/test-project-dir/</code></pre>
+
+        <p>Expected response:</p>
+        <pre><code>{
+  "__PROJECT_DIR": "/projects/test-project-dir/files"
+}</code></pre>
+
+        <h3>Verification Method 2: Read Project File</h3>
+        <p>Deploy a handler that reads a file using <code>__PROJECT_DIR</code>:</p>
+
+        <pre><code>// server.ts
+export default async (req: Request, ctx: {env: Record<string,string>}) => {
+  const projectDir = ctx.env.__PROJECT_DIR || Deno.env.get("__PROJECT_DIR");
+  const filePath = `${projectDir}/data.txt`;
+  const content = await Deno.readTextFile(filePath);
+  return new Response(content);
+};</code></pre>
+
+        <h3>Verification Method 3: Backward Compatibility</h3>
+        <p>Deploy a handler using the old <code>import.meta.url</code> pattern with fallback:</p>
+
+        <pre><code>// server.ts
+export default async (req: Request, ctx: {env: Record<string,string>}) => {
+  const projectDir = Deno.env.get("__PROJECT_DIR") || new URL('.', import.meta.url).pathname;
+  return new Response(JSON.stringify({ projectDir }), {
+    headers: { "Content-Type": "application/json" },
+  });
+};</code></pre>
+
+        <p>This verifies that both the new environment variable method and the old <code>import.meta.url</code> method work, with the environment variable taking precedence.</p>
+
+        <h3>Edge Cases & Error Handling</h3>
+        <ul>
+            <li><strong>Empty manifest.env:</strong> If the manifest has no <code>env</code> field, an empty object is created and <code>__PROJECT_DIR</code> is added to it.</li>
+            <li><strong>Project with custom env:</strong> If the manifest already has environment variables, <code>__PROJECT_DIR</code> is added alongside them without overwriting.</li>
+            <li><strong>Missing __PROJECT_DIR:</strong> The documentation shows fallback patterns using <code>||</code> or <code>or</code> operators to handle cases where the variable might not be set.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2 class="issue-header">Issues & Follow-ups</h2>
+
+        <h3>Completion Status</h3>
+        <p>This task is fully complete. All requirements from RFC 0014 have been implemented:</p>
+        <ul>
+            <li>&#10003; Environment variable <code>__PROJECT_DIR</code> is set for all three runtimes (Deno/Bun, Node.js, Python)</li>
+            <li>&#10003; Documentation has been updated with recommended patterns</li>
+            <li>&#10003; Backward compatibility is documented and maintained</li>
+        </ul>
+
+        <h3>Known Limitations</h3>
+        <p>None identified. The implementation is straightforward and adds no additional dependencies or complexity.</p>
+
+        <h3>Dependencies on Other Tasks</h3>
+        <p>This task is independent and has no dependencies on other tasks. It builds upon the existing runtime infrastructure but does not require changes from other RFCs.</p>
+
+        <h3>Future Considerations</h3>
+        <p>The <code>__PROJECT_DIR</code> environment variable provides a stable interface that:</p>
+        <ul>
+            <li>Allows future internal refactoring of the mount structure without breaking user code</li>
+            <li>Enables potential future features like per-project configuration files or asset directories</li>
+            <li>Provides a clear, explicit contract between the router and handlers</li>
+        </ul>
+    </section>
+
+    <footer>
+        <p style="text-align: center; color: #666; font-size: 0.9rem; margin-top: 30px;">
+            Generated on 2026-04-08 | Task 0014-1 | RFC 0014
+        </p>
+    </footer>
+</body>
+</html>

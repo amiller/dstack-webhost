@@ -84,6 +84,12 @@ class Ingress:
         parts = path.split("/", 1)
         name = parts[0] if parts[0] else ""
 
+        if name in ("about", "_about") and (len(parts) == 1 or not parts[1]):
+            template_path = os.path.join(
+                os.path.dirname(__file__), "templates", "about.html")
+            with open(template_path) as f:
+                return web.Response(text=f.read(), content_type="text/html")
+
         if not name:
             # Public listing. Browsers (Accept: text/html) get the default
             # viewer page; programmatic callers get JSON. Anonymous callers
@@ -518,10 +524,10 @@ class Ingress:
                     project = self.store.load(public_name)
                 except FileNotFoundError:
                     resp = web.json_response({"error": "not found"}, status=404)
-                else:
-                    if project.mode != "attested":
-                        resp = web.json_response({"error": "not found"}, status=404)
-                    elif path.startswith("attest/"):
+                    resp.headers["Access-Control-Allow-Origin"] = "*"
+                    return resp
+                if project.mode == "attested":
+                    if path.startswith("attest/"):
                         resp = await self._api_attest(public_name)
                     elif path.startswith("verification/"):
                         resp = await self._api_verification(public_name)
@@ -529,8 +535,8 @@ class Ingress:
                         resp = await self._api_audit(public_name)
                     else:
                         resp = await self._api_status(public_name, public=True)
-                resp.headers["Access-Control-Allow-Origin"] = "*"
-                return resp
+                    resp.headers["Access-Control-Allow-Origin"] = "*"
+                    return resp
 
         denied = self._check_auth(request)
         if denied:
@@ -547,6 +553,9 @@ class Ingress:
 
         if path == "routes" and method == "GET":
             return await self._api_routes()
+
+        if path == "audit" and method == "GET":
+            return await self._api_all_audit()
 
         if path == "projects" and method == "GET":
             return await self._api_list()
@@ -627,33 +636,41 @@ class Ingress:
           - multipart/form-data: 'manifest' field (JSON) + 'files' field (tarball)
         """
         ct = request.headers.get("Content-Type", "")
-        if ct.startswith("multipart/"):
-            reader = await request.multipart()
-            manifest = None
-            files_data = None
-            while True:
-                part = await reader.next()
-                if part is None:
-                    break
-                if part.name == "manifest":
-                    try:
-                        manifest = json.loads(await part.text())
-                    except json.JSONDecodeError as e:
-                        return web.json_response({"error": f"manifest is not valid JSON: {e}"}, status=400)
-                elif part.name == "files":
-                    files_data = await part.read(decode=False)
-            if manifest is None:
-                return web.json_response({"error": "missing 'manifest' field"}, status=400)
-            if files_data is None:
-                return web.json_response({"error": "missing 'files' field"}, status=400)
-            project = await deploy(
-                self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
-                manifest, files_data=files_data)
-        else:
-            manifest = await request.json()
-            project = await deploy(
-                self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
-        return web.json_response(asdict(project), status=201)
+        try:
+            if ct.startswith("multipart/"):
+                reader = await request.multipart()
+                manifest = None
+                files_data = None
+                while True:
+                    part = await reader.next()
+                    if part is None:
+                        break
+                    if part.name == "manifest":
+                        try:
+                            manifest = json.loads(await part.text())
+                        except json.JSONDecodeError as e:
+                            return web.json_response({"error": f"manifest is not valid JSON: {e}"}, status=400)
+                    elif part.name == "files":
+                        files_data = await part.read(decode=False)
+                if manifest is None:
+                    return web.json_response({"error": "missing 'manifest' field"}, status=400)
+                if files_data is None:
+                    return web.json_response({"error": "missing 'files' field"}, status=400)
+                project = await deploy(
+                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
+                    manifest, files_data=files_data)
+            else:
+                manifest = await request.json()
+                project = await deploy(
+                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+            return web.json_response(asdict(project), status=201)
+        except ValueError as e:
+            # Bad manifest / port conflict etc. — the message is safe to return.
+            return web.json_response({"error": str(e)}, status=400)
+        except Exception as e:
+            import traceback
+            log.error("deploy failed: %s", traceback.format_exc())
+            return web.json_response({"error": str(e)}, status=500)
 
     async def _api_status(self, name: str, public: bool = False) -> web.Response:
         project = self.store.load(name)
@@ -679,6 +696,7 @@ class Ingress:
             "isolation": project.isolation,
             "image": project.image, "image_port": project.image_port,
             "volumes": project.volumes, "env_passthrough": project.env_passthrough,
+            "oci_runtime": project.oci_runtime,
         }
         if project.listen:
             manifest["listen"] = {
@@ -711,6 +729,15 @@ class Ingress:
             return web.json_response(audit.to_json())
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
+
+    async def _api_all_audit(self) -> web.Response:
+        """Get audit entries for all known projects."""
+        entries: list[dict] = []
+        for project in self.store.list():
+            audit = self.audit_manager.get_audit_log(project.name)
+            entries.extend(audit.to_json())
+        entries.sort(key=lambda e: e.get("timestamp", 0))
+        return web.json_response(entries)
 
     async def _api_attest(self, name: str) -> web.Response:
         project = self.store.load(name)

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task 0009-1: Add health check endpoint and post-deploy verification</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        a {
+            color: #4a7c4a;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        h1 {
+            border-bottom: 2px solid #4a7c4a;
+            padding-bottom: 10px;
+        }
+        h2 {
+            margin-top: 30px;
+            border-left: 4px solid #4a7c4a;
+            padding-left: 10px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            padding: 8px 16px;
+            background-color: #4a7c4a;
+            color: white;
+            border-radius: 4px;
+        }
+        .back-link:hover {
+            background-color: #3d6a3d;
+            text-decoration: none;
+        }
+        pre {
+            background-color: #f6f8fa;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            padding: 16px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background-color: #f6f8fa;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 85%;
+        }
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            border-radius: 0;
+            font-size: inherit;
+        }
+        .success-header {
+            color: #4a7c4a;
+        }
+        .issue-header {
+            color: #d32f2f;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+        .rfc-quote {
+            background-color: #e8f5e9;
+            border-left: 4px solid #4a7c4a;
+            padding: 12px 16px;
+            margin: 16px 0;
+            font-style: italic;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f6f8fa;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <a href="../batch-latest.html" class="back-link">&larr; Back to Batch Reports</a>
+
+    <h1>Task 0009-1: Add health check endpoint and post-deploy verification</h1>
+
+    <h2>Task Overview</h2>
+    <ul>
+        <li><strong>Task ID:</strong> 0009-1</li>
+        <li><strong>Title:</strong> Add health check endpoint and post-deploy verification</li>
+        <li><strong>RFC:</strong> 0009-runtime-health-checks</li>
+        <li><strong>Status:</strong> <span class="success-header">Done</span></li>
+    </ul>
+
+    <h3>What the RFC Asked For</h3>
+    <div class="rfc-quote">
+        <p>From RFC 0009 - Implementation section:</p>
+        <p>"In <code>proxy/runtimes.py</code>, after <code>refresh()</code> starts a container, poll <code>/_health</code> with exponential backoff:
+        <br>- First poll after 500ms
+        <br>- Retry up to 10 times with 500ms, 1s, 1s, 2s, 2s, 4s... intervals
+        <br>- Total timeout: 30 seconds
+        <br>If health check passes, return success
+        <br>If health check fails after 30s, return a clear error with the container logs"</p>
+    </div>
+
+    <h3>Why This Feature Matters</h3>
+    <p>Before this implementation, the ingress assumed the runtime container was ready immediately after starting. If the Deno container crashed on startup (e.g., due to a bad module import), the ingress would happily return 502 errors with no diagnostic information. This feature provides a readiness probe that:</p>
+    <ul>
+        <li>Ensures the container is actually serving requests before reporting deploy success</li>
+        <li>Provides detailed error messages including container logs when startup fails</li>
+        <li>Prevents deployment of broken code from appearing to succeed</li>
+    </ul>
+
+    <h2>What Changed</h2>
+    <p>Only one file was modified for this task: <code>proxy/runtimes.py</code></p>
+
+    <h3>File: <code>proxy/runtimes.py</code></h3>
+
+    <h4>1. Added <code>health_check()</code> function (lines 247-286)</h4>
+    <p>A new async function was added to poll the container's health endpoint with exponential backoff:</p>
+    <pre><code>async def health_check(docker: DockerClient, cid: str, ip: str, port: int, timeout: float = 30.0) -> str:
+    """Poll the container's health endpoint with exponential backoff.
+    Returns container logs on failure, empty string on success.
+    """
+    intervals = [0.5, 0.5, 1.0, 1.0, 2.0, 2.0, 4.0, 4.0, 8.0, 8.0]
+    total_elapsed = 0.0
+
+    for delay in intervals:
+        if delay > 0:
+            await asyncio.sleep(delay)
+            total_elapsed += delay
+        else:
+            # First poll after 500ms (initial interval)
+            await asyncio.sleep(0.5)
+            total_elapsed += 0.5
+
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+                async with session.get(f"http://{ip}:{port}/_health") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("status") == "ok":
+                            log.info("Health check passed for %s (uptime: %ds)", cid[:12], data.get("uptime", 0))
+                            return ""
+                    log.debug("Health check attempt %ds: status %d", total_elapsed, resp.status)
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            log.debug("Health check attempt %ds: %s", total_elapsed, e)
+
+        if total_elapsed >= timeout:
+            break
+
+    # Health check failed - get logs
+    logs = await docker.logs(cid, tail=100)
+    log.error("Health check failed for %s after %.1fs:\n%s", cid[:12], total_elapsed, logs)
+    return logs</code></pre>
+
+    <p><strong>Design decision:</strong> The function returns an empty string on success and container logs on failure. This allows the caller to distinguish between success and failure without exception handling for the happy path. The exponential backoff intervals (0.5, 0.5, 1, 1, 2, 2, 4, 4, 8, 8 seconds) sum to 31 seconds, but the timeout check ensures we exit at 30 seconds.</p>
+
+    <h4>2. Modified <code>RuntimeManager._get_or_create()</code> method (lines 376-384)</h4>
+    <p>After starting a new container, the health check is called. If it fails, the container is cleaned up:</p>
+    <pre><code>await self.docker.start(cid)
+self.tracker.add(cid)
+ip = await self.docker.container_ip(cid, network)
+
+# Health check with exponential backoff (30s timeout)
+logs = await health_check(self.docker, cid, ip, config["port"])
+if logs:
+    await self.docker.stop(cid)
+    await self.docker.remove(cid, force=True)
+    self.tracker.remove(cid)
+    raise RuntimeError(
+        f"Runtime container {cname} failed health check after 30s:\n{logs}"
+    )
+
+self.runtime_cids[key] = cid
+self.runtime_ips[key] = ip</code></pre>
+
+    <p><strong>Design decision:</strong> If health check fails, the failed container is immediately stopped and removed to prevent leaving a broken container running. This prevents the container from being added to the tracking maps, ensuring the system can retry cleanly. The <code>RuntimeError</code> includes the container logs to help diagnose the failure.</p>
+
+    <h4>Note on the Health Endpoint Implementation</h4>
+    <p>The actual <code>/_health</code> endpoint in the Deno router was added in a prior commit (b7c19ef4, task 0008-1). It returns:</p>
+    <pre><code>JSON.stringify({status: "ok", uptime: Math.floor((Date.now() - startTime) / 1000)})</code></pre>
+
+    <p>This task 0009-1 added the polling logic to actually call this endpoint after deploy.</p>
+
+    <h2>How It Works</h2>
+
+    <h3>Flow of a New Runtime Container Deployment</h3>
+    <ol>
+        <li><strong>Deploy request:</strong> A project is deployed via <code>POST /_api/projects</code></li>
+        <li><strong>Runtime refresh:</strong> <code>deploy.py</code> calls <code>rtm.refresh(runtime)</code> (line 194)</li>
+        <li><strong>Container creation:</strong> <code>RuntimeManager._get_or_create()</code> creates and starts the Docker container</li>
+        <li><strong>Health check polling:</strong> <code>health_check()</code> is called with the container's IP and port</li>
+        <li><strong>Exponential backoff:</strong> The function polls <code>http://&lt;ip&gt;:&lt;port&gt;/_health</code> with increasing delays:
+            <table>
+                <tr><th>Attempt</th><th>Delay</th><th>Cumulative</th></tr>
+                <tr><td>1</td><td>0.5s</td><td>0.5s</td></tr>
+                <tr><td>2</td><td>0.5s</td><td>1.0s</td></tr>
+                <tr><td>3</td><td>1.0s</td><td>2.0s</td></tr>
+                <tr><td>4</td><td>1.0s</td><td>3.0s</td></tr>
+                <tr><td>5</td><td>2.0s</td><td>5.0s</td></tr>
+                <tr><td>6</td><td>2.0s</td><td>7.0s</td></tr>
+                <tr><td>7</td><td>4.0s</td><td>11.0s</td></tr>
+                <tr><td>8</td><td>4.0s</td><td>15.0s</td></tr>
+                <tr><td>9</td><td>8.0s</td><td>23.0s</td></tr>
+                <tr><td>10</td><td>8.0s</td><td>31.0s (timeout at 30s)</td></tr>
+            </table>
+        </li>
+        <li><strong>Success path:</strong> On 200 OK with <code>{"status":"ok"}</code>, return empty string, container is added to runtime tracking</li>
+        <li><strong>Failure path:</strong> After 30s timeout or unrecoverable errors, fetch last 100 lines of logs and return them</li>
+    </ol>
+
+    <h3>Data Structures and APIs</h3>
+    <ul>
+        <li><strong>Health endpoint response:</strong> <code>{"status":"ok","uptime":&lt;seconds&gt;}</code></li>
+        <li><strong>aiohttp ClientSession:</strong> Used for HTTP polling with 5-second per-request timeout</li>
+        <li><strong>DockerClient.logs(cid, tail=100):</strong> Fetches container logs on failure</li>
+        <li><strong>ContainerTracker:</strong> Healthy containers are added via <code>self.tracker.add(cid)</code>, failed ones are removed</li>
+    </ul>
+
+    <h3>Integration with Existing Code</h3>
+    <p>The health check integrates at a critical point in <code>RuntimeManager._get_or_create()</code>: between starting the container and registering it in the runtime maps (<code>self.runtime_cids[key]</code> and <code>self.runtime_ips[key]</code>). This ensures that only healthy containers are registered and can serve requests.</p>
+
+    <p>For existing containers (no restart needed), the health check is skipped entirely since the container is already known to be running.</p>
+
+    <h2>Testing & Verification</h2>
+
+    <h3>Verifying a Healthy Deploy</h3>
+    <p>Deploy a healthy application and verify:</p>
+    <ol>
+        <li>The deploy response comes AFTER the health check passes (not immediately)</li>
+        <li>The logs show "Health check passed for &lt;cid&gt; (uptime: &lt;seconds&gt;)"</li>
+        <li>Query the health endpoint directly:
+            <pre><code>curl http://&lt;runtime-ip&gt;:3000/_health
+# Expected response: {"status":"ok","uptime":&lt;seconds&gt;}</code></pre>
+        </li>
+    </ol>
+
+    <h3>Verifying a Failing Deploy</h3>
+    <p>Deploy an application with a syntax error or bad import:</p>
+    <ol>
+        <li>The deploy returns a 500 error (or similar) with container logs</li>
+        <li>The error message includes "Runtime container &lt;name&gt; failed health check after 30s:"</li>
+        <li>The container is cleaned up (not left running)</li>
+    </ol>
+
+    <h3>Verifying Existing Container Behavior</h3>
+    <p>Redeploy a different project while the runtime container is already running:</p>
+    <ol>
+        <li>The existing container should NOT be re-health-checked</li>
+        <li>The deploy should complete quickly (no 30-second delay)</li>
+    </ol>
+
+    <h3>Edge Cases and Error Handling</h3>
+    <ul>
+        <li><strong>Network errors during health check:</strong> Caught as <code>aiohttp.ClientError</code>, logged at DEBUG level, and retried with backoff</li>
+        <li><strong>Timeout per request:</strong> 5-second timeout on each HTTP request to prevent hanging</li>
+        <li><strong>Non-200 responses:</strong> Logged at DEBUG level, not treated as success</li>
+        <li><strong>Malformed JSON response:</strong> Would cause <code>resp.json()</code> to fail, caught as <code>aiohttp.ClientError</code></li>
+        <li><strong>Missing "status":"ok" field:</strong> Treated as failure, logs show the actual status received</li>
+    </ul>
+
+    <h2>Issues & Follow-ups</h2>
+
+    <h3>Known Limitations</h3>
+    <ul>
+        <li>The health check only implements the happy path for Deno runtimes. Other runtimes (Node.js, Python, static, dockerfile) do not have health endpoints defined.</li>
+        <li>The health check timeout (30 seconds) is hardcoded. For slow-starting applications, this might be too short.</li>
+        <li>The exponential backoff is implemented with a fixed list of intervals rather than a calculated algorithm.</li>
+    </ul>
+
+    <h3>Dependencies on Other Tasks</h3>
+    <ul>
+        <li><strong>Task 0008-1:</strong> The <code>/_health</code> endpoint in the Deno router was actually added in task 0008-1, which also added the <code>import asyncio</code> and <code>import aiohttp</code> statements needed for the polling logic.</li>
+        <li><strong>Task 0005-1:</strong> Depends on the streaming ingress implementation for proper request handling, though not directly related.</li>
+    </ul>
+
+    <h3>Incomplete Items</h3>
+    <p>None identified. The implementation follows the RFC specification closely and provides the required functionality for Deno runtimes.</p>
+
+    <h3>Future Enhancements</h3>
+    <ul>
+        <li>Add health endpoints for other runtime types (Node.js, Python, dockerfile)</li>
+        <li>Make the health check timeout configurable per runtime or per project</li>
+        <li>Add custom health check paths (e.g., <code>/health</code>, <code>/api/health</code>) in project manifest</li>
+    </ul>
+
+    <p style="margin-top: 40px; font-size: 12px; color: #666;">
+        Report generated for task 0009-1 on 2026-04-07
+    </p>
+</body>
+</html>

@@ -96,6 +96,31 @@ Collected during end-to-end testing on hermes-staging CVM (2026-04-05).
 
 ---
 
+## SECRETS / ISOLATION
+
+### 13. `env_passthrough` not honored for `isolation:container` (deno/bun) -- blocks non-committed secrets for attested source-handlers
+**Status:** RESOLVED (2026-06-24) -- `start_isolated()` now folds `env_passthrough` (resolved from the daemon's `os.environ`) into the deno argv env, mirroring `start_image()`. So an isolated, source-hash-attested handler can receive `SEAL_KEY`/`OWNER_SECRET` from the daemon's dstack-encrypted env without committing them. (Shared deno runtime still uses `manifest.env` only -- separate, lower-priority gap.)
+**Severity:** Medium
+**Where:** `proxy/runtimes.py` `start_isolated()` (lines ~441-455) vs `start_image()` (lines ~502-506)
+**Problem:** `start_image()` resolves `project.env_passthrough` from the daemon's own `os.environ` and injects those vars into the container -- the intended channel for deploy-time secrets that must NOT be baked into (attested, world-readable) project source. `start_isolated()` (the deno/bun `isolation:container` path) ignores `env_passthrough`: it passes only `project.env` (from the committed `project.json`) through the argv shim, and `--deny-env` leaves the handler no other way in. Net: an isolated, source-hash-attested handler cannot receive a secret at all. Concrete case: the teleport-plugins `otter` handler needs a `SEAL_KEY` to AES-GCM-seal a synced cookie jar at rest -- putting it in `project.json` env defeats the purpose (it lands in the attested, readable source), and the only existing escape (`env_passthrough`) is image-runtime only. This forces a choice between {source-hash attestation + deno handler} and {non-committed secret + image runtime}; you can't have both.
+**Fix:** Mirror the `start_image()` loop in `start_isolated()`: before building the deno argv, fold `env_passthrough` (resolved from `os.environ`) into the env dict that becomes `ctx.env`. ~4 lines, reuses the existing convention. Stronger follow-up: derive a per-app key from the dstack `GetKey` the daemon already holds (ingress.py ~722), HKDF it, and inject as `ctx.env.SEAL_KEY` -- so the secret is per-app and TEE-bound rather than a shared daemon-env value.
+
+---
+
+## RUNTIME / RECOVERY
+
+### 14. Image apps don't retry on boot; crashed containers aren't restarted (listen boot-order race)
+**Severity:** Medium
+**Where:** `proxy/runtimes.py` `recover_all()` / `start_image()`; affects any app with a startup dependency.
+**Problem:** On a CVM restart `recover_all()` starts all project containers with no ordering and no restart policy. An image app that does a startup-time dependency call -- e.g. `listen` signs into `tinycloud` on boot -- can start before its dependency is ready, fail, `exit(1)`, and stay down (no retry, no restart). Observed 2026-06-24: after a daemon redeploy `listen-attested` exited at "Signing in to TinyCloud..." while `tinycloud` was still booting, and did not self-recover. Manual `POST /_api/projects/listen/redeploy` (once tinycloud was up) restored it.
+**Fix options:**
+- (a) Give daemon-managed app containers a Docker restart policy (`on-failure`/`unless-stopped`) so a crashed app retries.
+- (b) `recover_all()` retries failed image starts with backoff, and/or health-gates dependent apps.
+- (c) Apps own their startup resilience (retry the dependency) -- but the platform shouldn't depend on that.
+**Related (fixed in this pass):** `_api_redeploy()` was dropping `oci_runtime` when reconstructing the manifest, so redeploying a runc-only app (listen/tinycloud) would relaunch it under gVisor and re-break it (gVisor can't reach Docker's embedded DNS). Now preserved -- which is what made the manual restore above work.
+
+---
+
 ## PRIORITY RECOMMENDATION
 
 **Must fix for v0.2:**
