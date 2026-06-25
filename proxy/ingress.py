@@ -19,6 +19,7 @@ from .deploy import deploy, teardown, promote
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
+from .tokens import DEFAULT_TTL, TokenStore
 from . import secp
 
 log = logging.getLogger(__name__)
@@ -55,13 +56,15 @@ MIME_TYPES = {
 class Ingress:
     def __init__(self, store: ProjectStore, docker: DockerClient,
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
-                 rtm: RuntimeManager, tunnel_store: TunnelStore):
+                 rtm: RuntimeManager, tunnel_store: TunnelStore,
+                 token_store: TokenStore):
         self.store = store
         self.docker = docker
         self.audit_manager = audit_manager
         self.tracker = tracker
         self.rtm = rtm
         self.tunnel_store = tunnel_store
+        self.token_store = token_store
         self.port_map: dict[int, str] = {}  # port -> project_name
 
     async def handle(self, request: web.Request) -> web.Response:
@@ -464,15 +467,20 @@ class Ingress:
             log.error("WebSocket proxy error: %s", e)
             return web.json_response({"error": "websocket proxy failed"}, status=500)
 
-    def _check_auth(self, request: web.Request) -> web.Response | None:
+    def _check_auth(self, request: web.Request, api_path: str,
+                    owner_only: bool = False) -> web.Response | None:
         if not API_TOKEN:
             return None
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return web.json_response({"error": "missing token"}, status=401)
         token = auth[7:]
-        if not hmac.compare_digest(token, API_TOKEN):
-            return web.json_response({"error": "invalid token"}, status=403)
+        if hmac.compare_digest(token, API_TOKEN):
+            return None
+        if owner_only:
+            return web.json_response({"error": "owner token required"}, status=403)
+        if not self.token_store.authenticate(token, api_path):
+            return web.json_response({"error": "invalid token or scope"}, status=403)
         return None
 
     def _substrate_info(self) -> dict:
@@ -538,9 +546,19 @@ class Ingress:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
-        denied = self._check_auth(request)
+        owner_only = path == "tokens" or path.startswith("tokens/")
+        denied = self._check_auth(request, path, owner_only=owner_only)
         if denied:
             return denied
+
+        # Scoped token API endpoints
+        if path == "tokens" and method == "POST":
+            return await self._api_create_token(request)
+        if path == "tokens" and method == "GET":
+            return await self._api_list_tokens()
+        if path.startswith("tokens/") and method == "DELETE":
+            token_id = path.split("/")[1]
+            return await self._api_revoke_token(token_id)
 
         # Tunnel API endpoints
         if path == "tunnels" and method == "POST":
@@ -838,3 +856,30 @@ class Ingress:
         if self.tunnel_store.delete(tunnel_id):
             return web.json_response({"ok": True})
         return web.json_response({"error": "tunnel not found"}, status=404)
+
+    async def _api_create_token(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            scope = data.get("scope", "")
+            ttl = data.get("ttl", DEFAULT_TTL)
+            try:
+                ttl = int(ttl)
+            except (TypeError, ValueError):
+                return web.json_response({"error": "ttl must be an integer"}, status=400)
+            token, bearer = self.token_store.create(scope, ttl)
+            body = token.public()
+            body["token"] = bearer
+            return web.json_response(body, status=201)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except Exception as e:
+            log.error("Error creating scoped API token: %s", e)
+            return web.json_response({"error": "internal server error"}, status=500)
+
+    async def _api_list_tokens(self) -> web.Response:
+        return web.json_response([t.public() for t in self.token_store.list()])
+
+    async def _api_revoke_token(self, token_id: str) -> web.Response:
+        if self.token_store.revoke(token_id):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": "token not found"}, status=404)
