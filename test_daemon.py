@@ -77,6 +77,7 @@ def start_daemon():
         "DOCKER_SOCKET": "/var/run/docker.sock",
         "DSTACK_SOCKET": "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
+        "FOO": "isolated-deno-passthrough",
     }
     daemon_proc = subprocess.Popen(
         [sys.executable, "-m", "proxy.main"],
@@ -466,6 +467,37 @@ def test_env_passthrough():
             "should not be set when daemon env lacks the var"
         print("  Daemon had no TEE_TEST_SECRET; container correctly missing it ✓")
     api_delete("/projects/test-passthru")
+
+
+def test_isolated_deno_env_passthrough():
+    print("\n--- Test: isolated deno env_passthrough ---")
+    repo = create_test_repo("test-iso-passthru", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container",
+                                    "listen": {"port": 8080, "protocol": "http"},
+                                    "env_passthrough": ["FOO"]}).encode(),
+        "server.ts": b"""
+export default (_req: Request, ctx: {env: Record<string,string>}) => {
+  return new Response(JSON.stringify({foo: ctx.env.FOO || ""}),
+    {headers: {"content-type": "application/json"}});
+};
+""",
+    })
+    resp = api_post("/projects", json={"name": "test-iso-passthru", "source": repo})
+    assert resp.status_code == 201, f"Deploy failed: {resp.text}"
+    body = resp.json()
+    assert body["env_passthrough"] == ["FOO"]
+    assert "isolated-deno-passthrough" not in json.dumps(body), \
+        "passthrough value leaked into project json"
+
+    for _ in range(20):
+        r = requests.get(f"{INGRESS}/test-iso-passthru/")
+        if r.status_code == 200:
+            break
+        time.sleep(0.5)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"foo": "isolated-deno-passthrough"}, r.text
+    print("  Handler saw FOO from daemon env via ctx.env ✓")
+    api_delete("/projects/test-iso-passthru")
 
 
 def test_per_project_network_isolation():
@@ -941,6 +973,7 @@ def main():
         test_per_project_network_isolation()
         test_isolated_per_project_data_volume()
         test_env_passthrough()
+        test_isolated_deno_env_passthrough()
         test_image_redeploy()
         test_substrate_endpoint()
         test_autodetect()
