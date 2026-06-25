@@ -14,10 +14,11 @@ set -euo pipefail
 # NOTE 2026-06-25: 'latest' rolled AGAIN (recurrence of the 2026-06-12 break) — the
 # pinned 8ecbf845… no longer matched gVisor's published runsc.sha512, the integrity
 # check aborted boot, and hermes-staging wedged on EVERY reboot (incl. resize/redeploy)
-# until diagnosed via `phala cvms serial-logs`. Bumped to the current latest's verified
-# sha512. REAL FIX still pending: pin a dated/immutable release URL instead of 'latest'
-# so an upstream roll can never wedge boot again.
-RUNSC_URL="https://storage.googleapis.com/gvisor/releases/release/latest/x86_64/runsc"
+# until diagnosed via `phala cvms serial-logs`. Permanent fix applied below: pinned the
+# DATED/immutable release (release/20260622, the build 'latest' resolved to) instead of
+# the floating 'latest' URL, so a future upstream roll can no longer wedge boot. To bump
+# gVisor later, pick a newer release/<date>/ and set RUNSC_SHA512 to its published value.
+RUNSC_URL="https://storage.googleapis.com/gvisor/releases/release/20260622/x86_64/runsc"
 RUNSC_SHA512="6df95d09363dbd9ee5d5c889c1549b457e1783b039ff60a8f9f16f8c94c774a2ca2eef5b1c370e36b863f6b0407b53ba3c69051c6ef051253843dabf89a6de4e"
 INSTALL_DIR="/dstack/persistent/bin"
 
