@@ -35,43 +35,6 @@ function checkAuth(req: Request, tok: string): boolean {
   return (req.headers.get("authorization") || "") === "Bearer " + tok;
 }
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
-}
-
-function bearerToken(req: Request): string | undefined {
-  const auth = req.headers.get("authorization") || "";
-  return auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : undefined;
-}
-
-function warnUrlAuth(): void {
-  console.warn("URL-based tunnel authentication is deprecated. Use 'Authorization: Bearer <tid>' instead.");
-}
-
-async function readJson(req: Request): Promise<Record<string, unknown>> {
-  const text = await req.text();
-  return text ? JSON.parse(text) : {};
-}
-
-function getAuthedTunnel(req: Request, urlTid?: string): { tunnel?: Tunnel; response?: Response } {
-  const headerTid = bearerToken(req);
-  if (headerTid) {
-    const tunnel = tunnels.get(headerTid);
-    return tunnel ? { tunnel } : { response: json({ error: "unauthorized" }, 401) };
-  }
-  if (!urlTid) return { response: json({ error: "unauthorized" }, 401) };
-
-  warnUrlAuth();
-  const tunnel = tunnels.get(urlTid);
-  return tunnel ? { tunnel } : { response: json({ error: "not found" }, 404) };
-}
-
-function checkExpiry(tunnel: Tunnel): Response | undefined {
-  if (Date.now() <= tunnel.expiresAt) return undefined;
-  tunnels.delete(tunnel.tid);
-  return json({ error: "expired" }, 410);
-}
-
 setInterval(() => {
   const now = Date.now();
   for (const [k, t] of tunnels) {
@@ -94,87 +57,73 @@ export default async function handler(req: Request, ctx: { env: Record<string, s
   // POST / -> create tunnel (auth required)
   if (req.method === "POST" && parts.length === 0) {
     if (!checkAuth(req, tok)) {
-      return json({ error: "unauthorized" }, 401);
+      return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
     }
-    const body = await readJson(req);
-    const timeout = Math.min(parseInt(String(body.timeout || "3600")), maxTimeout) * 1000;
+    const body = await req.json();
+    const timeout = Math.min(parseInt(body.timeout || "3600"), maxTimeout) * 1000;
     const tid = genTunnelId();
     tunnels.set(tid, { tid, createdAt: Date.now(), expiresAt: Date.now() + timeout, pollSeq: 0 });
-    return json({
+    return new Response(JSON.stringify({
       tid,
-      pollUrl: "/poll",
-      relayUrl: "/relay",
-      visitorUrl: "/",
+      pollUrl: "/" + tid + "/poll",
+      relayUrl: "/" + tid + "/relay",
+      visitorUrl: "/" + tid + "/",
       expiresAt: new Date(Date.now() + timeout).toISOString(),
-    });
+    }), { headers: { "content-type": "application/json" } });
   }
 
   // GET / -> status only
-  if (req.method === "GET" && parts.length === 0 && !bearerToken(req)) {
-    return json({ active: tunnels.size, pending: pendingRequests.size });
+  if (req.method === "GET" && parts.length === 0) {
+    return new Response(JSON.stringify({ active: tunnels.size, pending: pendingRequests.size }), { headers: { "content-type": "application/json" } });
   }
 
   // DELETE /<tid> -> revoke (auth required)
   if (req.method === "DELETE" && parts.length === 1) {
     if (!checkAuth(req, tok)) {
-      return json({ error: "unauthorized" }, 401);
+      return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
     }
     tunnels.delete(parts[0]);
-    return json({ ok: true });
+    return new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json" } });
   }
 
-  // POST /poll (preferred) or /<tid>/poll (deprecated) -> long-poll for requests
-  if (req.method === "POST" && ((parts.length === 1 && parts[0] === "poll") || (parts.length === 2 && parts[1] === "poll"))) {
-    const urlTid = parts.length === 2 ? parts[0] : undefined;
-    const auth = getAuthedTunnel(req, urlTid);
-    if (auth.response) return auth.response;
-    const t = auth.tunnel!;
-    const expired = checkExpiry(t);
-    if (expired) return expired;
-    const body = await readJson(req);
-    const afterSeq = parseInt(String(body.afterSeq || "0"));
+  // POST /<tid>/poll -> long-poll for requests
+  if (req.method === "POST" && parts.length === 2 && parts[1] === "poll") {
+    const t = tunnels.get(parts[0]);
+    if (!t) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "content-type": "application/json" } });
+    if (Date.now() > t.expiresAt) { tunnels.delete(t.tid); return new Response(JSON.stringify({ error: "expired" }), { status: 410, headers: { "content-type": "application/json" } }); }
+    const afterSeq = parseInt((await req.json()).afterSeq || "0");
     const deadline = Date.now() + 25_000;
     while (Date.now() < deadline) {
       for (const [id, r] of pendingRequests) {
         const seq = pendingSeqs.get(id);
         if (seq && seq > afterSeq) {
-          return json({ id: r.id, method: r.method, path: r.path, headers: r.headers, body: r.body, seq });
+          return new Response(JSON.stringify({ id: r.id, method: r.method, path: r.path, headers: r.headers, body: r.body, seq }), { headers: { "content-type": "application/json" } });
         }
       }
       await new Promise(res => setTimeout(res, 500));
     }
-    return json({ empty: true });
+    return new Response(JSON.stringify({ empty: true }), { headers: { "content-type": "application/json" } });
   }
 
-  // POST /relay (preferred) or /<tid>/relay (deprecated) -> send response back
-  if (req.method === "POST" && ((parts.length === 1 && parts[0] === "relay") || (parts.length === 2 && parts[1] === "relay"))) {
-    const urlTid = parts.length === 2 ? parts[0] : undefined;
-    const auth = getAuthedTunnel(req, urlTid);
-    if (auth.response) return auth.response;
-    const expired = checkExpiry(auth.tunnel!);
-    if (expired) return expired;
-    const payload = await readJson(req);
-    const id = typeof payload.id === "string" ? payload.id : "";
-    const status = typeof payload.status === "number" ? payload.status : 200;
-    const headers = typeof payload.headers === "object" && payload.headers !== null ? payload.headers as Record<string, string> : {};
-    const body = typeof payload.body === "string" ? payload.body : "";
+  // POST /<tid>/relay -> send response back
+  if (req.method === "POST" && parts.length === 2 && parts[1] === "relay") {
+    const k = parts[0];
+    if (!tunnels.has(k)) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "content-type": "application/json" } });
+    const { id, status, headers, body } = await req.json();
     const p = pendingRequests.get(id);
-    if (!p) return json({ error: "already responded" }, 404);
+    if (!p) return new Response(JSON.stringify({ error: "already responded" }), { status: 404, headers: { "content-type": "application/json" } });
     pendingRequests.delete(id);
     pendingSeqs.delete(id);
-    p.resolve({ status, headers, body });
-    return json({ ok: true });
+    p.resolve({ status: status || 200, headers: headers || {}, body: body || "" });
+    return new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json" } });
   }
 
-  // Visitor traffic: Authorization header (preferred) or /<tid>/<path...> (deprecated)
-  if (parts.length >= 1 || bearerToken(req)) {
-    const headerTid = bearerToken(req);
-    const auth = getAuthedTunnel(req, headerTid ? undefined : parts[0]);
-    if (auth.response) return new Response(auth.response.status === 401 ? "unauthorized" : "not found", { status: auth.response.status });
-    const t = auth.tunnel!;
-    const expired = checkExpiry(t);
-    if (expired) return new Response("expired", { status: 410 });
-    const visitorPath = (headerTid ? url.pathname : "/" + (parts.length > 1 ? parts.slice(1).join("/") : "")) + (url.search || "");
+  // Visitor traffic: /<tid>/<path...>
+  if (parts.length >= 1) {
+    const t = tunnels.get(parts[0]);
+    if (!t) return new Response("not found", { status: 404 });
+    if (Date.now() > t.expiresAt) { tunnels.delete(t.tid); return new Response("expired", { status: 410 }); }
+    const visitorPath = "/" + (parts.length > 1 ? parts.slice(1).join("/") : "") + (url.search || "");
     const reqBody = req.body ? btoa(await req.text()) : "";
     const id = crypto.randomUUID().slice(0, 12);
     t.pollSeq++;
