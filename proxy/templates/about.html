@@ -53,6 +53,16 @@
     <p>Every project on a tee-daemon CVM rides the same daemon, the same shared runtime, and the same verifier surface. An auditor learns that substrate once, then reuses the understanding across every project they review on it.</p>
     <p>A specific project's audit reduces to: given this known substrate, does this small handler hold the invariant it claims? The platform's payoff is keeping each per-project audit small.</p>
   </section>
+
+  <section class="card-list">
+    <h2>Run your own</h2>
+    <ul>
+      <li><strong>Bring a Phala dstack CVM.</strong> The CVM is where the daemon runs, hosts projects, and asks dstack for hardware-rooted quotes.</li>
+      <li><a href="https://github.com/amiller/dstack-webhost" target="_blank">Use the public substrate source</a>. This is the daemon, shared runtime, verifier surface, and templates behind this instance.</li>
+      <li><a href="https://github.com/amiller/dstack-webhost/blob/main/DEVELOPER_GUIDE.md" target="_blank">Follow the deploy loop</a>. The guide covers pushing a project, deploying it to the CVM, iterating in dev mode, and checking the result.</li>
+      <li><strong>Promote to attested when ready.</strong> Promotion records the source hash, opens the audit log, and makes the verifier endpoints available to relying parties.</li>
+    </ul>
+  </section>
 </main>
 <div class="footer">
   <a href="/">Apps deployed here</a>
