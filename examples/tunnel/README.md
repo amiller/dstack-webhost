@@ -19,15 +19,24 @@ Output:
   Tunnel created!
   Secret:   a1b2c3d4e5f6
   Expires:  2026-04-05T16:00:00Z
-  Visitor:  http://your-cvm:8080/tunnel/a1b2c3d4e5f6/
+  Visitor:  http://your-cvm:8080/tunnel/
 
 Waiting for incoming requests...
 ```
 
 ### Share the visitor URL
 
-Anyone who visits the visitor URL gets their requests proxied through the
-CVM to your local service, relayed via long-polling through the tunnel client.
+Clients should pass the tunnel secret in an HTTP header so it does not appear in
+browser history, server logs, or referrer headers:
+
+```bash
+curl http://your-cvm:8080/tunnel/api/items \
+  -H "Authorization: Bearer a1b2c3d4e5f6"
+```
+
+The legacy URL form `http://your-cvm:8080/tunnel/a1b2c3d4e5f6/api/items`
+continues to work for browser-only demos, but the server logs a deprecation
+warning when it is used.
 
 ### The client logs each request
 
@@ -41,11 +50,15 @@ CVM to your local service, relayed via long-polling through the tunnel client.
 ## How it works
 
 1. Client POSTs to create a tunnel, gets back a secret
-2. Client long-polls `/<secret>/poll` waiting for visitor requests
-3. Visitors hit `/<secret>/<path>` -- requests are queued server-side
+2. Client long-polls `/poll` with `Authorization: Bearer <secret>` waiting for visitor requests
+3. Visitors hit `/<path>` with `Authorization: Bearer <secret>` -- requests are queued server-side
 4. When the client picks up a request, it fetches the backend locally
-5. Client POSTs the response back to `/<secret>/relay`
+5. Client POSTs the response back to `/relay` with `Authorization: Bearer <secret>`
 6. Visitor gets the response
+
+For backward compatibility, `/<secret>/poll`, `/<secret>/relay`, and
+`/<secret>/<path>` are still accepted. URL-based tunnel authentication is
+deprecated and should be removed in the next major version.
 
 ## Deploy as a Layer 2 project
 

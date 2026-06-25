@@ -23,14 +23,15 @@ console.log(`Backend:       ${backendUrl}`);
 const createResp = await fetch(tunnelUrl, { method: "POST" });
 const tunnel = await createResp.json();
 console.log(`\n  Tunnel created!`);
-console.log(`  Secret:   ${tunnel.secret}`);
+console.log(`  Secret:   ${tunnel.tid}`);
 console.log(`  Expires:  ${tunnel.expiresAt}`);
 
 // Build the visitor URL from the tunnel URL
 const baseUrl = tunnelUrl.replace(/\/+$/, "");
-const visitorUrl = `${baseUrl}/${tunnel.secret}/`;
-const pollUrl = `${baseUrl}/${tunnel.secret}/poll`;
-const relayUrl = `${baseUrl}/${tunnel.secret}/relay`;
+const visitorUrl = `${baseUrl}/`;
+const pollUrl = `${baseUrl}/poll`;
+const relayUrl = `${baseUrl}/relay`;
+const authHeaders = { "authorization": `Bearer ${tunnel.tid}` };
 
 console.log(`  Visitor:  ${visitorUrl}`);
 console.log(`\nWaiting for incoming requests...\n`);
@@ -42,7 +43,7 @@ async function pollLoop() {
     try {
       const pollResp = await fetch(pollUrl, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders },
         body: JSON.stringify({ afterSeq: lastSeq }),
       });
 
@@ -77,7 +78,7 @@ async function pollLoop() {
 
         await fetch(relayUrl, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...authHeaders },
           body: JSON.stringify({
             id,
             status: resp.status,
@@ -90,7 +91,7 @@ async function pollLoop() {
       } catch (err) {
         await fetch(relayUrl, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...authHeaders },
           body: JSON.stringify({
             id,
             status: 502,
