@@ -84,6 +84,12 @@ class Ingress:
         parts = path.split("/", 1)
         name = parts[0] if parts[0] else ""
 
+        if name in ("about", "_about") and (len(parts) == 1 or not parts[1]):
+            template_path = os.path.join(
+                os.path.dirname(__file__), "templates", "about.html")
+            with open(template_path) as f:
+                return web.Response(text=f.read(), content_type="text/html")
+
         if not name:
             # Public listing. Browsers (Accept: text/html) get the default
             # viewer page; programmatic callers get JSON. Anonymous callers
