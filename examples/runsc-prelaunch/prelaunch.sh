@@ -15,8 +15,8 @@ set -euo pipefail
 # hash (9844ad24…) no longer matched and the integrity check aborted boot. Updated
 # to the current latest's verified sha512 (matches gVisor's published runsc.sha512).
 # TODO: pin a dated/immutable release URL instead of 'latest' so this can't recur.
-RUNSC_URL="https://storage.googleapis.com/gvisor/releases/release/latest/x86_64/runsc"
-RUNSC_SHA512="8ecbf845e50880ab65573153756aea01da2823d05a61bce23c6c24f4446d064ab5a253e7ee6a8b619c5934c373ea74487c7c2ab2754dfb1e0b27860c6e0d2014"
+RUNSC_URL="https://storage.googleapis.com/gvisor/releases/release/20260622/x86_64/runsc"
+RUNSC_SHA512="6df95d09363dbd9ee5d5c889c1549b457e1783b039ff60a8f9f16f8c94c774a2ca2eef5b1c370e36b863f6b0407b53ba3c69051c6ef051253843dabf89a6de4e"
 INSTALL_DIR="/dstack/persistent/bin"
 
 verify_sha512() {
