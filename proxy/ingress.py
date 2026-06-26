@@ -608,7 +608,15 @@ class Ingress:
 
         if path.startswith("verification/"):
             name = path.split("/")[1]
-            return await self._api_verification(name)
+            return await self._api_verification(request, name)
+
+        # RFC 0016: aggregate status endpoint (authed)
+        if path == "status" and method == "GET":
+            return await self._api_aggregate_status()
+
+        # RFC 0016: console page (authed)
+        if path == "console" and method == "GET":
+            return await self._api_console()
 
         return web.json_response({"error": "not found"}, status=404)
 
@@ -633,23 +641,12 @@ class Ingress:
             if project.listen and project.listen.port:
                 port = project.listen.port
                 protocol = project.listen.protocol or "http"
-
-                if project.runtime == "static":
-                    backend = "static files"
-                elif project.runtime == "dockerfile":
-                    backend = f"container:{project.container_id or 'unknown'}"
-                else:
-                    route = self.rtm.get_route(project.runtime, project.mode)
-                    if route:
-                        backend = f"{route[0]}:{route[1]}"
-                    else:
-                        backend = "runtime not running"
-
+                liveness = self.rtm.get_project_liveness(project)
                 routes.append({
                     "host_port": port,
                     "protocol": protocol,
                     "project": project.name,
-                    "backend": backend
+                    "backend": liveness["backend"]
                 })
 
         return web.json_response(routes)
@@ -803,12 +800,22 @@ class Ingress:
                 data = await resp.json()
                 return web.json_response(_sanitize_getkey(data), status=resp.status)
 
-    async def _api_verification(self, name: str) -> web.Response:
-        """Get trust chain data for project verification."""
+    async def _api_verification(self, request: web.Request, name: str) -> web.Response:
+        """Get trust chain data for project verification.
+
+        RFC 0016: supports ?format=html query parameter for HTML rendering.
+        """
         try:
             project = self.store.load(name)
             if project.mode != "attested":
                 return web.json_response({"error": "project not attested"}, status=400)
+
+            # Check if HTML format is requested
+            fmt = request.query.get("format", "")
+
+            if fmt == "html":
+                # Render HTML verification page
+                return await self._render_verification_html(request, project)
 
             # Get dstack quote
             quote = None
@@ -839,6 +846,56 @@ class Ingress:
             })
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
+
+    async def _render_verification_html(self, request: web.Request, project) -> web.Response:
+        """Render the verification bundle as an HTML page."""
+        # Get dstack quote
+        quote = None
+        if DSTACK_SOCK:
+            try:
+                key_path = f"/tee-daemon/projects/{project.name}"
+                body = {"path": key_path}
+                conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
+                async with aiohttp.ClientSession(connector=conn) as session:
+                    async with session.post("http://localhost/GetKey", json=body) as resp:
+                        if resp.status == 200:
+                            quote = _sanitize_getkey(await resp.json())
+            except Exception as e:
+                log.warning("Failed to get dstack quote: %s", e)
+
+        # Get audit log
+        audit = []
+        try:
+            audit_log = self.audit_manager.get_audit_log(project.name)
+            audit = audit_log.to_json()
+        except Exception as e:
+            log.warning("Failed to get audit log: %s", e)
+
+        # Build JSON data for the template
+        verification_data = {
+            "project": asdict(project),
+            "quote": quote,
+            "audit": audit,
+        }
+
+        # Read and render template
+        template_path = os.path.join(
+            os.path.dirname(__file__), "templates", "verification.html")
+        with open(template_path, "r") as f:
+            template = f.read()
+
+        html = template.replace("{{ project_name }}", project.name)
+
+        # Add data as JSON in a script tag for the template to use
+        data_script = f'window.verificationData = {json.dumps(verification_data)};'
+        html = html.replace(
+            '<script>',
+            f'<script>{data_script}\n        '
+        )
+
+        resp = web.Response(text=html, content_type="text/html")
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp
 
     async def _api_create_tunnel(self, request: web.Request) -> web.Response:
         """Create a new tunnel."""
@@ -914,3 +971,34 @@ class Ingress:
         if self.token_store.revoke(token_id):
             return web.json_response({"ok": True})
         return web.json_response({"error": "token not found"}, status=404)
+
+    async def _api_aggregate_status(self) -> web.Response:
+        """RFC 0016: Aggregate status for all projects with liveness.
+
+        Returns manifest fields + live liveness (running, container_id, backend).
+        For attested projects, includes the public verification URL.
+        """
+        projects = []
+        for project in self.store.list():
+            data = asdict(project)
+            # Add liveness info
+            liveness = self.rtm.get_project_liveness(project)
+            data["running"] = liveness["running"]
+            data["container_id"] = liveness["container_id"]
+            data["backend"] = liveness["backend"]
+            # For attested projects, include public verification URL
+            if project.mode == "attested":
+                # Get the scheme and host from the environment or request
+                data["verification_url"] = f"/_api/verification/{project.name}"
+            projects.append(data)
+        return web.json_response(projects)
+
+    async def _api_console(self) -> web.Response:
+        """RFC 0016: Serve the fleet console HTML page."""
+        console_path = os.path.join(
+            os.path.dirname(__file__), "templates", "console.html")
+        try:
+            with open(console_path, "r") as f:
+                return web.Response(text=f.read(), content_type="text/html")
+        except FileNotFoundError:
+            return web.json_response({"error": "console not found"}, status=404)

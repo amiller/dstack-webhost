@@ -583,6 +583,43 @@ class RuntimeManager:
             return None
         return (ip, RUNTIME_CONFIG[config_key]["port"])
 
+    def get_project_liveness(self, project) -> dict:
+        """Return liveness info for a project: {running, container_id, backend}.
+
+        This is the single source of truth for project liveness, used by both
+        GET /_api/routes and GET /_api/status to ensure consistent reporting.
+        """
+        result = {"running": False, "container_id": None, "backend": None}
+
+        if project.runtime == "static":
+            result["running"] = True
+            result["backend"] = "static files"
+        elif project.runtime == "dockerfile":
+            cid = project.container_id
+            result["container_id"] = cid
+            result["running"] = bool(cid)
+            result["backend"] = f"container:{cid or 'unknown'}"
+        elif project.runtime == "image" or project.isolation == "container":
+            # Image runtime or isolated container (deno/bun with isolation:container)
+            route = self.image_routes.get(project.name)
+            cid = self.image_cids.get(project.name)
+            result["container_id"] = cid
+            if route:
+                result["running"] = True
+                result["backend"] = f"{route[0]}:{route[1]}"
+            else:
+                result["backend"] = "runtime not running"
+        else:
+            # Shared runtime (deno/bun/node/python)
+            route = self.get_route(project.runtime, project.mode)
+            if route:
+                result["running"] = True
+                result["backend"] = f"{route[0]}:{route[1]}"
+            else:
+                result["backend"] = "runtime not running"
+
+        return result
+
     async def recover_all(self):
         runtimes_needed = set()
         image_projects = []
