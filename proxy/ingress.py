@@ -25,6 +25,7 @@ from .tunnel import TunnelStore, TunnelResponse
 from .tokens import DEFAULT_TTL, TokenStore
 from .broker import BrokerStore
 from . import secp
+from . import evidence
 
 log = logging.getLogger(__name__)
 
@@ -790,37 +791,79 @@ class Ingress:
                 return web.json_response(_sanitize_getkey(data), status=resp.status)
 
     async def _api_verification(self, request: web.Request, name: str) -> web.Response:
-        """Get trust chain data for project verification.
+        """Get the RFC 0020 evidence bundle for project verification.
 
-        RFC 0016: supports ?format=html query parameter for HTML rendering.
+        RFC 0016: supports ?format=html for a human-readable rendering.
         """
         try:
             project = self.store.load(name)
             if project.mode != "attested":
                 return web.json_response({"error": "project not attested"}, status=400)
 
-            # Check if HTML format is requested
-            fmt = request.query.get("format", "")
-
-            if fmt == "html":
-                # Render HTML verification page
+            # HTML rendering (RFC 0016 human view)
+            if request.query.get("format", "") == "html":
                 return await self._render_verification_html(request, project)
 
-            # Get dstack quote
-            quote = None
+            # Build RFC 0020 Evidence Bundle (machine-verifiable, no verdict)
+            bundle = evidence.EvidenceBundle()
+            platform_quote = {}
+            binding_quote = {}
             if DSTACK_SOCK:
                 try:
                     key_path = f"/tee-daemon/projects/{name}"
-                    body = {"path": key_path}
                     conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
                     async with aiohttp.ClientSession(connector=conn) as session:
-                        async with session.post("http://localhost/GetKey", json=body) as resp:
-                            if resp.status == 200:
-                                quote = _sanitize_getkey(await resp.json())
-                except Exception as e:
-                    log.warning("Failed to get dstack quote: %s", e)
+                        # GetQuote for TDX platform quote
+                        try:
+                            body = {"path": key_path}
+                            async with session.post("http://localhost/GetQuote", json=body) as resp:
+                                if resp.status == 200:
+                                    platform_quote = await resp.json()
+                        except Exception as e:
+                            log.warning("GetQuote failed: %s", e)
 
-            # Get audit log
+                        # GetKey for signature chain (KMS-rooted attestation)
+                        async with session.post("http://localhost/GetKey", json={"path": key_path}) as resp:
+                            if resp.status == 200:
+                                binding_quote = _sanitize_getkey(await resp.json())
+                except Exception as e:
+                    log.warning("Failed to get dstack quotes: %s", e)
+
+            bundle.platform_quote = platform_quote
+            bundle.webhost_app_id = os.environ.get("WEBHOST_APP_ID", "")
+
+            # On-chain info (MVP: chain_id 0 for non-anchored, empty addresses)
+            # In production: populate from base-prod RPC and contract addresses
+            bundle.onchain = evidence.OnchainInfo(
+                chain_id=0,  # MVP: non-anchored (pha-prod7)
+                kms_contract="",
+                dstackapp="",
+                allowed_compose_hash="",
+                allowed_os_image="",
+            )
+
+            # Gateway info (MVP: empty, to be populated from pinned gateway refs)
+            bundle.gateway = evidence.GatewayInfo(
+                domain="",
+                app_id="",
+                zt_cert_ref="",
+            )
+
+            # App info
+            bundle.app = evidence.AppInfo(
+                project=project.name,
+                source=evidence.SourceInfo(
+                    repo=project.source or "",
+                    ref=project.ref or "",
+                    commit_sha=project.commit_sha or "",
+                    tree_hash=project.tree_hash or "",
+                    tree_hash_kind="git" if project.source else "sha256",
+                ),
+                image_digest=project.image_digest or "",
+                binding_quote=binding_quote,
+            )
+
+            # Get audit log (retained for backward compatibility, in main bundle for now)
             audit = []
             try:
                 audit_log = self.audit_manager.get_audit_log(name)
@@ -828,11 +871,9 @@ class Ingress:
             except Exception as e:
                 log.warning("Failed to get audit log: %s", e)
 
-            return web.json_response({
-                "project": asdict(project),
-                "quote": quote,
-                "audit": audit,
-            })
+            result = bundle.to_dict()
+            result["audit"] = audit  # Retain audit for existing consumers
+            return web.json_response(result)
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
 
