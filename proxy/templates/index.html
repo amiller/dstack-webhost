@@ -24,6 +24,9 @@
   .card .links { margin-top: 0.6rem; display: flex; gap: 0.85rem; flex-wrap: wrap; font-size: 0.88em; }
   .card .links a { color: #1f6feb; text-decoration: none; }
   .card .links a:hover { text-decoration: underline; }
+  .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; font-weight: 500; margin-left: 6px; }
+  .badge.attested { background: #1a7f37; color: #fff; }
+  .badge.dev-public { background: #cf222e; color: #fff; }
   .muted { color: #57606a; font-size: 0.95em; }
   .err { color: #cf222e; font-size: 0.95em; }
   .footer { max-width: 56rem; margin: 0 auto; padding: 0 1.5rem 2rem; color: #57606a; font-size: 0.85em; }
@@ -45,7 +48,7 @@
 </main>
 <div class="footer">
   Each card opens the running app, walks the trust chain via the verifier, or jumps to the source on GitHub.
-  Only <em>attested</em> apps are listed; dev-mode apps stay private.
+  Attested apps make a source-binding claim; public dev apps are listed but do not attest.
   ·
   <a href="/about">About this CVM</a>
   ·
@@ -61,7 +64,7 @@
     const data = await r.json();
     const projects = data.projects || {};
     const names = Object.keys(projects);
-    if (!names.length) { root.innerHTML = '<p class="muted">No attested apps deployed yet.</p>'; return; }
+    if (!names.length) { root.innerHTML = '<p class="muted">No public apps deployed yet.</p>'; return; }
     const verifyBase = 'https://amiller.github.io/dstack-webhost/verify.html';
     const daemon = location.origin;
     const cards = names.map(name => {
@@ -71,8 +74,15 @@
         : '';
       const runLink = '<a href="/' + escape(name) + '/">open</a>';
       const verifyLink = '<a href="' + verifyBase + '?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '" target="_blank">verify</a>';
-      const meta = p.commit_sha ? 'commit ' + escape(p.commit_sha.slice(0, 7)) : 'mode: ' + escape(p.mode);
-      return '<div class="card"><h3>' + escape(name) + '</h3><div class="meta">' + meta + '</div><div class="links">' + runLink + ' · ' + verifyLink + (sourceLink ? ' · ' + sourceLink : '') + '</div></div>';
+      let badge = '';
+      if (p.mode === 'attested') {
+        badge = '<span class="badge attested">attested</span>';
+      } else if (p.mode === 'dev' && p.public) {
+        badge = '<span class="badge dev-public">dev (public)</span>';
+      }
+      const meta = p.commit_sha ? 'commit ' + escape(p.commit_sha.slice(0, 7)) : '';
+      const title = '<h3>' + escape(name) + (badge ? ' ' + badge : '') + '</h3>';
+      return '<div class="card">' + title + (meta ? '<div class="meta">' + meta + '</div>' : '') + '<div class="links">' + runLink + ' · ' + verifyLink + (sourceLink ? ' · ' + sourceLink : '') + '</div></div>';
     }).join('');
     root.innerHTML = '<div class="grid">' + cards + '</div>';
   } catch (e) {
