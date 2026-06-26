@@ -495,6 +495,20 @@ class Ingress:
             "networks": [runtimes_mod.NETWORK_DEV, runtimes_mod.NETWORK_ATTESTED],
         }
 
+    def _api_version(self) -> dict:
+        """Return daemon version and git commit."""
+        import subprocess
+        commit = "unknown"
+        try:
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=os.path.dirname(os.path.dirname(__file__)),
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            pass
+        return {"version": "dev", "commit": commit}
+
     def _public_attested_path(self, path: str) -> str | None:
         """RFC 0015: return project name if `path` is a public verifier endpoint."""
         parts = path.split("/")
@@ -519,6 +533,11 @@ class Ingress:
                 "Access-Control-Allow-Headers": "*",
                 "Access-Control-Max-Age": "86400",
             })
+
+        if method == "GET" and path == "version":
+            resp = web.json_response(self._api_version())
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
 
         if method == "GET" and path == "substrate":
             resp = web.json_response(self._substrate_info())

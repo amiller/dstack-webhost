@@ -120,6 +120,18 @@ def test_auth():
     print("  Auth: 401/403/200/200 ✓")
 
 
+def test_version():
+    print("\n--- Test: version endpoint ---")
+    resp = requests.get(f"{API}/version")
+    assert resp.status_code == 200, f"version endpoint failed: {resp.status_code} {resp.text}"
+    data = resp.json()
+    assert "version" in data, f"version field missing: {data}"
+    assert "commit" in data, f"commit field missing: {data}"
+    assert isinstance(data["version"], str)
+    assert isinstance(data["commit"], str)
+    print(f"  Version: {data['version']} commit: {data['commit']} ✓")
+
+
 def test_deploy_static():
     print("\n--- Test: deploy static from git ---")
     repo = create_test_repo("test-static", {
@@ -808,6 +820,7 @@ def main():
     start_daemon()
     try:
         test_auth()
+        test_version()
         test_deploy_static()
         test_ingress_static()
         test_scoped_tokens()
