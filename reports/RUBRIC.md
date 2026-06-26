@@ -20,5 +20,16 @@ Rules:
 - Put diff stats and raw logs at the bottom under a collapsed `<details>`, never as the main body.
 - Lead with value and decision, not with implementation detail.
 
+## Functional QA — "done" means a browser proved it works
+For anything with a user-facing surface (a deployed app, a page, a UI change), **`HTTP 200` is not
+QA.** A `500`/error page returns 200 on some paths; a broken app can answer the root route. Before
+claiming an app/page "works" or "deployed":
+- Load it in a **real headless browser** (Playwright/Xvfb) and **screenshot** it.
+- Assert the screenshot shows the *expected content* and **no** error text ("Internal Server Error",
+  "unreachable", "500", a blank page, a parse error).
+- Only then report it as working — and attach the screenshot. An app that fails this is BROKEN;
+  report it as broken with the real error, never as "deployed."
+(This rule exists because a deploy pass once shipped a 500ing oauth3 demo as "done" off a bare 200.)
+
 If the operator's feedback is about *this rubric* (the report format itself), edit this file —
 that is how report-quality feedback is incorporated.
