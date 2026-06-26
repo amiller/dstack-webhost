@@ -31,5 +31,13 @@ claiming an app/page "works" or "deployed":
   report it as broken with the real error, never as "deployed."
 (This rule exists because a deploy pass once shipped a 500ing oauth3 demo as "done" off a bare 200.)
 
+**If the flow involves a browser EXTENSION (e.g. the oauth3 wallet — Connect → popup → approve),
+Playwright is NOT sufficient.** Playwright can load an unpacked extension but cannot see or drive
+the extension's popup/wallet UI (it's browser chrome, outside the page DOM). The extension is part
+of what's tested, so QA MUST drive the real browser UI: **`xdotool` on Chromium under Xvfb with the
+extension loaded**, clicking the extension icon / popup and **screenshotting the actual extension
+UI** (the wallet, the approve dialog), not just the page. A page-only Playwright screenshot does not
+QA an extension-mediated flow — it would "pass" the page while never exercising the extension.
+
 If the operator's feedback is about *this rubric* (the report format itself), edit this file —
 that is how report-quality feedback is incorporated.
