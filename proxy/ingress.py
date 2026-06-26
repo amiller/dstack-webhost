@@ -108,9 +108,9 @@ class Ingress:
             authed = (API_TOKEN and auth.startswith("Bearer ")
                       and hmac.compare_digest(auth[7:], API_TOKEN))
             visible = [p for p in self.store.list()
-                       if authed or p.mode == "attested"]
+                       if authed or p.mode == "attested" or p.public]
             projects = {p.name: {
-                "runtime": p.runtime, "mode": p.mode,
+                "runtime": p.runtime, "mode": p.mode, "public": p.public,
                 "source": p.source, "commit_sha": p.commit_sha,
                 "tree_hash": p.tree_hash,
             } for p in visible}

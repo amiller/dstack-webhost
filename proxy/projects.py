@@ -23,6 +23,7 @@ class Project:
     entry: str
     port: int
     mode: str = "dev"
+    public: bool = False  # visibility axis: listed for anonymous callers
     env: dict = None
     container_id: str = ""
     deployed_at: str = ""
@@ -107,7 +108,7 @@ class ProjectStore:
 
 
 EXPORT_FIELDS = (
-    "name", "runtime", "entry", "port", "mode", "image_digest", "source",
+    "name", "runtime", "entry", "port", "mode", "public", "image_digest", "source",
     "ref", "commit_sha", "tree_hash", "listen", "image", "image_port",
     "volumes", "isolation", "env_passthrough", "oci_runtime",
 )
