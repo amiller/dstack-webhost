@@ -1,5 +1,7 @@
 """Ingress reverse proxy + management API on port 8080."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import hmac
@@ -20,6 +22,7 @@ from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
 from .tokens import DEFAULT_TTL, TokenStore
+from .broker import BrokerStore
 from . import secp
 
 log = logging.getLogger(__name__)
@@ -57,7 +60,7 @@ class Ingress:
     def __init__(self, store: ProjectStore, docker: DockerClient,
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
                  rtm: RuntimeManager, tunnel_store: TunnelStore,
-                 token_store: TokenStore):
+                 token_store: TokenStore, broker_store: BrokerStore | None = None):
         self.store = store
         self.docker = docker
         self.audit_manager = audit_manager
@@ -65,6 +68,7 @@ class Ingress:
         self.rtm = rtm
         self.tunnel_store = tunnel_store
         self.token_store = token_store
+        self.broker_store = broker_store
         self.port_map: dict[int, str] = {}  # port -> project_name
 
     async def handle(self, request: web.Request) -> web.Response:
@@ -569,6 +573,21 @@ class Ingress:
             tunnel_id = path.split("/")[1]
             return await self._api_delete_tunnel(tunnel_id)
 
+        # Grant API endpoints (RFC 0018 credential broker)
+        if path == "grants" and method == "POST":
+            return await self._api_create_grant(request)
+        if path == "grants" and method == "GET":
+            return await self._api_list_grants(request)
+        if path.startswith("grants/") and method == "DELETE":
+            grant_id = path.split("/")[1]
+            return await self._api_revoke_grant(grant_id)
+        if path.startswith("grants/") and path.endswith("/reauthorize") and method == "POST":
+            grant_id = path.split("/")[1]
+            return await self._api_reauthorize_grant(request, grant_id)
+        if path.startswith("grants/") and path.endswith("/usage") and method == "GET":
+            grant_id = path.split("/")[1]
+            return await self._api_grant_usage(grant_id)
+
         if path == "routes" and method == "GET":
             return await self._api_routes()
 
@@ -883,3 +902,134 @@ class Ingress:
         if self.token_store.revoke(token_id):
             return web.json_response({"ok": True})
         return web.json_response({"error": "token not found"}, status=404)
+
+    async def _api_create_grant(self, request: web.Request) -> web.Response:
+        """Create a new credential grant (RFC 0018)."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        try:
+            data = await request.json()
+            project = data.get("project", "")
+            name = data.get("name", "")
+            scope = data.get("scope", "")
+            upstream = data.get("upstream", {})
+            secret = data.get("secret", "")
+            ttl = data.get("ttl")
+            mode = data.get("mode", "proxy")
+
+            # Validate required fields
+            if not project:
+                return web.json_response({"error": "project is required"}, status=400)
+            if not name:
+                return web.json_response({"error": "name is required"}, status=400)
+            if not upstream or not upstream.get("base_url"):
+                return web.json_response({"error": "upstream.base_url is required"}, status=400)
+            if not secret:
+                return web.json_response({"error": "secret is required"}, status=400)
+
+            # Verify project exists
+            try:
+                self.store.load(project)
+            except FileNotFoundError:
+                return web.json_response({"error": "project not found"}, status=404)
+
+            # Validate upstream config
+            if not upstream.get("allow_paths"):
+                upstream["allow_paths"] = ["/*"]
+            if not upstream.get("allow_methods"):
+                upstream["allow_methods"] = ["POST"]
+            if not upstream.get("inject"):
+                upstream["inject"] = {"header": "Authorization", "template": "Bearer {secret}"}
+
+            # Create grant
+            grant = await self.broker_store.create(
+                project=project,
+                name=name,
+                scope=scope,
+                upstream=upstream,
+                secret=secret,
+                ttl=ttl,
+                mode=mode
+            )
+
+            # Audit log
+            self.audit_manager.get_audit_log(project).record(
+                action="grant", details={"grant_id": grant.id, "name": name}
+            )
+
+            return web.json_response({
+                "id": grant.id,
+                "expires_at": grant.expires_at
+            }, status=201)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except RuntimeError as e:
+            return web.json_response({"error": str(e)}, status=503)
+        except Exception as e:
+            log.error("Error creating grant: %s", e)
+            return web.json_response({"error": "internal server error"}, status=500)
+
+    async def _api_list_grants(self, request: web.Request) -> web.Response:
+        """List grants, optionally filtered by project."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        project = request.query.get("project")
+        grants = self.broker_store.list(project=project)
+        return web.json_response([g.to_json() for g in grants])
+
+    async def _api_revoke_grant(self, grant_id: str) -> web.Response:
+        """Revoke a grant (immediate effect)."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        grant = self.broker_store.get(grant_id)
+        if not grant:
+            return web.json_response({"error": "grant not found"}, status=404)
+
+        project = grant.project
+        if self.broker_store.revoke(grant_id):
+            # Audit log
+            self.audit_manager.get_audit_log(project).record(
+                action="revoke", details={"grant_id": grant_id}
+            )
+            return web.json_response({"ok": True})
+        return web.json_response({"error": "grant not found"}, status=404)
+
+    async def _api_reauthorize_grant(self, request: web.Request, grant_id: str) -> web.Response:
+        """Reauthorize a grant: rotate secret, extend TTL, or change scope."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        try:
+            data = await request.json()
+            secret = data.get("secret")
+            ttl = data.get("ttl")
+            scope = data.get("scope")
+
+            grant = await self.broker_store.reauthorize(
+                grant_id=grant_id,
+                secret=secret,
+                ttl=ttl,
+                scope=scope
+            )
+
+            if not grant:
+                return web.json_response({"error": "grant not found"}, status=404)
+
+            # Audit log
+            self.audit_manager.get_audit_log(grant.project).record(
+                action="reauthorize", details={"grant_id": grant_id}
+            )
+
+            return web.json_response({"ok": True, "expires_at": grant.expires_at})
+        except Exception as e:
+            log.error("Error reauthorizing grant: %s", e)
+            return web.json_response({"error": "internal server error"}, status=500)
+
+    async def _api_grant_usage(self, grant_id: str) -> web.Response:
+        """Get recent usage for a grant."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        grant = self.broker_store.get(grant_id)
+        if not grant:
+            return web.json_response({"error": "grant not found"}, status=404)
+        usage = self.broker_store.get_usage(grant_id)
+        return web.json_response(usage)
