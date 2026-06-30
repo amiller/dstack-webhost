@@ -131,6 +131,27 @@ def test_deploy_static():
     print(f"  Deployed: commit={project['commit_sha'][:12]} tree={project['tree_hash'][:12]}")
 
 
+def test_caps_require_attested():
+    print("\n--- Test: cap_add/devices require mode=attested ---")
+    repo = create_test_repo("test-caps", {
+        "index.html": b"<html><body>caps</body></html>",
+    })
+    # dev mode (default) + caps => rejected (caps must be on the attested surface)
+    resp = api_post("/projects", json={"name": "test-caps", "source": repo,
+                                       "runtime": "static", "cap_add": ["NET_ADMIN"]})
+    assert resp.status_code >= 400, f"dev-mode caps should be rejected, got {resp.status_code}"
+    print(f"  dev-mode + caps rejected ({resp.status_code}) ✓")
+    # attested mode + caps => accepted, surfaced on the project for verifiers
+    resp = api_post("/projects", json={"name": "test-caps", "source": repo,
+                                       "runtime": "static", "mode": "attested",
+                                       "cap_add": ["NET_ADMIN"], "devices": ["/dev/net/tun"]})
+    assert resp.status_code == 201, f"attested caps deploy failed: {resp.status_code} {resp.text}"
+    project = resp.json()
+    assert project["cap_add"] == ["NET_ADMIN"], project
+    assert project["devices"] == ["/dev/net/tun"], project
+    print("  attested + caps accepted and surfaced on project ✓")
+
+
 def test_ingress_static():
     print("\n--- Test: static serving ---")
     resp = requests.get(f"{INGRESS}/test-static/")
@@ -703,6 +724,7 @@ def main():
     try:
         test_auth()
         test_deploy_static()
+        test_caps_require_attested()
         test_ingress_static()
         test_git_blocked()
         test_playwright_static()

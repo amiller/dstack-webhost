@@ -492,9 +492,12 @@ class RuntimeManager:
             json.dumps(env),
         ]
 
+        caps = project.cap_add if project.mode == "attested" else []
+        devs = project.devices if project.mode == "attested" else []
         cid = await self.docker.create_container(
             cname, image, cmd, binds, labels, network,
-            runtime=(project.oci_runtime or CONTAINER_RUNTIME))
+            runtime=(project.oci_runtime or CONTAINER_RUNTIME),
+            cap_add=caps, devices=devs)
         await self.docker.start(cid)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
@@ -543,10 +546,13 @@ class RuntimeManager:
             if val is not None:
                 env.append(f"{key}={val}")
         runtime = project.oci_runtime or CONTAINER_RUNTIME
+        caps = project.cap_add if project.mode == "attested" else []
+        devs = project.devices if project.mode == "attested" else []
         cid = await self.docker.create_container(
             cname, project.image, [], binds, labels, network,
             env=env, runtime=runtime,
-            restart_policy=IMAGE_APP_RESTART_POLICY)
+            restart_policy=IMAGE_APP_RESTART_POLICY,
+            cap_add=caps, devices=devs)
         await self.docker.start(cid)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
