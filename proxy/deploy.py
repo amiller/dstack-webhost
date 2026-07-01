@@ -177,6 +177,13 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     mode = manifest.get("mode") or repo_manifest.get("mode", "dev")
     if mode not in ("dev", "attested"):
         mode = "dev"
+    # Elevated caps are honored ONLY for attested projects, so the grant is always on
+    # the verifiable surface. Prefer the repo-committed manifest so tree_hash commits to
+    # them (a verifier fetching the source commit can confirm what was granted).
+    cap_add = repo_manifest.get("cap_add") or manifest.get("cap_add", []) or []
+    devices = repo_manifest.get("devices") or manifest.get("devices", []) or []
+    if (cap_add or devices) and mode != "attested":
+        raise ValueError("cap_add/devices require mode=attested")
     env_vars = {**repo_manifest.get("env", {}), **manifest.get("env", {})}
     isolation = manifest.get("isolation") or repo_manifest.get("isolation", "shared")
     if isolation not in ("shared", "container"):
@@ -229,6 +236,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         listen=listen_config, isolation=isolation,
         env_passthrough=manifest.get("env_passthrough", []) or [],
         oci_runtime=manifest.get("oci_runtime", ""),
+        cap_add=cap_add, devices=devices,
     )
     store.save(project)
 
@@ -247,7 +255,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         await audit.record(AuditEntry(
             timestamp=time.time(), action="deploy", image=image, image_digest=digest,
             detail=json.dumps({"name": name, "source": source, "ref": ref,
-                               "commit": commit_sha, "tree_hash": tree_hash})))
+                               "commit": commit_sha, "tree_hash": tree_hash,
+                               "cap_add": cap_add, "devices": devices})))
 
     log.info("Deployed %s from %s@%s (%s)", name, source, ref or "HEAD", commit_sha[:12])
     return project
@@ -266,6 +275,12 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     mode = manifest.get("mode", "dev")
     if mode not in ("dev", "attested"):
         mode = "dev"
+    # Image projects have no source tree, so the caps are bound by the append-only audit
+    # detail + the image @sha256 digest (immutable code), not tree_hash. Still attested-only.
+    cap_add = manifest.get("cap_add", []) or []
+    devices = manifest.get("devices", []) or []
+    if (cap_add or devices) and mode != "attested":
+        raise ValueError("cap_add/devices require mode=attested")
     env_vars = manifest.get("env", {})
 
     listen_manifest = manifest.get("listen") or {}
@@ -290,7 +305,7 @@ async def _deploy_image(store: ProjectStore, audit_manager,
         commit_sha=manifest.get("commit_sha", ""), tree_hash=manifest.get("tree_hash", ""),
         image=image, image_port=image_port, volumes=volumes,
         env_passthrough=env_passthrough, listen=listen_config,
-        oci_runtime=oci_runtime,
+        oci_runtime=oci_runtime, cap_add=cap_add, devices=devices,
     )
     store.save(project)
 
@@ -302,7 +317,8 @@ async def _deploy_image(store: ProjectStore, audit_manager,
         audit = audit_manager.get_audit_log(name)
         await audit.record(AuditEntry(
             timestamp=time.time(), action="deploy", image=image, image_digest=digest,
-            detail=json.dumps({"name": name, "image": image, "image_port": image_port})))
+            detail=json.dumps({"name": name, "image": image, "image_port": image_port,
+                               "image_digest": digest, "cap_add": cap_add, "devices": devices})))
 
     log.info("Deployed image project %s from %s (digest %s)", name, image, digest[:19])
     return project

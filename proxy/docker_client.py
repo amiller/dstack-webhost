@@ -31,12 +31,20 @@ class DockerClient:
                                binds: list[str], labels: dict, network: str,
                                env: list[str] | None = None,
                                runtime: str = "",
-                               restart_policy: dict | None = None) -> str:
+                               restart_policy: dict | None = None,
+                               cap_add: list[str] | None = None,
+                               devices: list[str] | None = None) -> str:
         host_config: dict = {"Binds": binds}
         if runtime:
             host_config["Runtime"] = runtime
         if restart_policy:
             host_config["RestartPolicy"] = restart_policy
+        if cap_add:
+            host_config["CapAdd"] = cap_add
+        if devices:
+            host_config["Devices"] = [
+                {"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"}
+                for d in devices]
         body = {
             "Image": image,
             "Cmd": cmd or None,
