@@ -249,14 +249,14 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     project.image_digest = digest
     store.save(project)
 
-    # Only record audit log for attested mode
-    if mode == "attested":
-        audit = audit_manager.get_audit_log(name)
-        await audit.record(AuditEntry(
-            timestamp=time.time(), action="deploy", image=image, image_digest=digest,
-            detail=json.dumps({"name": name, "source": source, "ref": ref,
-                               "commit": commit_sha, "tree_hash": tree_hash,
-                               "cap_add": cap_add, "devices": devices})))
+    # Record every deploy — dev projects share the CVM with attested tenants,
+    # so their mutations must be auditable too.
+    audit = audit_manager.get_audit_log(name)
+    await audit.record(AuditEntry(
+        timestamp=time.time(), action="deploy", image=image, image_digest=digest,
+        detail=json.dumps({"name": name, "mode": mode, "source": source, "ref": ref,
+                           "commit": commit_sha, "tree_hash": tree_hash,
+                           "cap_add": cap_add, "devices": devices})))
 
     log.info("Deployed %s from %s@%s (%s)", name, source, ref or "HEAD", commit_sha[:12])
     return project
