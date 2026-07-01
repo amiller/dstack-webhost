@@ -26,9 +26,9 @@ build without risking production.
 - `ship-fix.sh` — parameterize the deploy target. Today it hardcodes `hermes-staging`, one
   compose, one env. Change to `ship-fix.sh staging|prod`, selecting `{cvm-id, compose, env,
   token}` per target. The **prod** target + token live only on the laptop.
-- A **staging** compose + env, separate from `hermes-agent/docker-compose.staging.yaml` (which
-  is actually prod): its own `TEE_DAEMON_TOKEN`, its own external named volumes — **not**
-  `hermes_data`.
+- A **staging** compose + env, separate from `hermes-agent/docker-compose.hermes-prod.yaml`
+  (the hermes-staging CVM's compose — renamed to say what it is: prod): its own
+  `TEE_DAEMON_TOKEN`, its own external named volumes — **not** `hermes_data`.
 - The deploy-capability ladder (memory: `zed-remote-dev`) splits by environment: zed/Paseo gets
   rung-4-for-*staging* (ship daemon images to the staging CVM); rung-4-for-*prod* stays
   laptop-only.
