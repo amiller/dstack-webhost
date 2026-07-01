@@ -315,12 +315,11 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     project.image_digest = digest
     store.save(project)
 
-    if mode == "attested":
-        audit = audit_manager.get_audit_log(name)
-        await audit.record(AuditEntry(
-            timestamp=time.time(), action="deploy", image=image, image_digest=digest,
-            detail=json.dumps({"name": name, "image": image, "image_port": image_port,
-                               "image_digest": digest, "cap_add": cap_add, "devices": devices})))
+    audit = audit_manager.get_audit_log(name)
+    await audit.record(AuditEntry(
+        timestamp=time.time(), action="deploy", image=image, image_digest=digest,
+        detail=json.dumps({"name": name, "image": image, "image_port": image_port,
+                           "image_digest": digest, "cap_add": cap_add, "devices": devices})))
 
     log.info("Deployed image project %s from %s (digest %s)", name, image, digest[:19])
     return project
@@ -330,12 +329,10 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
                    tracker: ContainerTracker, rtm: RuntimeManager, name: str):
     project = store.load(name)
 
-    # Only record audit log for attested mode
-    if project.mode == "attested":
-        audit = audit_manager.get_audit_log(name)
-        await audit.record(AuditEntry(
-            timestamp=time.time(), action="teardown", detail=name,
-            image_digest=project.image_digest))
+    audit = audit_manager.get_audit_log(name)
+    await audit.record(AuditEntry(
+        timestamp=time.time(), action="teardown", detail=name,
+        image_digest=project.image_digest))
 
     store.delete(name)
 
