@@ -878,7 +878,7 @@ def test_rfc0020_source_pull():
         work_dir = os.path.join(tmpdir, "repos/rfc-test-pull")
         subprocess.run(["git", "clone", facts.source.repo, work_dir], capture_output=True, check=True)
         subprocess.run(["git", "-C", work_dir, "checkout", facts.source.commit_sha], capture_output=True, check=True)
-        result = subprocess.run(["git", "-C", work_dir, "rev-parse", facts.source.commit_sha + ":^{tree}"],
+        result = subprocess.run(["git", "-C", work_dir, "rev-parse", facts.source.commit_sha + "^{tree}"],
                               capture_output=True, text=True, check=True)
         actual_tree_sha = result.stdout.strip()
 

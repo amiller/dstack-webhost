@@ -199,12 +199,13 @@ async def verify(endpoint: str, name: str, opts: dict | None = None) -> Verifica
             facts.errors.append("No platform quote in bundle")
             return facts
 
-        # For MVP: quote_valid requires a quote field (real DCAP/QVL check deferred)
-        # In production, this would call Intel PCS collateral verification
-        if "quote" in bundle.platform_quote or "report_data" in bundle.platform_quote:
-            facts.quote_valid = True
-        else:
+        # Quote presence is not quote validity. Full DCAP/QVL verification (Intel
+        # PCS collateral) is not performed here, so quote_valid stays False and the
+        # limitation is surfaced as a fact — never claim a verdict we didn't earn.
+        if "quote" not in bundle.platform_quote and "report_data" not in bundle.platform_quote:
             facts.errors.append("Platform quote missing quote/report_data fields")
+        else:
+            facts.errors.append("Platform quote present but DCAP/QVL verification not performed")
 
         # KMS root: check for signature_chain in GetKey response
         if bundle.app.binding_quote.get("signature_chain"):
