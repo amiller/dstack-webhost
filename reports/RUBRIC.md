@@ -13,6 +13,11 @@ in plain language, no jargon:
 3. **Risk / what to watch** — what could go wrong, what to keep an eye on.
 4. **Verification** — that `test_daemon.py` passed. For a visual/browser E2E, reference the saved
    screenshots by path. If there is no visual test, write "backend-only — no visual evidence."
+   **"Backend-only" does NOT excuse a deployable daemon change from being deployed.** If the PR
+   changes daemon behavior, deploy it to webhost-staging (`ship-fix.sh staging`) and paste
+   `GET /_api/version` → `{"commit": "<sha>"}` showing the running daemon is *this* PR's commit.
+   Unit tests passing on zed is not proof the built image runs — pin the deployed commit or it
+   isn't verified.
 
 Rules:
 - **Never show a blank or placeholder image.** Verify each screenshot is non-empty (`test -s`)
