@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import time
 from dataclasses import asdict
 
 import aiohttp
@@ -16,7 +17,7 @@ from aiohttp import web
 from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
-from .audit import AuditLogManager
+from .audit import AuditLogManager, AuditEntry
 from .deploy import deploy, teardown, promote
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
@@ -1010,9 +1011,9 @@ class Ingress:
             )
 
             # Audit log
-            self.audit_manager.get_audit_log(project).record(
-                action="grant", details={"grant_id": grant.id, "name": name}
-            )
+            await self.audit_manager.get_audit_log(project).record(AuditEntry(
+                timestamp=time.time(), action="grant",
+                detail=json.dumps({"grant_id": grant.id, "name": name})))
 
             return web.json_response({
                 "id": grant.id,
@@ -1045,9 +1046,9 @@ class Ingress:
         project = grant.project
         if self.broker_store.revoke(grant_id):
             # Audit log
-            self.audit_manager.get_audit_log(project).record(
-                action="revoke", details={"grant_id": grant_id}
-            )
+            await self.audit_manager.get_audit_log(project).record(AuditEntry(
+                timestamp=time.time(), action="revoke",
+                detail=json.dumps({"grant_id": grant_id})))
             return web.json_response({"ok": True})
         return web.json_response({"error": "grant not found"}, status=404)
 
@@ -1072,9 +1073,9 @@ class Ingress:
                 return web.json_response({"error": "grant not found"}, status=404)
 
             # Audit log
-            self.audit_manager.get_audit_log(grant.project).record(
-                action="reauthorize", details={"grant_id": grant_id}
-            )
+            await self.audit_manager.get_audit_log(grant.project).record(AuditEntry(
+                timestamp=time.time(), action="reauthorize",
+                detail=json.dumps({"grant_id": grant_id})))
 
             return web.json_response({"ok": True, "expires_at": grant.expires_at})
         except Exception as e:
