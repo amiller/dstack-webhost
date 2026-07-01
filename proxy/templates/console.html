@@ -160,6 +160,16 @@
             color: #718096;
             font-size: 0.85rem;
         }
+        .ladder-row td {
+            border-top: none;
+            padding-top: 0;
+            color: #a0aec0;
+            font-size: 0.8rem;
+        }
+        .ladder-rung {
+            font-weight: 600;
+            color: #718096;
+        }
         .empty {
             text-align: center;
             padding: 2rem;
@@ -348,6 +358,16 @@
                 ? `<span class="badge isolation">${project.isolation}</span>`
                 : '';
 
+            const ladder = project.ladder;
+            const ladderRow = ladder ? `
+                <tr class="ladder-row">
+                    <td></td>
+                    <td colspan="7">
+                        <span class="ladder-rung">${escapeHtml(ladder.label)}</span> · ${escapeHtml(ladder.next)}
+                    </td>
+                </tr>
+            ` : '';
+
             return `
                 <tr>
                     <td>
@@ -367,7 +387,14 @@
                         <div class="links">${links}</div>
                     </td>
                 </tr>
+                ${ladderRow}
             `;
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
         }
 
         function formatTimeAgo(deployedAt) {
