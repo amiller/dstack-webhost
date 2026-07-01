@@ -6,7 +6,7 @@
 set -euo pipefail
 
 TARGET="${1:?usage: ship-fix.sh staging|prod}"
-TEE="$HOME/projects/tee-daemon"          # canonical daemon source (has the fix)
+TEE="${TEE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"   # daemon source = this script's checkout (override with TEE=)
 HA="$HOME/projects/hermes-agent"         # where the deploy manifests live
 IMG="ghcr.io/amiller/tee-socket-proxy"
 
