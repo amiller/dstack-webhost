@@ -12,8 +12,11 @@ import tarfile
 import time
 from datetime import datetime, timezone
 
+import aiohttp
+
 from .docker_client import DockerClient
 from .projects import Project, ProjectStore, ListenConfig
+from . import secp
 from .tracker import ContainerTracker
 from .audit import AuditLog, AuditEntry
 from .runtimes import RuntimeManager, RUNTIME_CONFIG, VOLUME_NAME, VOLUME_MOUNT
@@ -101,6 +104,107 @@ def compute_tree_hash(directory: str) -> str:
             with open(fpath, "rb") as f:
                 h.update(f.read())
     return h.hexdigest()
+
+
+# RFC 0025: Per-app attestation helpers
+APP_ATTEST_DOMAIN = b"tee-daemon/app-attest/v1"
+DSTACK_SOCK = None  # Set by main.py
+
+
+async def _dstack_getkey(project_name: str) -> dict | None:
+    """Call dstack GetKey for a project and return the sanitized response.
+    Returns dict with pubkey and signature_chain, or None on error."""
+    if not DSTACK_SOCK:
+        log.warning("dstack not available - cannot get app pubkey")
+        return None
+    key_path = f"/tee-daemon/projects/{project_name}"
+    body = {"path": key_path}
+    try:
+        conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
+        async with aiohttp.ClientSession(connector=conn) as session:
+            async with session.post("http://localhost/GetKey", json=body) as resp:
+                if resp.status != 200:
+                    log.warning("GetKey failed: %s", resp.status)
+                    return None
+                data = await resp.json()
+                # Sanitize: extract compressed pubkey, discard private key
+                if not isinstance(data, dict) or "key" not in data:
+                    log.warning("GetKey response missing 'key'")
+                    return None
+                priv = bytes.fromhex(data["key"].replace("0x", ""))[:32]
+                out = {k: v for k, v in data.items() if k != "key"}
+                out["pubkey"] = secp.compressed_pubkey(priv).hex()
+                # Extract app_id if present in response
+                out["app_id"] = data.get("app_id", "")
+                return out
+    except Exception as e:
+        log.warning("GetKey failed: %s", e)
+        return None
+
+
+async def _dstack_getquote(report_data: bytes) -> str | None:
+    """Call dstack GetQuote and return the quote bytes as hex, or None on error."""
+    if not DSTACK_SOCK:
+        log.warning("dstack not available - cannot get quote")
+        return None
+    if len(report_data) != 64:
+        log.warning("report_data must be 64 bytes, got %d", len(report_data))
+        return None
+    body = {"report_data": report_data.hex()}
+    try:
+        conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
+        async with aiohttp.ClientSession(connector=conn) as session:
+            async with session.post("http://localhost/GetQuote", json=body) as resp:
+                if resp.status != 200:
+                    log.warning("GetQuote failed: %s", resp.status)
+                    return None
+                data = await resp.json()
+                quote = data.get("quote", "")
+                if not quote:
+                    log.warning("GetQuote response missing 'quote'")
+                    return None
+                return quote
+    except Exception as e:
+        log.warning("GetQuote failed: %s", e)
+        return None
+
+
+async def _dstack_emit_event(event: str, payload: str) -> bool:
+    """Call dstack EmitEvent to extend RTMR. Returns True on success."""
+    if not DSTACK_SOCK:
+        log.warning("dstack not available - cannot emit event")
+        return False
+    body = {"event": event, "payload": payload}
+    try:
+        conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
+        async with aiohttp.ClientSession(connector=conn) as session:
+            async with session.post("http://localhost/EmitEvent", json=body) as resp:
+                if resp.status == 200:
+                    log.info("RTMR event emitted: %s", event)
+                    return True
+                else:
+                    log.warning("EmitEvent returned %s", resp.status)
+                    return False
+    except Exception as e:
+        log.warning("EmitEvent failed: %s", e)
+        return False
+
+
+def compute_report_data(app_id: str, name: str, tree_hash: str, app_pubkey: str) -> bytes:
+    """Compute SHA-512 report_data for per-app binding quote.
+    SHA-512(APP_ATTEST_DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)
+    Returns 64 bytes.
+    """
+    h = hashlib.sha512()
+    h.update(APP_ATTEST_DOMAIN)
+    h.update(app_id.encode())
+    h.update(b"\0")
+    h.update(name.encode())
+    h.update(b"\0")
+    h.update(tree_hash.encode())
+    h.update(b"\0")
+    h.update(app_pubkey.encode())
+    return h.digest()  # 64 bytes
 
 
 def detect_manifest(files_dir: str) -> dict:
@@ -367,6 +471,46 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
     if project.mode == "attested":
         raise ValueError(f"Project {name} is already in attested mode")
 
+    # RFC 0025 Phase 1: Generate per-app binding quote before finalizing
+    # Get app_id from TDX_WORKLOAD_ID env var (present in TDX CVM)
+    app_id = os.environ.get("TDX_WORKLOAD_ID", "")
+
+    # Derive app_pubkey via GetKey
+    key_data = await _dstack_getkey(name)
+    if not key_data:
+        log.warning("Failed to get app pubkey for %s - promotion without binding quote", name)
+    else:
+        app_pubkey = key_data.get("pubkey", "")
+        if key_data.get("app_id"):
+            app_id = key_data.get("app_id", "")
+
+        # Compute report_data = SHA-512(domain ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)
+        report_data_bytes = compute_report_data(app_id, name, project.tree_hash, app_pubkey)
+        report_data_hex = report_data_bytes.hex()
+
+        # GetQuote for binding
+        binding_quote = await _dstack_getquote(report_data_bytes)
+        if binding_quote:
+            # Emit promote event to RTMR3
+            event_payload = json.dumps({
+                "name": name,
+                "tree_hash": project.tree_hash,
+                "commit": project.commit_sha,
+                "image_digest": project.image_digest,
+            }, sort_keys=True)
+            await _dstack_emit_event("tee-daemon/promote", event_payload.encode().hex())
+
+            # Persist binding fields
+            project.app_id = app_id
+            project.app_pubkey = app_pubkey
+            project.binding_quote = binding_quote
+            project.report_data = report_data_hex
+            project.attestation_kind = "daemon-vouched"
+            log.info("Generated binding quote for %s (app_id=%s, tree_hash=%s)",
+                     name, app_id[:20] if app_id else "-", project.tree_hash[:12])
+        else:
+            log.warning("Failed to get binding quote for %s", name)
+
     # Change mode to attested and save
     project.mode = "attested"
     store.save(project)
@@ -384,6 +528,7 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
             "ref": project.ref,
             "commit": project.commit_sha,
             "tree_hash": project.tree_hash,
+            "attestation_kind": project.attestation_kind,
         }),
         image=project.image_digest,
         image_digest=project.image_digest,
@@ -393,6 +538,7 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
     if project.runtime not in ("static", "dockerfile"):
         await rtm.refresh(project.runtime)
 
-    log.info("Promoted %s to attested mode (commit: %s, tree_hash: %s)",
-             name, project.commit_sha[:12], project.tree_hash[:12])
+    log.info("Promoted %s to attested mode (commit: %s, tree_hash: %s, kind: %s)",
+             name, project.commit_sha[:12], project.tree_hash[:12],
+             project.attestation_kind or "none")
     return project
