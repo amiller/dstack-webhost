@@ -26,6 +26,7 @@ from .tokens import DEFAULT_TTL, TokenStore
 from .broker import BrokerStore
 from . import secp
 from . import evidence
+from .ladder import ladder_hint
 
 log = logging.getLogger(__name__)
 
@@ -1164,6 +1165,7 @@ class Ingress:
             data["running"] = liveness["running"]
             data["container_id"] = liveness["container_id"]
             data["backend"] = liveness["backend"]
+            data["ladder"] = ladder_hint(data)
             # For attested projects, include public verification URL
             if project.mode == "attested":
                 # Get the scheme and host from the environment or request
