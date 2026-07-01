@@ -120,16 +120,23 @@
         '<span class="hint">manifest: mode ' + esc(m.mode) + ', runtime ' + esc(m.runtime) + '</span>');
     } catch (e) { setStep(1, false, failVal(e.message)); }
 
-    // step 2 — a hardware quote is present for this CVM
+    // one RFC 0020 evidence bundle drives step 2 (measurement quote),
+    // step 4 (source binding), and the trust anchor — one fetch, three uses.
+    let bundle = null, bundleErr = null;
+    try { bundle = await getJSON('/_api/verification/' + name); }
+    catch (e) { bundleErr = e.message; }
+    const quoteTitle = 'A TDX measurement quote binding the running code to a hardware root.';
+
+    // step 2 — the platform measurement quote from the evidence bundle
     try {
-      const a = await getJSON('/_api/attest/' + name);
-      const first = (a.signature_chain && a.signature_chain[0]) || a.pubkey || '';
-      if (!first) throw new Error('no signature in quote');
+      if (bundleErr) throw new Error(bundleErr);
+      const q = bundle && bundle.platform_quote && bundle.platform_quote.quote;
+      if (!q) throw new Error('no platform_quote.quote in evidence bundle');
       setStep(2, true,
-        '<a class="val help" href="' + BASE + '/_api/attest/' + esc(name) + '" target="_blank" ' +
-        'title="A hardware-rooted attestation from this CVM. The signature chain terminates at an Intel-signed TDX quote; this binds the app\'s key to the code measured at boot. It proves what code ran — not who deployed it.">' +
-        esc(first.slice(0, 24)) + '…</a>' +
-        '<span class="hint">quote present — <span class="help" title="A TDX quote is a hardware-signed measurement of the code and VM this app runs in.">what is this?</span></span>');
+        '<a class="val help" href="' + BASE + '/_api/verification/' + esc(name) + '" target="_blank" title="' + quoteTitle + '">' +
+        esc(q.slice(0, 48)) + '…</a>' +
+        ' <a href="' + BASE + '/_api/verification/' + esc(name) + '?format=html" target="_blank">rendered verifier →</a>' +
+        '<span class="hint">evidence bundle — <span class="help" title="' + quoteTitle + '">what is this?</span></span>');
     } catch (e) { setStep(2, false, failVal(e.message)); }
 
     // step 3 — the daemon build (commit), linked to the github commit
@@ -142,32 +149,33 @@
         '<span class="hint">the dstack-webhost build hosting every app here</span>');
     } catch (e) { setStep(3, false, failVal(e.message)); }
 
-    // step 4 — the exact source tree hash, next to the github source
+    // step 4 — the exact source tree hash, from the same evidence bundle
     try {
-      if (!p.tree_hash) throw new Error('no tree_hash in manifest');
-      const src = p.source && /github\.com/.test(p.source) ? p.source : '';
+      if (bundleErr) throw new Error(bundleErr);
+      const src = (bundle && bundle.app && bundle.app.source) || {};
+      if (!src.tree_hash) throw new Error('no app.source.tree_hash in evidence bundle');
+      const repo = src.repo && /github\.com/.test(src.repo) ? src.repo : '';
       setStep(4, true,
-        '<span class="val">' + esc(p.tree_hash) + '</span>' +
-        (src ? ' <a href="' + esc(src) + '" target="_blank">source →</a>' : '') +
+        '<span class="val">' + esc(src.tree_hash) + '</span>' +
+        (repo ? ' <a href="' + esc(repo) + '" target="_blank">source →</a>' : '') +
         '<span class="hint">compare to <code>git rev-parse HEAD^{tree}</code> in the repo</span>');
     } catch (e) { setStep(4, false, failVal(e.message)); }
 
-    // trust copy — scoped to this CVM by what its verification bundle actually anchors
-    renderTrust(name);
+    // trust copy — scoped to this CVM by what the same bundle actually anchors
+    renderTrust(bundle, bundleErr);
   }
 
-  async function renderTrust(name) {
+  function renderTrust(bundle, bundleErr) {
     const el = document.getElementById('trust');
-    try {
-      const v = await getJSON('/_api/verification/' + name);
-      const anchored = v.onchain && v.onchain.kms_contract;
-      el.innerHTML = anchored
-        ? 'This instance anchors on-chain: <code>' + esc(v.onchain.kms_contract) + '</code> (chain ' +
-          esc(v.onchain.chain_id) + ') pins the allowed code, so the attestation\'s chain of custody does not pass through the operator. This is the stronger, contract-anchored configuration.'
-        : 'This instance is <strong>measured but operator-anchored</strong>. Every attested app carries a hardware-rooted TDX quote binding the running code to its pinned source hash — but it runs in Phala\'s <code>pha</code> namespace with no on-chain KMS contract, so the quote\'s chain of custody still passes through the operator (Andrew Miller). The fully contract-anchored chain — a base-KMS deployment that pins the allowed code on-chain with no operator in the loop — is the stronger configuration. Honesty about the weakest link is the design principle: here, the weakest link is the operator.';
-    } catch (e) {
-      el.innerHTML = '<span class="err">Could not read the anchor: ' + esc(e.message) + '</span>';
+    if (bundleErr || !bundle) {
+      el.innerHTML = '<span class="err">Could not read the anchor: ' + esc(bundleErr || 'no bundle') + '</span>';
+      return;
     }
+    const anchored = bundle.onchain && bundle.onchain.kms_contract;
+    el.innerHTML = anchored
+      ? 'This instance anchors on-chain: <code>' + esc(bundle.onchain.kms_contract) + '</code> (chain ' +
+        esc(bundle.onchain.chain_id) + ') pins the allowed code, so the attestation\'s chain of custody does not pass through the operator. This is the stronger, contract-anchored configuration.'
+      : 'This instance is <strong>measured but operator-anchored</strong>. Every attested app carries a hardware-rooted TDX quote binding the running code to its pinned source hash — but it runs in Phala\'s <code>pha</code> namespace with no on-chain KMS contract, so the quote\'s chain of custody still passes through the operator (Andrew Miller). The fully contract-anchored chain — a base-KMS deployment that pins the allowed code on-chain with no operator in the loop — is the stronger configuration. Honesty about the weakest link is the design principle: here, the weakest link is the operator.';
   }
 
   function renderGrid(projects) {
