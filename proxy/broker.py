@@ -56,7 +56,7 @@ def _seal_secret(secret: str, grant_id: str, seal_key: bytes) -> dict:
 
     nonce = os.urandom(12)
     aead = AESGCM(seal_key)
-    ct = aead.encrypt(nonce, secret.encode("utf-8"), aad=grant_id.encode("utf-8"))
+    ct = aead.encrypt(nonce, secret.encode("utf-8"), grant_id.encode("utf-8"))
     return {"nonce": nonce.hex(), "ct": ct.hex()}
 
 
@@ -70,7 +70,7 @@ def _unseal_secret(sealed: dict, grant_id: str, seal_key: bytes) -> str:
     nonce = bytes.fromhex(sealed["nonce"])
     ct = bytes.fromhex(sealed["ct"])
     aead = AESGCM(seal_key)
-    pt = aead.decrypt(nonce, ct, aad=grant_id.encode("utf-8"))
+    pt = aead.decrypt(nonce, ct, grant_id.encode("utf-8"))
     return pt.decode("utf-8")
 
 
