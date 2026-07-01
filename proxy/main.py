@@ -15,6 +15,8 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore
+from .tokens import TokenStore
+from .broker import BrokerStore, BrokerProxy
 from . import ingress as ingress_mod
 from .ingress import Ingress
 
@@ -30,6 +32,9 @@ DSTACK_SOCK = os.environ.get("DSTACK_SOCKET", "/var/run/dstack.sock")
 DATA_DIR = os.environ.get("DAEMON_DATA_DIR", "/var/lib/tee-daemon/projects")
 AUDIT_DIR = os.environ.get("DAEMON_AUDIT_DIR", "/var/lib/tee-daemon/audit")
 TUNNEL_DIR = os.environ.get("DAEMON_TUNNEL_DIR", "/var/lib/tee-daemon/tunnels")
+TOKEN_DIR = os.environ.get("DAEMON_TOKEN_DIR", "/var/lib/tee-daemon/tokens")
+BROKER_DIR = os.environ.get("DAEMON_BROKER_DIR", "/var/lib/tee-daemon/broker")
+CREDS_DIR = os.environ.get("DAEMON_CREDS_DIR", "/var/lib/tee-daemon/creds")
 INGRESS_PORT = int(os.environ.get("INGRESS_PORT", "8080"))
 
 
@@ -46,6 +51,12 @@ async def start():
     store = ProjectStore(DATA_DIR)
     rtm = RuntimeManager(docker, store, tracker)
     tunnel_store = TunnelStore(TUNNEL_DIR)
+    token_store = TokenStore(TOKEN_DIR)
+
+    # Broker store for sealed credential grants (only when dstack is available)
+    broker_store = None
+    if dstack_sock:
+        broker_store = BrokerStore(BROKER_DIR, CREDS_DIR, dstack_sock)
 
     # Docker socket proxy (existing)
     docker_proxy = DockerProxy(DOCKER_SOCK, tracker, audit_manager)
@@ -102,8 +113,35 @@ async def start():
     tunnel_store.recover()
     log.info("Recovered %d active tunnels", len(tunnel_store.list()))
 
+    # Recovery: restore scoped API tokens from disk
+    token_store.recover()
+    log.info("Recovered %d scoped API tokens", len(token_store.list()))
+
+    # Recovery: restore broker grants from disk
+    if dstack_sock:
+        await broker_store.recover()
+        log.info("Recovered %d active grants", len(broker_store.list()))
+
+        # Pass broker_store to RuntimeManager for token auth
+        rtm.set_broker_store(broker_store)
+
+        # Serve creds.sock in BROKER_SOCKET_DIR (rides the broker volume)
+        broker_proxy = BrokerProxy(broker_store, rtm)
+        broker_app = web.Application()
+        broker_app.router.add_route("*", "/{path:.*}", broker_proxy.handle)
+        creds_sock_path = os.path.join(BROKER_SOCKET_DIR, "creds.sock")
+        if os.path.exists(creds_sock_path):
+            os.unlink(creds_sock_path)
+        broker_runner = web.AppRunner(broker_app)
+        await broker_runner.setup()
+        await web.UnixSite(broker_runner, creds_sock_path).start()
+        os.chmod(creds_sock_path, 0o666)
+        log.info("Broker proxy listening on %s", creds_sock_path)
+    else:
+        log.warning("dstack socket not found — broker disabled")
+
     # Ingress + API on TCP port(s)
-    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store)
+    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store, token_store, broker_store)
 
     # Check for port conflicts. The default ingress port (INGRESS_PORT) is
     # path-based-routing-only — multiple projects may "request" it, but they
@@ -158,13 +196,16 @@ async def start():
 
     log.info("tee-daemon running")
 
-    # Background task: cleanup expired tunnels
-    async def cleanup_expired_tunnels():
+    # Background task: cleanup expired short-lived grants
+    async def cleanup_expired_grants():
         while True:
             await asyncio.sleep(60)  # Check every minute
             tunnel_store.cleanup_expired()
+            token_store.cleanup_expired()
+            if dstack_sock:
+                broker_store.cleanup_expired()
 
-    cleanup_task = asyncio.create_task(cleanup_expired_tunnels())
+    cleanup_task = asyncio.create_task(cleanup_expired_grants())
 
     stop = asyncio.Event()
     for sig_name in ("SIGINT", "SIGTERM"):

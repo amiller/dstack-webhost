@@ -21,6 +21,7 @@ class Project:
     entry: str
     port: int
     mode: str = "dev"
+    public: bool = False  # visibility axis: listed for anonymous callers
     env: dict = None
     container_id: str = ""
     deployed_at: str = ""
