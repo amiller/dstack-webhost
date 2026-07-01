@@ -16,17 +16,38 @@
   .header a:hover { text-decoration: underline; }
   main { max-width: 56rem; margin: 1.5rem auto 3rem; padding: 0 1.5rem; }
   .card-list { background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; padding: 1.25rem; box-shadow: 0 2px 12px rgba(13,27,46,0.04); }
-  h2 { font-size: 1.15rem; margin: 0 0 1rem; font-weight: 600; }
+  section + section { margin-top: 1.5rem; }
+  h2 { font-size: 1.15rem; margin: 0 0 0.35rem; font-weight: 600; }
+  .sub { color: #57606a; font-size: 0.9em; margin: 0 0 1rem; }
   .grid { display: grid; gap: 0.85rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
   .card { padding: 0.95rem 1.05rem; border: 1px solid #e1e4e8; border-radius: 8px; background: #fafbfc; }
-  .card h3 { margin: 0 0 0.35rem; font-size: 1rem; font-weight: 600; }
+  .card h3 { margin: 0 0 0.35rem; font-size: 1rem; font-weight: 600; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
   .card .meta { color: #57606a; font-size: 0.82em; word-break: break-all; }
   .card .links { margin-top: 0.6rem; display: flex; gap: 0.85rem; flex-wrap: wrap; font-size: 0.88em; }
   .card .links a { color: #1f6feb; text-decoration: none; }
   .card .links a:hover { text-decoration: underline; }
-  .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; font-weight: 500; margin-left: 6px; }
+  .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.72em; font-weight: 600; cursor: help; letter-spacing: 0.01em; }
   .badge.attested { background: #1a7f37; color: #fff; }
-  .badge.dev-public { background: #cf222e; color: #fff; }
+  .badge.unattested { background: #6e7781; color: #fff; }
+  .badge.public { background: #0969da; color: #fff; }
+  .badge.private { background: #d4d8de; color: #24292f; }
+  /* hero chain */
+  .chain { display: grid; gap: 0; }
+  .step { display: grid; grid-template-columns: 2rem 1fr; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid #eef1f4; }
+  .step:first-child { border-top: none; }
+  .step-n { width: 2rem; height: 2rem; border-radius: 50%; background: #0d1b2e; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 600; }
+  .step.ok .step-n { background: #1a7f37; }
+  .step.fail .step-n { background: #cf222e; }
+  .step-label { font-size: 0.82em; color: #57606a; text-transform: uppercase; letter-spacing: 0.03em; }
+  .step-val { font-size: 0.98em; margin-top: 1px; word-break: break-all; }
+  .step-val a { color: #1f6feb; text-decoration: none; }
+  .step-val a:hover { text-decoration: underline; }
+  .step-val .val { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+  .step-val .hint { display: block; color: #57606a; font-size: 0.82em; margin-top: 2px; }
+  .step-val code { background: #f1f4f8; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+  .step-val .fail { color: #cf222e; font-weight: 600; }
+  .help { cursor: help; border-bottom: 1px dotted #8a94a0; }
+  .trust { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid #eef1f4; font-size: 0.9em; color: #3d444d; }
   .muted { color: #57606a; font-size: 0.95em; }
   .err { color: #cf222e; font-size: 0.95em; }
   .footer { max-width: 56rem; margin: 0 auto; padding: 0 1.5rem 2rem; color: #57606a; font-size: 0.85em; }
@@ -42,52 +63,174 @@
 </header>
 <main>
   <section class="card-list">
+    <h2 id="hero-title">Proving one app, live</h2>
+    <p class="sub" id="hero-sub">Following the trust chain of the featured app, fetched right now in your browser.</p>
+    <div id="hero"><p class="muted">Loading…</p></div>
+  </section>
+
+  <section class="card-list">
     <h2>Apps deployed here</h2>
+    <p class="sub">Two independent axes per app — <strong>attestation</strong> (does the running code bind to a source hash?) and <strong>visibility</strong> (is it advertised?). Hover a badge to see exactly what it claims.</p>
     <div id="apps"><p class="muted">Loading…</p></div>
   </section>
 </main>
 <div class="footer">
   Each card opens the running app, walks the trust chain via the verifier, or jumps to the source on GitHub.
-  Attested apps make a source-binding claim; public dev apps are listed but do not attest.
   ·
   <a href="/about">About this CVM</a>
   ·
   <a href="https://amiller.github.io/dstack-webhost/" target="_blank">About this platform →</a>
 </div>
 <script>
-(async function() {
-  const root = document.getElementById('apps');
-  const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  try {
-    const r = await fetch('/', { headers: { Accept: 'application/json' } });
-    if (!r.ok) { root.innerHTML = '<p class="err">CVM returned ' + r.status + '</p>'; return; }
-    const data = await r.json();
-    const projects = data.projects || {};
+(function() {
+  const BASE = window.__TEE_BASE__ || '';
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const getJSON = async path => {
+    const r = await fetch(BASE + path, { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error(path + ' → ' + r.status);
+    return r.json();
+  };
+
+  const setStep = (n, ok, html) => {
+    const el = document.getElementById('step' + n);
+    el.classList.remove('ok', 'fail');
+    el.classList.add(ok ? 'ok' : 'fail');
+    el.querySelector('.step-val').innerHTML = html;
+  };
+  const failVal = msg => '<span class="fail">FAILED</span> <span class="hint">' + esc(msg) + '</span>';
+
+  async function renderHero(featured, version) {
+    const name = featured.name, p = featured.p;
+    document.getElementById('hero-sub').textContent =
+      'Following the trust chain of "' + name + '", fetched right now in your browser.';
+    document.getElementById('hero').innerHTML =
+      '<div class="chain">' +
+        [['this endpoint'], ['runs in this CVM'], ['under this daemon build'], ['running exactly this source']]
+          .map((s, i) => '<div class="step" id="step' + (i + 1) + '"><div class="step-n">' + (i + 1) +
+            '</div><div><div class="step-label">' + s[0] +
+            '</div><div class="step-val muted">checking…</div></div></div>').join('') +
+      '</div><div class="trust" id="trust">checking anchor…</div>';
+
+    // step 1 — the endpoint, linking to its raw manifest JSON
+    try {
+      const m = await getJSON('/_api/projects/' + name);
+      setStep(1, true,
+        '<a class="val" href="' + BASE + '/_api/projects/' + esc(name) + '" target="_blank">/' + esc(name) + '/</a>' +
+        ' <a href="' + BASE + '/' + esc(name) + '/" target="_blank">open app →</a>' +
+        '<span class="hint">manifest: mode ' + esc(m.mode) + ', runtime ' + esc(m.runtime) + '</span>');
+    } catch (e) { setStep(1, false, failVal(e.message)); }
+
+    // one RFC 0020 evidence bundle drives step 2 (measurement quote),
+    // step 4 (source binding), and the trust anchor — one fetch, three uses.
+    let bundle = null, bundleErr = null;
+    try { bundle = await getJSON('/_api/verification/' + name); }
+    catch (e) { bundleErr = e.message; }
+    const quoteTitle = 'A TDX measurement quote binding the running code to a hardware root.';
+
+    // step 2 — the platform measurement quote from the evidence bundle
+    try {
+      if (bundleErr) throw new Error(bundleErr);
+      const q = bundle && bundle.platform_quote && bundle.platform_quote.quote;
+      if (!q) throw new Error('no platform_quote.quote in evidence bundle');
+      setStep(2, true,
+        '<a class="val help" href="' + BASE + '/_api/verification/' + esc(name) + '" target="_blank" title="' + quoteTitle + '">' +
+        esc(q.slice(0, 48)) + '…</a>' +
+        ' <a href="' + BASE + '/_api/verification/' + esc(name) + '?format=html" target="_blank">rendered verifier →</a>' +
+        '<span class="hint">evidence bundle — <span class="help" title="' + quoteTitle + '">what is this?</span></span>');
+    } catch (e) { setStep(2, false, failVal(e.message)); }
+
+    // step 3 — the daemon build (commit), linked to the github commit
+    try {
+      if (!version.commit) throw new Error('no commit in /_api/version');
+      const ghCommit = 'https://github.com/amiller/dstack-webhost/commit/' + version.commit;
+      setStep(3, true,
+        '<a class="val" href="' + esc(ghCommit) + '" target="_blank">' + esc(version.commit) + '</a>' +
+        ' <a href="' + BASE + '/_api/version" target="_blank">(/_api/version)</a>' +
+        '<span class="hint">the dstack-webhost build hosting every app here</span>');
+    } catch (e) { setStep(3, false, failVal(e.message)); }
+
+    // step 4 — the exact source tree hash, from the same evidence bundle
+    try {
+      if (bundleErr) throw new Error(bundleErr);
+      const src = (bundle && bundle.app && bundle.app.source) || {};
+      if (!src.tree_hash) throw new Error('no app.source.tree_hash in evidence bundle');
+      const repo = src.repo && /github\.com/.test(src.repo) ? src.repo : '';
+      setStep(4, true,
+        '<span class="val">' + esc(src.tree_hash) + '</span>' +
+        (repo ? ' <a href="' + esc(repo) + '" target="_blank">source →</a>' : '') +
+        '<span class="hint">compare to <code>git rev-parse HEAD^{tree}</code> in the repo</span>');
+    } catch (e) { setStep(4, false, failVal(e.message)); }
+
+    // trust copy — scoped to this CVM by what the same bundle actually anchors
+    renderTrust(bundle, bundleErr);
+  }
+
+  function renderTrust(bundle, bundleErr) {
+    const el = document.getElementById('trust');
+    if (bundleErr || !bundle) {
+      el.innerHTML = '<span class="err">Could not read the anchor: ' + esc(bundleErr || 'no bundle') + '</span>';
+      return;
+    }
+    const anchored = bundle.onchain && bundle.onchain.kms_contract;
+    el.innerHTML = anchored
+      ? 'This instance anchors on-chain: <code>' + esc(bundle.onchain.kms_contract) + '</code> (chain ' +
+        esc(bundle.onchain.chain_id) + ') pins the allowed code, so the attestation\'s chain of custody does not pass through the operator. This is the stronger, contract-anchored configuration.'
+      : 'This instance is <strong>measured but operator-anchored</strong>. Every attested app carries a hardware-rooted TDX quote binding the running code to its pinned source hash — but it runs in Phala\'s <code>pha</code> namespace with no on-chain KMS contract, so the quote\'s chain of custody still passes through the operator (Andrew Miller). The fully contract-anchored chain — a base-KMS deployment that pins the allowed code on-chain with no operator in the loop — is the stronger configuration. Honesty about the weakest link is the design principle: here, the weakest link is the operator.';
+  }
+
+  function renderGrid(projects) {
+    const root = document.getElementById('apps');
     const names = Object.keys(projects);
-    if (!names.length) { root.innerHTML = '<p class="muted">No public apps deployed yet.</p>'; return; }
+    if (!names.length) { root.innerHTML = '<p class="muted">No apps deployed yet.</p>'; return; }
     const verifyBase = 'https://amiller.github.io/dstack-webhost/verify.html';
     const daemon = location.origin;
-    const cards = names.map(name => {
+    root.innerHTML = '<div class="grid">' + names.map(name => {
       const p = projects[name];
+      const attested = p.mode === 'attested';
+      const attBadge = attested
+        ? '<span class="badge attested" title="Attested: a source-binding claim — the running code matches the pinned tree hash. It does NOT prove who deployed it or that it is anchored on-chain.">attested</span>'
+        : '<span class="badge unattested" title="Not attested: listed, but makes no attestation claim. Trust is whatever you\'d get on ordinary hosting.">dev</span>';
+      const visBadge = p.public
+        ? '<span class="badge public" title="Public: advertised on this landing page. Says nothing about attestation.">public</span>'
+        : '<span class="badge private" title="Private: reachable by URL but not advertised. Says nothing about attestation.">private</span>';
       const sourceLink = p.source && /github\.com/.test(p.source)
-        ? '<a href="' + escape(p.source) + (p.commit_sha ? '/tree/' + escape(p.commit_sha) : '') + '" target="_blank">source</a>'
-        : '';
-      const runLink = '<a href="/' + escape(name) + '/">open</a>';
+        ? '<a href="' + esc(p.source) + (p.commit_sha ? '/tree/' + esc(p.commit_sha) : '') + '" target="_blank">source</a>' : '';
+      const runLink = '<a href="/' + esc(name) + '/">open</a>';
       const verifyLink = '<a href="' + verifyBase + '?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '" target="_blank">verify</a>';
-      let badge = '';
-      if (p.mode === 'attested') {
-        badge = '<span class="badge attested">attested</span>';
-      } else if (p.mode === 'dev' && p.public) {
-        badge = '<span class="badge dev-public">dev (public)</span>';
-      }
-      const meta = p.commit_sha ? 'commit ' + escape(p.commit_sha.slice(0, 7)) : '';
-      const title = '<h3>' + escape(name) + (badge ? ' ' + badge : '') + '</h3>';
-      return '<div class="card">' + title + (meta ? '<div class="meta">' + meta + '</div>' : '') + '<div class="links">' + runLink + ' · ' + verifyLink + (sourceLink ? ' · ' + sourceLink : '') + '</div></div>';
-    }).join('');
-    root.innerHTML = '<div class="grid">' + cards + '</div>';
-  } catch (e) {
-    root.innerHTML = '<p class="err">Could not load: ' + escape(e.message) + '</p>';
+      const meta = p.commit_sha ? 'commit ' + esc(p.commit_sha.slice(0, 7)) : '';
+      return '<div class="card"><h3>' + esc(name) + attBadge + visBadge + '</h3>' +
+        (meta ? '<div class="meta">' + meta + '</div>' : '') +
+        '<div class="links">' + runLink + ' · ' + verifyLink + (sourceLink ? ' · ' + sourceLink : '') + '</div></div>';
+    }).join('') + '</div>';
   }
+
+  (async function() {
+    let projects;
+    try {
+      const data = await getJSON('/');
+      projects = data.projects || {};
+    } catch (e) {
+      document.getElementById('hero').innerHTML = '<p class="err">Could not load projects: ' + esc(e.message) + '</p>';
+      document.getElementById('apps').innerHTML = '<p class="err">Could not load: ' + esc(e.message) + '</p>';
+      return;
+    }
+    renderGrid(projects);
+
+    const names = Object.keys(projects);
+    const attested = names.filter(n => projects[n].mode === 'attested');
+    const withSource = attested.find(n => projects[n].source && /github\.com/.test(projects[n].source));
+    const pick = withSource || attested[0];
+    if (!pick) {
+      document.getElementById('hero-title').textContent = 'Nothing to prove yet';
+      document.getElementById('hero-sub').textContent = '';
+      document.getElementById('hero').innerHTML =
+        '<p class="muted">No attested apps on this instance yet — everything below runs in dev mode and makes no attestation claim.</p>';
+      return;
+    }
+    let version = {};
+    try { version = await getJSON('/_api/version'); } catch (e) { version = { _err: e.message }; }
+    renderHero({ name: pick, p: projects[pick] }, version);
+  })();
 })();
 </script>
 </body>
