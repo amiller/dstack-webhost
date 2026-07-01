@@ -231,6 +231,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
 
     project = Project(
         name=name, runtime=runtime, entry=entry, port=port, mode=mode,
+        public=bool(manifest.get("public", False)),
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         source=source, ref=ref, commit_sha=commit_sha, tree_hash=tree_hash,
         listen=listen_config, isolation=isolation,
@@ -300,6 +301,7 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     oci_runtime = manifest.get("oci_runtime", "")
     project = Project(
         name=name, runtime="image", entry="", port=0, mode=mode,
+        public=bool(manifest.get("public", False)),
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         source=manifest.get("source", ""), ref=manifest.get("ref", ""),
         commit_sha=manifest.get("commit_sha", ""), tree_hash=manifest.get("tree_hash", ""),
