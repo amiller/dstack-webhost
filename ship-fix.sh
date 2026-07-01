@@ -15,13 +15,14 @@ case "$TARGET" in
   prod)    CVM=hermes-staging;  COMPOSE="$HA/docker-compose.hermes-prod.yaml";     ENVF="$HA/deploy-notes/.env.hermes-prod" ;;
   *) echo "unknown target '$TARGET' (valid: staging, prod)" >&2; exit 1 ;;
 esac
-TAG="$TARGET"
+COMMIT=$(git -C "$TEE" rev-parse --short HEAD)
+TAG="$TARGET-$COMMIT"
 
 [ -f "$COMPOSE" ] || { echo "missing compose: $COMPOSE" >&2; exit 1; }
 [ -f "$ENVF" ]    || { echo "missing env (not present in this environment?): $ENVF" >&2; exit 1; }
 
-echo "==> 1/4 build patched image from canonical source"
-docker build -t "$IMG:$TAG" "$TEE"
+echo "==> 1/4 build patched image from canonical source ($COMMIT)"
+docker build --build-arg GIT_COMMIT="$COMMIT" -t "$IMG:$TAG" "$TEE"
 
 echo "==> 2/4 push to ghcr"
 docker push "$IMG:$TAG"
