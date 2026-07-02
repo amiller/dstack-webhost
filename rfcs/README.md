@@ -33,6 +33,7 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0027](0027-per-app-attestation-granularity.md) | Per-App Attestation Granularity | Draft |
 | [0028](0028-browser-render-pool.md) | Browser Runtime & Render Pool | Draft |
 | [0029](0029-attested-with-declared-debug.md) | Attested Apps with Declared Operator Debug | Draft |
+| [0030](0030-acceptance-must-verify.md) | Acceptance Must Verify, Not Ping (who verifies the verifier) | Draft |
 
 ## Conventions
 
