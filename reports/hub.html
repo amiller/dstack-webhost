@@ -248,20 +248,25 @@ async function fetchText(path){
     return await res.text();
   }finally{clearTimeout(t);}
 }
+// Extract an inline JSON data-island (a structured contract, not scraped prose).
+function island(html,id){
+  const el=new DOMParser().parseFromString(html,'text/html').getElementById(id);
+  if(!el)throw new Error('no #'+id+' island');
+  return JSON.parse(el.textContent);
+}
 
-// ---- Pulse ----
+// ---- Pulse (reads #report-data island) ----
 (async()=>{
   const R=document.getElementById('pulse-rows');
   try{
-    const html=await fetchText('/report/');
-    const m=html.match(/(\d+)\s*active\s*[·•].*?(\d+)\s*idle/i);
-    const a=html.match(/(\d+)\s*\/\s*(\d+)\s*past acceptance/i);
-    const active=m?m[1]:'?', idle=m?m[2]:'?';
-    row(R,active,'agents <b>active</b> right now');
-    row(R,idle+' idle','warm, not running this cycle','small');
-    if(a)row(R,a[1]+'/'+a[2],'workers past their acceptance bar','small');
-    document.getElementById('t-workers').textContent=active;
-    if(a)document.getElementById('t-accept').textContent=a[1]+'/'+a[2];
+    const d=island(await fetchText('/report/'),'report-data');
+    const acc=d.acceptance_pass+'/'+d.acceptance_total;
+    row(R,d.workers_active,'agents <b>active</b> right now');
+    row(R,d.workers_idle+' idle','warm, not running this cycle','small');
+    row(R,acc,'workers past their acceptance bar','small');
+    if(d.tier0)row(R,badge('Tier-0 '+d.tier0,d.tier0==='PASS'?'g':'w'),'platform-journey gate','small');
+    document.getElementById('t-workers').textContent=d.workers_active;
+    document.getElementById('t-accept').textContent=acc;
     setTileLive('t-workers',true);setTileLive('t-accept',true);
     setState('pulse-state',true,'live · auto-refresh 2 min');
   }catch(e){
@@ -273,19 +278,18 @@ async function fetchText(path){
   }
 })();
 
-// ---- Spend ----
+// ---- Spend (reads #status-data island) ----
 (async()=>{
   const R=document.getElementById('spend-rows');
   try{
-    const html=await fetchText('/status/');
-    const loop=html.match(/loop:\s*<b>(\d+)<\/b>/i);
-    const journeys=(html.match(/pill ok">J\d PASS/gi)||[]).length;
-    const n=loop?loop[1]:'?';
-    row(R,n,'Paseo <b>worker(s)</b> running now');
+    const d=island(await fetchText('/status/'),'status-data');
+    row(R,d.workers_running,'Paseo <b>worker(s)</b> running now');
     row(R,'Claude Max','flat-rate subscription · no metered billing','small');
     row(R,badge('no metered count','w'),'GLM/Zai · no public usage endpoint','small');
-    if(journeys)row(R,journeys+' PASS','of 3 user-journey checks','small');
-    document.getElementById('t-loop').textContent=n;
+    row(R,d.journeys_pass+'/'+d.journeys_total+' PASS','of user-journey checks','small');
+    if(d.providers)row(R,d.providers.claude+' / '+d.providers.glm+' / '+d.providers.codex,
+      'provider lanes: claude / glm / codex','small');
+    document.getElementById('t-loop').textContent=d.workers_running;
     setTileLive('t-loop',true);
     setState('spend-state',true,'live · auto-refresh 5 min');
   }catch(e){
@@ -298,9 +302,11 @@ async function fetchText(path){
 })();
 
 document.getElementById('foot').innerHTML=
-  'Pulse &amp; Spend read <code>'+HOST.replace(/^https:\/\//,'')+'/report/</code> and <code>/status/</code> '+
-  'client-side (no CORS header on those endpoints, so they populate only when this hub is served same-origin from the pod; '+
-  'otherwise the tiles link out). Output is static, generated from git by <code>gen-swarm-activity.py</code>.';
+  'Pulse &amp; Spend read a JSON data-island (<code>#report-data</code> / <code>#status-data</code>) inlined into '+
+  '<code>'+HOST.replace(/^https:\/\//,'')+'/report/</code> and <code>/status/</code> — a structured contract, '+
+  'not scraped prose, so editing the pages’ wording never breaks these tiles. The islands populate only when '+
+  'this hub is served same-origin from the pod (no CORS header on those endpoints); otherwise the tiles link out. '+
+  'Output is static, generated from git by <code>gen-swarm-activity.py</code>.';
 </script>
 </body>
 </html>
