@@ -4,11 +4,15 @@
 
 ## Summary
 Add a trust category **between** fully-locked attested and dev/debug: an app whose code is
-attested (measured, source-bound) **and** whose manifest *declares* that the operator retains a
-scoped debug capability (attach/exec/logs/read). The declaration is part of the measured surface,
-so opening a debug session does not secretly void the attestation — the possibility was already in
-the attestation. A consumer's `verify()` facts read `attested; operator_debug: enabled`, and the
-consumer decides for itself. The dishonest state is *hidden* debug, not *declared* debug.
+attested (measured, source-bound) **and** whose manifest declares a single measured boolean —
+`operator_debug` — meaning the operator retains a **full** debug door (attach/exec) on the running
+app. The declaration is part of the measured surface, so opening a debug session does not secretly
+void the attestation — the possibility was already in the attestation. A consumer's `verify()` facts
+read `attested; operator_debug: enabled`, and the consumer makes one binary decision: locked, or has
+an operator door. The dishonest state is *hidden* debug, not *declared* debug.
+
+Debug is deliberately **binary and full-trust** — not a graded scope. Anything less than a full
+operator door is a *capability*, enforced, not a debug *scope* taken on faith (see Debug vs. capability).
 
 ## Problem
 RFC 0026 treats operator debug on an attested app as a contradiction: attestation is
@@ -31,10 +35,12 @@ Debug is a **declared capability on an attested app**, not a third mode. It reus
 already specified: RFC 0025's caps⟹attested gate, RFC 0026's audited-broker session mechanics, and
 RFC 0020's evidence bundle.
 
-1. **Manifest field.** `operator_debug: { enabled: bool, principals: [str], scope: [...] }` on the
-   `Project` model (mirrors `cap_add`/`devices` in RFC 0025). `scope` names what a session may do
-   (`exec`, `logs`, `read:dataDir`) and `principals` who may open one. It serializes via `asdict()`
-   into the stored manifest and the RFC-0015 public read.
+1. **Manifest field.** `operator_debug: bool` on the `Project` model (mirrors `cap_add`/`devices` in
+   RFC 0025). One measured flag — no scope enumeration, no principal list. A declared door is full
+   trust: `exec` already reaches everything the app can see (for a credential app, the decrypted
+   vault), so a graded `scope` would advertise a safety the daemon does not enforce. It serializes via
+   `asdict()` into the stored manifest and the RFC-0015 public read. (Who may open a session is the
+   owner token today; per-principal ACLs wait on issue #18 — see Out of Scope.)
 
 2. **The gate: `operator_debug ⟹ attested`.** `deploy()`/`promote()` reject the field unless
    `mode == "attested"`; there is no *undeclared* debug on an attested app and no reachable state
@@ -51,25 +57,40 @@ RFC 0020's evidence bundle.
      daemon's unmeasured word.
 
 4. **verify() facts (RFC 0020).** The evidence bundle's `app` block gains `operator_debug`, and
-   `Facts` gains a sibling to `attestation_kind`:
-   `operator_debug: { enabled, principals, scope, last_session_at }`. It is a **fact, not a verdict** —
-   RFC 0020 renders no green/red. A consumer allowlisting `source.tree_hash` already pins the exact
-   config that says debug is enabled; a stricter consumer policy can reject any bundle where
-   `operator_debug.enabled` is true. Do **not** collapse `operator_debug: enabled` into "attested" —
-   the same honesty line RFC 0027 draws for `daemon-vouched` vs "isolated."
+   `Facts` gains a sibling to `attestation_kind`: `operator_debug: { enabled, last_session_at }` —
+   the flag, plus whether the door has been used. It is a **fact, not a verdict** — RFC 0020 renders
+   no green/red. A consumer allowlisting `source.tree_hash` already pins the exact config that says
+   debug is enabled; a stricter policy rejects any bundle where `operator_debug.enabled` is true. Do
+   **not** collapse `operator_debug: enabled` into "attested" — the same honesty line RFC 0027 draws
+   for `daemon-vouched` vs "isolated." (Caveat: `last_session_at` says *that* the door was used, not
+   *what* was done; a consumer wanting command-level accountability needs the audit tail, not just the
+   fact — noted as a gap, not solved here.)
 
 5. **Sessions ride RFC 0026.** A session opens through `POST /_api/projects/<name>/debug` — but here
-   it is **granted, not refused**, when the caller is a declared `principal` within `scope`. Every
-   open + command is an audit event (`proxy/audit.py`), RTMR-extended like the attested-deploy audit,
-   and (with RFC 0027) an `EmitEvent("tee-daemon/debug", {name, principal, scope})` so the session
-   shows up in RTMR3's measured log and a later daemon quote. Opening a session does **not** re-measure
-   or invalidate the running code — it was already declared possible. `last_session_at`/the audit tail
-   let a consumer see *whether* the disclosed door has been used, not just that it exists.
+   it is **granted, not refused**, when `operator_debug` is true and the caller holds the owner token.
+   Every open + command is an audit event (`proxy/audit.py`), RTMR-extended like the attested-deploy
+   audit, and (with RFC 0027) an `EmitEvent("tee-daemon/debug", {name})` so the session shows up in
+   RTMR3's measured log and a later daemon quote. Opening a session does **not** re-measure or
+   invalidate the running code — it was already declared possible. **Load-bearing invariant:** this
+   measured, always-auditing broker path is the *only* way to reach the container — no host-SSH, no
+   sidecar. If any side channel survives, the disclosure is a lie and this collapses back into hidden
+   debug.
 
 6. **Console (RFC 0016).** The console renders the category as its own rung between dev and locked
-   attested: an "attested • operator-debug" badge, the `principals`/`scope`, the last-session time,
-   and a lock-down hint ("remove `operator_debug` and re-promote to reach fully-locked attested") —
-   matching the dev→attested ladder posture in RFC 0016/0027.
+   attested: an "attested • operator-debug" badge, the last-session time, and a lock-down hint
+   ("remove `operator_debug` and re-promote to reach fully-locked attested") — matching the
+   dev→attested ladder posture in RFC 0016/0027.
+
+## Debug vs. capability
+The reason debug is binary is a boundary, not a shortcut. A declared debug door is **full trust,
+disclosed** — a human operating outside the measured code, doing anything `exec` allows. That is a
+genuinely useful thing to name honestly, and a genuinely coarse one. The temptation to add a `scope`
+("operator can read logs but never the vault") is the temptation to reintroduce a capability system
+under the word "debug" — and a *declared* scope is one you take on faith, exactly the trust debug is
+supposed to avoid. So: anything narrower than a full operator door is not debug, it is a **capability**
+— an enforced, egress-locked, measured scoped-read (RFC 0004/0009), which the consumer can verify does
+what it claims. Debug says "full door, disclosed"; a capability says "this much, enforced." Keeping
+them separate is what lets debug stay a one-bit fact.
 
 ### The ladder
 ```
@@ -94,14 +115,14 @@ permits: an attested badge over a secretly-reachable app.
 Removing the door is the same "re-attest from a new measurement" as promotion: drop `operator_debug`
 from the manifest and re-promote → new `tree_hash` (or new binding quote) → `verify()` now reports
 `operator_debug.enabled == false`. There is no in-place "quietly turn debug off"; the config that
-allowed it is measured, so changing it changes the measurement. Revoking a single `principal` is the
-same edit. Emergency: tearing the app down removes the surface entirely (RFC 0026's teardown path).
+allowed it is measured, so changing it changes the measurement. Emergency: tearing the app down
+removes the surface entirely (RFC 0026's teardown path).
 
 ## Relation to other RFCs
 - **RFC 0026** — this *revises* its refusal. 0026's "un-promote to debug (voids attestation)" stays
   the right answer for an app that did **not** declare the capability; this RFC adds the declared
   path so an app that expects operator access says so up front and keeps its attestation. Same
-  audited-broker session mechanics; different pre-condition (declared principal in scope).
+  audited-broker session mechanics; different pre-condition (`operator_debug` declared true).
 - **RFC 0025** — sibling. `operator_debug` is another elevated capability gated caps⟹attested; this
   RFC is the debug specialization of "elevation forces transparency."
 - **RFC 0016 / #16** — not a new *mode* on the visibility×attestation split, but a declared field on
@@ -111,7 +132,8 @@ same edit. Emergency: tearing the app down removes the surface entirely (RFC 002
 - The session broker itself (RFC 0026) and its TTL/delegation mode.
 - The appraisal/verdict layer that would *decide* whether declared debug is acceptable (RFC 0020/0022);
   this RFC only makes the fact legible.
-- Scoped per-client daemon tokens for `principals` (issue #18) — assumed as the identity source, not
-  built here.
-- Closing the shared-isolate gap (RFC 0027); debug scope is per-container, and does not change tenant
-  isolation.
+- **Per-principal debug ACLs** — a future extension once issue #18 (scoped tokens) exists; today the
+  door is gated to the owner token, and adding principals later does not change the boolean's meaning.
+- **Graded / partial debug scope** — a contradiction (see Debug vs. capability); use a capability
+  (RFC 0004/0009) for less-than-full access, not a debug `scope`.
+- Closing the shared-isolate gap (RFC 0027); debug is per-container and does not change tenant isolation.
