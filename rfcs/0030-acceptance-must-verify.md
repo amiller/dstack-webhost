@@ -60,6 +60,34 @@ the certified harness); it may not *re-certify* the harness.
    schedule does not include it. This is the RFC 0023 "capability held only by the laptop" applied to
    trust in the verifier itself.
 
+## Journey catalog & tiers
+"What success looks like" for tee-pod + oauth3 is a fixed set of journeys, tiered by cost — not
+everything runs on every push, but everything defines success.
+
+**Tier 0 — platform journeys (fast, API-driven, no browser, run on every candidate).** Deterministic:
+- deploy a dev app → it serves its entry.
+- promote to attested → the public verifier endpoints open and `verify()` reports the source binding.
+- fetch attestation → `/_api/verification/<app>` resolves to a coherent evidence bundle (quote +
+  source + audit).
+
+**Tier 1 — app-value journeys (slow, browser/extension-driven, gate *promotion* + run on a schedule,
+not every push).** The actual product; each driven end to end with screenshot-content assertions:
+- **login-with-everything** — the cookie→screenshot path: a jar is present, the pod does an
+  authenticated screenshot-read, the app receives a result and never the cookie.
+- **twitter timeline** — the reified path: `connect(twitter)` → scoped token → `/api/twitter/feed`
+  returns the timeline, no cookie handed to the app.
+- **youtube watch history** — the reified path: scoped token → watch-history read.
+
+**Tiering rule:** Tier 0 gates every candidate (cheap, deterministic); Tier 1 gates promotion and
+runs periodically (browser flows are slow and flakier). A push touching only Tier-0 surface does not
+wait on Tier 1; a promotion does. Broad fast base, narrow slow apex.
+
+**Orchestration (the smithers question).** The suite wants *structured orchestration* — journeys as
+data, tiered fan-out, honest aggregation — which is what the archived `smithers-orchestrator`
+(`Sequence`/`Parallel`/`ClaudeCodeAgent`) modeled. Reuse the *pattern*, not that code: it ran
+`yolo: true` and self-approved, which is precisely the RFC-0030 anti-pattern (a runner that certifies
+its own results). The runner *executes* the catalog; a human *certifies* the gate.
+
 ## Relation to other RFCs
 - **RUBRIC.md** (the report standard) — this is its enforcement: "HTTP 200 is not QA" was prose; this
   makes it a gate that fails closed. The RUBRIC's browser-QA rule becomes the screenshot-content assert.
@@ -70,6 +98,8 @@ the certified harness); it may not *re-certify* the harness.
 
 ## Out of Scope
 - The specific browser-driving harness (envoy/e2e-flow.mjs mechanics) — reused, not respecified.
-- Per-app journey definitions — each app owns its journey; this RFC sets the floor every journey meets.
+- The exact per-journey scripts — the catalog above names them; each app owns its own drive, meeting
+  the screenshot-content floor. (Adding *new* journeys is fine; certifying a journey's gate actually
+  fails on a broken app stays out-of-loop.)
 - Making the loop author *new* journeys — it may, but the certification that a journey's gate actually
   fails on a broken app stays out-of-loop.
