@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OAuth3 swarm · report hub</title>
+<style>
+:root{
+  --surface-1:#fcfcfb; --page:#f9f9f7; --card:#ffffff;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,.10);
+  --c-landed:#2a78d6; --c-implemented:#1baf7a; --c-paper:#eda100; --c-queued:#4a3aa7;
+  --good:#0ca30c; --critical:#d03b3b;
+  --tint-landed:rgba(42,120,214,.10); --tint-pulse:rgba(27,175,122,.10);
+  --tint-spend:rgba(237,161,0,.12); --tint-output:rgba(42,120,214,.10);
+}
+@media (prefers-color-scheme:dark){:root{
+  --surface-1:#1a1a19; --page:#0d0d0d; --card:#1f1f1e;
+  --text-primary:#ffffff; --text-secondary:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,.12);
+  --c-landed:#3987e5; --c-implemented:#199e70; --c-paper:#c98500; --c-queued:#9085e9;
+  --good:#0ca30c; --critical:#d03b3b;
+  --tint-landed:rgba(57,135,229,.16); --tint-pulse:rgba(25,158,112,.16);
+  --tint-spend:rgba(201,133,0,.18); --tint-output:rgba(57,135,229,.16);
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text-primary);
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 28px 70px}
+.eyebrow{color:var(--muted);font-size:13px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+h1{font-size:30px;margin:.15em 0 .15em;letter-spacing:-.02em}
+.sub{color:var(--text-secondary);font-size:15px;max-width:74ch;margin:0}
+.nav{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.nav a{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border:1px solid var(--border);
+  border-radius:999px;font-size:13px;color:var(--text-secondary);text-decoration:none;background:var(--surface-1)}
+.nav a:hover{color:var(--text-primary);border-color:var(--baseline)}
+.nav .d{width:9px;height:9px;border-radius:50%}
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-top:30px}
+.tile{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;padding:18px}
+.tile .accent{width:26px;height:3px;border-radius:2px;margin-bottom:12px}
+.tile .v{font-size:33px;font-weight:700;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+.tile .k{color:var(--text-secondary);font-size:13px;margin-top:8px}
+.tile .live{font-size:11px;color:var(--muted);margin-top:6px;display:inline-flex;align-items:center;gap:5px}
+.tile .live .d{width:7px;height:7px;border-radius:50%;background:var(--baseline)}
+.tile .live.on .d{background:var(--good)}
+/* panels */
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:22px}
+.panel{border:1px solid var(--border);border-radius:16px;padding:20px 22px;background:var(--surface-1);
+  border-top:4px solid var(--baseline);display:flex;flex-direction:column}
+.panel.pulse{border-top-color:var(--c-implemented)}
+.panel.spend{border-top-color:var(--c-paper)}
+.panel.output{border-top-color:var(--c-landed)}
+.panel h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 2px;font-weight:700}
+.panel .name{font-size:19px;font-weight:700;margin:0 0 3px;letter-spacing:-.01em}
+.panel .desc{color:var(--text-secondary);font-size:13px;margin:0 0 16px}
+.rows{display:flex;flex-direction:column;gap:11px;flex:1}
+.r{display:flex;align-items:baseline;gap:10px}
+.r .rv{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;min-width:0}
+.r .rk{color:var(--text-secondary);font-size:13px}
+.r.small .rv{font-size:14px;font-weight:600}
+.badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;
+  background:var(--tint-landed);color:var(--c-landed)}
+.badge.g{background:rgba(12,163,12,.14);color:var(--good)}
+.badge.w{background:var(--tint-spend);color:var(--c-paper)}
+.full{margin-top:16px;font-size:13px;font-weight:600;color:var(--c-landed);text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.full:hover{text-decoration:underline}
+.state{font-size:11.5px;color:var(--muted);margin-top:10px;display:inline-flex;align-items:center;gap:6px}
+.state .d{width:8px;height:8px;border-radius:50%;background:var(--baseline)}
+.state.on .d{background:var(--good)}
+/* drift */
+.drift{margin-top:26px;border:1px solid var(--border);border-radius:16px;padding:20px 22px;background:var(--surface-1);
+  border-left:5px solid var(--good)}
+.drift.warn{border-left-color:var(--c-paper)}
+.drift .top{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.drift h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:700}
+.drift .name{font-size:19px;font-weight:700;margin:2px 0 3px;letter-spacing:-.01em}
+.drift .desc{color:var(--text-secondary);font-size:13px;margin:0 0 16px;max-width:80ch}
+.drift .verdict{font-size:12.5px;font-weight:700;padding:3px 10px;border-radius:999px;
+  background:var(--tint-spend);color:var(--c-paper)}
+.drift .verdict.clean{background:rgba(12,163,12,.14);color:var(--good)}
+.dtiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.dtile{border:1px solid var(--border);border-radius:12px;padding:14px 15px}
+.dtile.hot{background:var(--tint-spend)}
+.dtile .dv{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.dtile .dk{color:var(--text-secondary);font-size:12.5px;margin-top:6px}
+.dlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.dlist li{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--text-secondary)}
+.dlist .m{margin-top:5px;width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:var(--c-paper)}
+.dlist .m.ok{background:var(--good)}
+.dlist b{color:var(--text-primary);font-variant-numeric:tabular-nums}
+.dlist a{color:var(--c-landed);text-decoration:none}.dlist a:hover{text-decoration:underline}
+.foot{margin-top:46px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--border);padding-top:18px}
+.foot code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">OAuth3 autonomous swarm · webhost-staging</div>
+  <h1>Report hub</h1>
+  <p class="sub">One screen over the whole loop: who's working now (Pulse), what it's costing (Spend),
+    and what came out of the last sprint (Output). Pulse and Spend fetch live when this page is reachable
+    from the pod; opened offline they degrade to live links.</p>
+  <nav class="nav">
+    <a id="nav-pulse" href="#"><span class="d" style="background:var(--c-implemented)"></span>Pulse · /report/</a>
+    <a id="nav-spend" href="#"><span class="d" style="background:var(--c-paper)"></span>Spend · /status/</a>
+    <a href="swarm-activity.html"><span class="d" style="background:var(--c-landed)"></span>Output · tech tree</a>
+    <a href="#drift"><span class="d" style="background:var(--c-paper)"></span>Drift · unreconciled</a>
+  </nav>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="drift" id="drift">
+    <div class="top">
+      <div>
+        <h2>Drift — unreconciled to source control</h2>
+        <div class="name">What exists but isn't wired back to git</div>
+      </div>
+      <span class="verdict" id="drift-verdict"></span>
+    </div>
+    <p class="desc">The standing gauge that turns this report from a record into a guardrail: deployed apps
+      the daemon can't re-clone, worker branches never pruned, RFCs off main. Nonzero = follow-up owed.</p>
+    <div class="dtiles" id="drift-tiles"></div>
+    <ul class="dlist" id="drift-list"></ul>
+  </div>
+
+  <div class="panels">
+    <div class="panel pulse">
+      <h2>Pulse — live workers</h2>
+      <div class="name">Who's working now</div>
+      <p class="desc">Active vs idle Paseo agents and how many have cleared their acceptance bar this cycle.</p>
+      <div class="rows" id="pulse-rows"></div>
+      <a class="full" id="pulse-link" href="#">Full dashboard →</a>
+      <span class="state" id="pulse-state"><span class="d"></span><span>connecting…</span></span>
+    </div>
+
+    <div class="panel spend">
+      <h2>Spend — cost &amp; runs</h2>
+      <div class="name">What it's costing</div>
+      <p class="desc">Loop worker count and token usage. Claude runs on a flat-rate Max subscription; GLM/Zai has no public usage endpoint.</p>
+      <div class="rows" id="spend-rows"></div>
+      <a class="full" id="spend-link" href="#">Full status page →</a>
+      <span class="state" id="spend-state"><span class="d"></span><span>connecting…</span></span>
+    </div>
+
+    <div class="panel output">
+      <h2>Output — last sprint</h2>
+      <div class="name">What landed</div>
+      <p class="desc">Retrospective of the 2026-06-30 → 07-02 security sprint: RFCs moved to landed, effort, and what's queued next.</p>
+      <div class="rows" id="output-rows"></div>
+      <a class="full" href="swarm-activity.html">Open the tech tree →</a>
+      <span class="state on"><span class="d"></span><span>static · from git</span></span>
+    </div>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const HOST="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network";
+const $=(t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e;};
+document.getElementById('nav-pulse').href=HOST+"/report/";
+document.getElementById('nav-spend').href=HOST+"/status/";
+document.getElementById('pulse-link').href=HOST+"/report/";
+document.getElementById('spend-link').href=HOST+"/status/";
+
+// ---- static Output data (from git; mirrors swarm-activity.html) ----
+const OUT={rfcs_landed:7, lines:5645, worker_branches:11, landed_on_main:9, bugs:3, queued:2};
+
+// ---- Drift (computed 2026-07-02 from git + authed pod /_api/projects; app-source needs
+//      secret Bearer tokens so it's a build-time snapshot, not a client fetch) ----
+const DRIFT={computed:"2026-07-02",
+  apps:{total:37, no_source:34, unknown:0},   // webhost 11/12, hermes 17/19, pod.dstack 6/6 — all pods reachable
+  unmerged_workers:11,                          // origin/staging-NN ahead of origin/main
+  stale_merged:6,                               // merged into main/staging, not pruned
+  rfcs_off_main:1};                             // 0025 pre-renumber file lingering on superseded branches
+
+function row(parent,val,key,cls){const r=$('div','r'+(cls?' '+cls:''));
+  const v=$('div','rv');if(val instanceof Node)v.appendChild(val);else v.textContent=val;
+  const k=$('div','rk');k.innerHTML=key;r.append(v,k);parent.appendChild(r);}
+function badge(text,cls){const b=$('span','badge'+(cls?' '+cls:''));b.textContent=text;return b;}
+
+// output panel (always populated)
+const outR=document.getElementById('output-rows');
+row(outR,OUT.rfcs_landed,'RFCs moved to <b>landed</b> this sprint');
+row(outR,OUT.lines.toLocaleString(),'lines changed across 7 areas','small');
+row(outR,OUT.landed_on_main+'/'+OUT.worker_branches,'worker branches merged or re-landed','small');
+row(outR,badge(OUT.bugs+' caught','g'),'over-claim bugs fixed in review','small');
+row(outR,OUT.queued,'queued for the loop — #65 RFC 0028, #66 RFC 0029','small');
+
+// ---- Drift render ----
+(function(){
+  const hot = DRIFT.apps.no_source + DRIFT.unmerged_workers + DRIFT.stale_merged + DRIFT.rfcs_off_main;
+  const card=document.getElementById('drift');
+  const verd=document.getElementById('drift-verdict');
+  if(hot>0){card.classList.add('warn');verd.textContent='follow-up owed';}
+  else{verd.textContent='clean';verd.classList.add('clean');}
+  const appsVal = DRIFT.apps.unknown ? DRIFT.apps.no_source+'+ / '+DRIFT.apps.total
+                                     : DRIFT.apps.no_source+' / '+DRIFT.apps.total;
+  const dt=[
+    {v:appsVal, k:'deployed apps with no re-cloneable source', hot:DRIFT.apps.no_source>0},
+    {v:DRIFT.unmerged_workers, k:'worker branches ahead of main (never pruned)', hot:DRIFT.unmerged_workers>0},
+    {v:DRIFT.stale_merged, k:'merged branches not deleted', hot:DRIFT.stale_merged>0},
+    {v:DRIFT.rfcs_off_main, k:'RFC files not on origin/main', hot:DRIFT.rfcs_off_main>0},
+  ];
+  const dtiles=document.getElementById('drift-tiles');
+  dt.forEach(t=>{const el=$('div','dtile'+(t.hot?' hot':''));
+    const v=$('div','dv');v.textContent=t.v;const k=$('div','dk');k.textContent=t.k;
+    el.append(v,k);dtiles.appendChild(el);});
+  const items=[
+    {n:DRIFT.apps.no_source, html:`<b>${DRIFT.apps.no_source}</b> of ${DRIFT.apps.total} deployed apps show <code>source: NONE</code>/tarball — can't be re-cloned or attested. Detail in <code>webhost-apps/POD-APPS-AUDIT.md</code>.`},
+    {n:DRIFT.unmerged_workers, html:`<b>${DRIFT.unmerged_workers}</b> <code>staging-NN</code> worker branches still ahead of main — superseded &amp; re-landed, but never pruned.`},
+    {n:DRIFT.stale_merged, html:`<b>${DRIFT.stale_merged}</b> feature branches already merged into main/staging but not deleted.`},
+    {n:DRIFT.rfcs_off_main, html:`<b>${DRIFT.rfcs_off_main}</b> RFC file (0025, pre-renumber) lingering on superseded branches; renumbered to 0027 on main.`},
+  ];
+  const list=document.getElementById('drift-list');
+  items.forEach(it=>{const li=$('li');const m=$('span','m'+(it.n>0?'':' ok'));
+    const d=$('div');d.innerHTML=it.html;li.append(m,d);list.appendChild(li);});
+})();
+
+// ---- tiles ----
+const TILES=[
+  {id:'t-workers',v:'—',k:'workers active',accent:'var(--c-implemented)',live:true},
+  {id:'t-accept', v:'—',k:'past acceptance',accent:'var(--c-implemented)',live:true},
+  {id:'t-loop',   v:'—',k:'loop workers running',accent:'var(--c-paper)',live:true},
+  {id:'t-rfcs',   v:OUT.rfcs_landed,k:'RFCs landed this sprint',accent:'var(--c-landed)',live:false},
+  {id:'t-queued', v:OUT.queued,k:'queued for the loop',accent:'var(--c-queued)',live:false},
+];
+const tiles=document.getElementById('tiles');
+TILES.forEach(t=>{const el=$('div','tile');
+  const a=$('div','accent');a.style.background=t.accent;
+  const v=$('div','v');v.id=t.id;v.textContent=t.v;
+  const k=$('div','k');k.textContent=t.k;
+  el.append(a,v,k);
+  if(t.live){const l=$('div','live');l.id=t.id+'-live';l.innerHTML='<span class="d"></span>live';el.appendChild(l);}
+  tiles.appendChild(el);});
+
+function setState(id,ok,txt){const s=document.getElementById(id);
+  s.className='state'+(ok?' on':'');s.querySelector('span:last-child').textContent=txt;}
+function setTileLive(id,ok){const l=document.getElementById(id+'-live');if(l)l.className='live'+(ok?' on':'');}
+
+async function fetchText(path){
+  const ctl=new AbortController();
+  const t=setTimeout(()=>ctl.abort(),6000);
+  try{
+    const res=await fetch(HOST+path,{mode:'cors',signal:ctl.signal});
+    if(!res.ok)throw new Error('http '+res.status);
+    return await res.text();
+  }finally{clearTimeout(t);}
+}
+
+// ---- Pulse ----
+(async()=>{
+  const R=document.getElementById('pulse-rows');
+  try{
+    const html=await fetchText('/report/');
+    const m=html.match(/(\d+)\s*active\s*[·•].*?(\d+)\s*idle/i);
+    const a=html.match(/(\d+)\s*\/\s*(\d+)\s*past acceptance/i);
+    const active=m?m[1]:'?', idle=m?m[2]:'?';
+    row(R,active,'agents <b>active</b> right now');
+    row(R,idle+' idle','warm, not running this cycle','small');
+    if(a)row(R,a[1]+'/'+a[2],'workers past their acceptance bar','small');
+    document.getElementById('t-workers').textContent=active;
+    if(a)document.getElementById('t-accept').textContent=a[1]+'/'+a[2];
+    setTileLive('t-workers',true);setTileLive('t-accept',true);
+    setState('pulse-state',true,'live · auto-refresh 2 min');
+  }catch(e){
+    R.innerHTML='';
+    row(R,badge('view live →'),'active / idle worker counts are rendered server-side','small');
+    document.getElementById('t-workers').textContent='live →';
+    document.getElementById('t-accept').textContent='live →';
+    setState('pulse-state',false,'link only — open /report/ for live');
+  }
+})();
+
+// ---- Spend ----
+(async()=>{
+  const R=document.getElementById('spend-rows');
+  try{
+    const html=await fetchText('/status/');
+    const loop=html.match(/loop:\s*<b>(\d+)<\/b>/i);
+    const journeys=(html.match(/pill ok">J\d PASS/gi)||[]).length;
+    const n=loop?loop[1]:'?';
+    row(R,n,'Paseo <b>worker(s)</b> running now');
+    row(R,'Claude Max','flat-rate subscription · no metered billing','small');
+    row(R,badge('no metered count','w'),'GLM/Zai · no public usage endpoint','small');
+    if(journeys)row(R,journeys+' PASS','of 3 user-journey checks','small');
+    document.getElementById('t-loop').textContent=n;
+    setTileLive('t-loop',true);
+    setState('spend-state',true,'live · auto-refresh 5 min');
+  }catch(e){
+    R.innerHTML='';
+    row(R,badge('view live →'),'loop worker count &amp; token usage rendered server-side','small');
+    row(R,'Claude Max','flat-rate subscription · no metered token count','small');
+    document.getElementById('t-loop').textContent='live →';
+    setState('spend-state',false,'link only — open /status/ for live');
+  }
+})();
+
+document.getElementById('foot').innerHTML=
+  'Pulse &amp; Spend read <code>'+HOST.replace(/^https:\/\//,'')+'/report/</code> and <code>/status/</code> '+
+  'client-side (no CORS header on those endpoints, so they populate only when this hub is served same-origin from the pod; '+
+  'otherwise the tiles link out). Output is static, generated from git by <code>gen-swarm-activity.py</code>.';
+</script>
+</body>
+</html>
