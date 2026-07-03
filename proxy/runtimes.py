@@ -719,9 +719,20 @@ class RuntimeManager:
                 isolated_projects.append(p)
             elif p.runtime not in ("static", "dockerfile"):
                 runtimes_needed.add(p.runtime)
+        # Recover each project independently — a single failure (e.g. a transient image
+        # pull 500) must NOT abort startup and take down the daemon + every other app.
         for rt in runtimes_needed:
-            await self.refresh(rt)
+            try:
+                await self.refresh(rt)
+            except Exception as e:
+                log.error("recover: runtime %s failed, skipping: %s", rt, e)
         for p in image_projects:
-            await self.start_image(p)
+            try:
+                await self.start_image(p)
+            except Exception as e:
+                log.error("recover: image project %s failed, skipping: %s", p.name, e)
         for p in isolated_projects:
-            await self.start_isolated(p)
+            try:
+                await self.start_isolated(p)
+            except Exception as e:
+                log.error("recover: isolated project %s failed, skipping: %s", p.name, e)
