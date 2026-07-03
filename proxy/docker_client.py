@@ -98,9 +98,12 @@ class DockerClient:
             return ""
         return data.get("Id", "")
 
-    async def connect_network(self, container: str, network: str):
+    async def connect_network(self, container: str, network: str, aliases: list[str] | None = None):
+        body = {"Container": container}
+        if aliases:
+            body["EndpointConfig"] = {"Aliases": aliases}
         status, data = await self._raw_request(
-            "POST", f"/networks/{network}/connect", json={"Container": container})
+            "POST", f"/networks/{network}/connect", json=body)
         if status >= 400 and b"already exists" not in data:
             raise RuntimeError(f"connect_network failed ({status}): {data!r}")
 

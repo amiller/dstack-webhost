@@ -13,6 +13,13 @@ log = logging.getLogger(__name__)
 
 NETWORK_DEV = "tee-apps-dev"
 NETWORK_ATTESTED = "tee-apps-attested"
+
+# Shared opt-in VPN egress. The provider (an attested openvpn-socks5 project with
+# egress_provider=true) joins EGRESS_NET as alias EGRESS_ALIAS; consumers set egress=true
+# to join the same net and receive EGRESS_PROXY_URL so their outbound routes via the VPN.
+EGRESS_NET = "tee-egress"
+EGRESS_ALIAS = "egress-vpn"
+EGRESS_PROXY_URL = f"socks5://{EGRESS_ALIAS}:1080"
 # When running inside Docker, host paths don't work for sibling container bind mounts.
 # Set DAEMON_VOLUME_NAME to the Docker volume name (e.g. "dstack_daemon_data")
 # and DAEMON_VOLUME_MOUNT to the mount point inside the daemon (e.g. "/var/lib/tee-daemon").
@@ -426,6 +433,16 @@ class RuntimeManager:
                 log.debug("daemon connect_network %s: %s", net_name, e)
         return net_name
 
+    async def _attach_egress(self, container: str, project) -> None:
+        """Opt-in shared VPN egress. The provider joins as the stable alias 'egress-vpn';
+        consumers just join so docker DNS resolves that alias (proxy env is injected at
+        container-create time). No-op unless the project opted in."""
+        if not (getattr(project, "egress", False) or getattr(project, "egress_provider", False)):
+            return
+        await self.docker.create_network(EGRESS_NET)
+        aliases = [EGRESS_ALIAS] if getattr(project, "egress_provider", False) else None
+        await self.docker.connect_network(container, EGRESS_NET, aliases=aliases)
+
     async def start_isolated(self, project) -> str:
         """Per-project container for deno/bun with scoped Deno permissions.
         Returns the runtime image digest."""
@@ -515,6 +532,9 @@ class RuntimeManager:
             env["BROKER_SOCKET"] = f"{BROKER_MOUNT_IN_APP}/creds.sock"
             broker_token = self._generate_broker_token(project.name)
             env["BROKER_TOKEN"] = broker_token
+        if getattr(project, "egress", False) and not getattr(project, "egress_provider", False):
+            env["EGRESS_PROXY_URL"] = EGRESS_PROXY_URL
+            env["ALL_PROXY"] = EGRESS_PROXY_URL
         cmd += [
             entry_in,
             project.entry or "server.ts",
@@ -530,6 +550,7 @@ class RuntimeManager:
             runtime=(project.oci_runtime or CONTAINER_RUNTIME),
             cap_add=caps, devices=devs)
         await self.docker.start(cid)
+        await self._attach_egress(cid, project)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
         self.image_cids[project.name] = cid
@@ -588,6 +609,9 @@ class RuntimeManager:
             env.append(f"BROKER_SOCKET={BROKER_MOUNT_IN_APP}/creds.sock")
             broker_token = self._generate_broker_token(project.name)
             env.append(f"BROKER_TOKEN={broker_token}")
+        if getattr(project, "egress", False) and not getattr(project, "egress_provider", False):
+            env.append(f"EGRESS_PROXY_URL={EGRESS_PROXY_URL}")
+            env.append(f"ALL_PROXY={EGRESS_PROXY_URL}")
         runtime = project.oci_runtime or CONTAINER_RUNTIME
         caps = project.cap_add if project.mode == "attested" else []
         devs = project.devices if project.mode == "attested" else []
@@ -597,6 +621,7 @@ class RuntimeManager:
             restart_policy=IMAGE_APP_RESTART_POLICY,
             cap_add=caps, devices=devs)
         await self.docker.start(cid)
+        await self._attach_egress(cid, project)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
         self.image_cids[project.name] = cid
