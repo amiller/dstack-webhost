@@ -696,7 +696,8 @@ class Ingress:
             "isolation": project.isolation,
             "image": project.image, "image_port": project.image_port,
             "volumes": project.volumes, "env_passthrough": project.env_passthrough,
-            "oci_runtime": project.oci_runtime,
+            "oci_runtime": project.oci_runtime, "caps": project.caps,
+            "egress": project.egress, "egress_provider": project.egress_provider,
         }
         if project.listen:
             manifest["listen"] = {

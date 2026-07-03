@@ -366,8 +366,16 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
         image_digest=project.image_digest,
     ))
 
-    # Re-deploy on attested network
-    if project.runtime not in ("static", "dockerfile"):
+    # Recreate so the container picks up attested-only settings (caps/devices, e.g. NET_ADMIN
+    # + /dev/net/tun for the VPN egress). Per-project containers (image, isolation:container)
+    # aren't touched by refresh() — they must be explicitly restarted in the new mode.
+    if project.runtime == "image":
+        await rtm.stop_image(project.name)
+        await rtm.start_image(project)
+    elif project.isolation == "container" and project.runtime in ("deno", "bun"):
+        await rtm.stop_isolated(project.name)
+        await rtm.start_isolated(project)
+    elif project.runtime not in ("static", "dockerfile"):
         await rtm.refresh(project.runtime)
 
     log.info("Promoted %s to attested mode (commit: %s, tree_hash: %s)",
