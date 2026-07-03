@@ -229,6 +229,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         listen=listen_config, isolation=isolation,
         env_passthrough=manifest.get("env_passthrough", []) or [],
         oci_runtime=manifest.get("oci_runtime", ""),
+        egress=bool(manifest.get("egress", False)),
+        egress_provider=bool(manifest.get("egress_provider", False)),
     )
     store.save(project)
 
@@ -283,6 +285,7 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     volumes = manifest.get("volumes", []) or []
     env_passthrough = manifest.get("env_passthrough", []) or []
     oci_runtime = manifest.get("oci_runtime", "")
+    caps = manifest.get("caps", []) or []  # honored only when mode=="attested" (see runtimes.start_image)
     project = Project(
         name=name, runtime="image", entry="", port=0, mode=mode,
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
@@ -290,7 +293,9 @@ async def _deploy_image(store: ProjectStore, audit_manager,
         commit_sha=manifest.get("commit_sha", ""), tree_hash=manifest.get("tree_hash", ""),
         image=image, image_port=image_port, volumes=volumes,
         env_passthrough=env_passthrough, listen=listen_config,
-        oci_runtime=oci_runtime,
+        oci_runtime=oci_runtime, caps=caps,
+        egress=bool(manifest.get("egress", False)),
+        egress_provider=bool(manifest.get("egress_provider", False)),
     )
     store.save(project)
 

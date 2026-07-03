@@ -36,6 +36,9 @@ class Project:
     isolation: str = "shared"
     env_passthrough: List[str] = field(default_factory=list)
     oci_runtime: str = ""  # per-project OCI runtime, e.g. "runsc" (gVisor); falls back to CONTAINER_RUNTIME
+    caps: List[str] = field(default_factory=list)  # Linux caps (e.g. NET_ADMIN) — GRANTED ONLY when mode=="attested"
+    egress: bool = False           # route this project's outbound through the shared VPN egress network
+    egress_provider: bool = False  # this project PROVIDES the egress (the VPN); joins tee-egress as alias "egress-vpn"
 
     def __post_init__(self):
         if self.env is None:
