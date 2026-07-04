@@ -17,6 +17,7 @@ from .runtimes import RuntimeManager
 from .tunnel import TunnelStore
 from .tokens import TokenStore
 from .broker import BrokerStore, BrokerProxy
+from .browser_pool import BrowserPool, parse_binds
 from . import ingress as ingress_mod
 from .ingress import Ingress
 
@@ -140,8 +141,27 @@ async def start():
     else:
         log.warning("dstack socket not found — broker disabled")
 
+    # RFC 0028: browser render pool (opt-in via BROWSER_POOL_IMAGE). A warm
+    # pool of isolated browser-bridge containers, leased per request with
+    # per-lease jar injection + reset. Like the broker, absent = disabled.
+    # Constructed here so Ingress can reference it; warmed in the background
+    # after the ingress binds so a slow image pull never blocks readiness.
+    browser_pool = None
+    pool_image = os.environ.get("BROWSER_POOL_IMAGE", "")
+    if pool_image:
+        pool_cmd = os.environ.get("BROWSER_POOL_CMD", "").split()
+        pool_binds = parse_binds(os.environ.get("BROWSER_POOL_BINDS", ""))
+        browser_pool = BrowserPool(
+            docker, tracker, pool_image, pool_cmd, pool_binds,
+            port=int(os.environ.get("BROWSER_POOL_PORT", "3000")),
+            size=int(os.environ.get("BROWSER_POOL_SIZE", "2")),
+            network=os.environ.get("BROWSER_POOL_NETWORK", "tee-apps-attested"),
+            lease_ttl=float(os.environ.get("BROWSER_POOL_LEASE_TTL", "30")))
+    else:
+        log.info("BROWSER_POOL_IMAGE unset — browser pool disabled")
+
     # Ingress + API on TCP port(s)
-    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store, token_store, broker_store)
+    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store, token_store, broker_store, browser_pool)
 
     # Check for port conflicts. The default ingress port (INGRESS_PORT) is
     # path-based-routing-only — multiple projects may "request" it, but they
@@ -196,6 +216,17 @@ async def start():
 
     log.info("tee-daemon running")
 
+    # Warm the browser pool now that the ingress is answering. Failures are
+    # logged (not swallowed into readiness): the pool reports started=false
+    # and /_api/browser/pool surfaces the state to the operator.
+    if browser_pool:
+        async def _warm_browser_pool():
+            try:
+                await browser_pool.start()
+            except Exception as e:
+                log.error("Browser pool failed to start: %s", e)
+        asyncio.create_task(_warm_browser_pool())
+
     # Background task: cleanup expired short-lived grants
     async def cleanup_expired_grants():
         while True:
@@ -219,6 +250,9 @@ async def start():
         await cleanup_task
     except asyncio.CancelledError:
         pass
+
+    if browser_pool:
+        await browser_pool.stop()
 
     # Close TCP servers
     for server in tcp_servers:
