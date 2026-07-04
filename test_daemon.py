@@ -970,6 +970,55 @@ def test_rfc0020_source_pull():
         print(f"  Skipping git tree check (tree_hash_kind={facts.source.tree_hash_kind})")
 
 
+def test_tier0_source_binding_survives_promote():
+    """Tier-0 gate journey: source-backed dev deploy -> promote -> the evidence
+    bundle still binds the deploy-time tree_hash.
+
+    Mirrors oauth3-apps/harness/tier0-journeys.sh (journey 2/3): a source-backed
+    app is deployed with no mode (dev, the default) then promoted to attested,
+    and the verification bundle must surface app.source.tree_hash equal to the
+    deploy-time value. Existing bundle tests deploy directly in attested mode,
+    so they never exercise the promote() round-trip that this journey depends on.
+    """
+    print("\n--- Test: Tier-0 source binding survives dev->promote ---")
+    repo = create_test_repo("tier0-src", {"index.html": b"<html>tier0 source binding</html>"})
+    # Deploy with NO mode (dev, the default) — exactly like tier0 deploy_source.
+    resp = api_post("/projects", json={
+        "name": "tier0-src", "source": repo, "runtime": "static", "entry": "index.html"})
+    assert resp.status_code == 201, f"deploy failed: {resp.status_code} {resp.text}"
+    deploy = resp.json()
+    assert deploy["mode"] == "dev", deploy
+    deploy_tree_hash = deploy["tree_hash"]
+    assert deploy_tree_hash, "source-backed deploy must produce a tree_hash"
+    print(f"  deployed dev: tree_hash={deploy_tree_hash[:12]}")
+
+    # Promote to attested — the journey step whose bundle effect was untested.
+    resp = api_post(f"/projects/tier0-src/promote")
+    assert resp.status_code == 200, f"promote failed: {resp.status_code} {resp.text}"
+    assert resp.json()["mode"] == "attested", resp.json()
+    print("  promoted to attested ✓")
+
+    # The evidence bundle must still bind the deploy-time tree_hash.
+    resp = api_get("/verification/tier0-src")
+    assert resp.status_code == 200, f"verification failed: {resp.text}"
+    bundle = resp.json()
+    src = (bundle.get("app") or {}).get("source") or {}
+    th = src.get("tree_hash", "")
+    assert th, ("SOURCE BINDING MISSING: app.source.tree_hash absent after promote "
+                f"(bundle app={bundle.get('app')!r})")
+    assert th == deploy_tree_hash, (
+        f"source binding drifted: bundle {th[:12]} != deploy-time {deploy_tree_hash[:12]}")
+    print(f"  bundle app.source.tree_hash == deploy-time binding {th[:12]} ✓")
+
+    # The promote must be persisted to the audit log (pha gate showed only 1
+    # entry when this regressed — promote didn't complete). Assert it here so a
+    # half-finished promote can't pass the gate silently.
+    actions = [e.get("action") for e in (bundle.get("audit") or [])]
+    assert "deploy" in actions and "promote" in actions, (
+        f"audit missing promote entry: actions={actions}")
+    print(f"  audit recorded deploy+promote: {actions} ✓")
+
+
 def await_if_needed(func, *args, **kwargs):
     """Helper to run async functions in sync context if needed."""
     import asyncio
@@ -980,7 +1029,7 @@ def await_if_needed(func, *args, **kwargs):
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -1028,6 +1077,7 @@ def main():
         test_rfc0020_non_anchored()
         test_rfc0020_two_policies()
         test_rfc0020_source_pull()
+        test_tier0_source_binding_survives_promote()
         test_teardown()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:
