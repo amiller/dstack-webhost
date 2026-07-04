@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import secrets
 
 from .docker_client import DockerClient
 from .projects import ProjectStore
@@ -12,6 +13,13 @@ log = logging.getLogger(__name__)
 
 NETWORK_DEV = "tee-apps-dev"
 NETWORK_ATTESTED = "tee-apps-attested"
+
+# Shared opt-in VPN egress. The provider (an attested openvpn-socks5 project with
+# egress_provider=true) joins EGRESS_NET as alias EGRESS_ALIAS; consumers set egress=true
+# to join the same net and receive EGRESS_PROXY_URL so their outbound routes via the VPN.
+EGRESS_NET = "tee-egress"
+EGRESS_ALIAS = "egress-vpn"
+EGRESS_PROXY_URL = f"socks5://{EGRESS_ALIAS}:1080"
 # When running inside Docker, host paths don't work for sibling container bind mounts.
 # Set DAEMON_VOLUME_NAME to the Docker volume name (e.g. "dstack_daemon_data")
 # and DAEMON_VOLUME_MOUNT to the mount point inside the daemon (e.g. "/var/lib/tee-daemon").
@@ -43,6 +51,13 @@ def _attested_broker_binds(mode: str) -> list[str]:
     if mode != "attested" or not BROKER_VOLUME_NAME:
         return []
     return [f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"]
+
+
+def _project_uses_broker(project) -> bool:
+    """Check if a project uses broker handles (env values starting with "broker:")."""
+    if not project.env:
+        return False
+    return any(str(v).startswith("broker:") for v in project.env.values())
 # Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").
 # Empty string keeps Docker's default (runc).
 CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
@@ -278,6 +293,8 @@ class RuntimeManager:
         self.runtime_cids: dict[tuple[str, str], str] = {}  # (runtime_key, mode) -> cid
         self.image_routes: dict[str, tuple[str, int]] = {}  # project name -> (ip, image_port)
         self.image_cids: dict[str, str] = {}  # project name -> cid
+        self.broker_store = None  # Set by main.py after broker init
+        self.broker_tokens: dict[str, str] = {}  # broker_token -> project name
 
     async def refresh(self, runtime: str):
         if runtime == "static" or runtime == "dockerfile":
@@ -354,6 +371,12 @@ class RuntimeManager:
             # Expose the filtered dstack broker to attested shared-runtime tenants.
             binds += _attested_broker_binds(mode)
 
+            # Expose creds.sock if any project in this runtime uses broker
+            if BROKER_VOLUME_NAME and any(_project_uses_broker(p) for p in mode_projects):
+                creds_bind = f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"
+                if creds_bind not in binds:
+                    binds.append(creds_bind)
+
             # Write router with correct projects root, filtering by mode
             router_code = config["router_code"].replace("/projects/", f"{projects_root}/").replace('"/projects"', f'"{projects_root}"')
             router_code = router_code.replace("__DATA_ROOT__", data_root)
@@ -410,6 +433,16 @@ class RuntimeManager:
                 log.debug("daemon connect_network %s: %s", net_name, e)
         return net_name
 
+    async def _attach_egress(self, container: str, project) -> None:
+        """Opt-in shared VPN egress. The provider joins as the stable alias 'egress-vpn';
+        consumers just join so docker DNS resolves that alias (proxy env is injected at
+        container-create time). No-op unless the project opted in."""
+        if not (getattr(project, "egress", False) or getattr(project, "egress_provider", False)):
+            return
+        await self.docker.create_network(EGRESS_NET)
+        aliases = [EGRESS_ALIAS] if getattr(project, "egress_provider", False) else None
+        await self.docker.connect_network(container, EGRESS_NET, aliases=aliases)
+
     async def start_isolated(self, project) -> str:
         """Per-project container for deno/bun with scoped Deno permissions.
         Returns the runtime image digest."""
@@ -456,6 +489,15 @@ class RuntimeManager:
         binds += broker_binds
         broker_sock = f"{BROKER_MOUNT_IN_APP}/dstack.sock" if broker_binds else ""
 
+        # Add creds.sock if project uses broker handles
+        if _project_uses_broker(project) and BROKER_VOLUME_NAME:
+            creds_bind = f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"
+            if creds_bind not in binds:
+                binds.append(creds_bind)
+            creds_sock = f"{BROKER_MOUNT_IN_APP}/creds.sock"
+            read_paths.append(creds_sock)
+            write_paths.append(creds_sock)
+
         labels = {
             "tee-proxy.managed": "true",
             "tee-daemon.runtime": project.runtime,
@@ -484,6 +526,15 @@ class RuntimeManager:
             val = os.environ.get(key)
             if val is not None:
                 env[key] = val
+
+        # Inject broker socket path and token if project uses broker
+        if _project_uses_broker(project) and BROKER_VOLUME_NAME:
+            env["BROKER_SOCKET"] = f"{BROKER_MOUNT_IN_APP}/creds.sock"
+            broker_token = self._generate_broker_token(project.name)
+            env["BROKER_TOKEN"] = broker_token
+        if getattr(project, "egress", False) and not getattr(project, "egress_provider", False):
+            env["EGRESS_PROXY_URL"] = EGRESS_PROXY_URL
+            env["ALL_PROXY"] = EGRESS_PROXY_URL
         cmd += [
             entry_in,
             project.entry or "server.ts",
@@ -492,10 +543,14 @@ class RuntimeManager:
             json.dumps(env),
         ]
 
+        caps = project.cap_add if project.mode == "attested" else []
+        devs = project.devices if project.mode == "attested" else []
         cid = await self.docker.create_container(
             cname, image, cmd, binds, labels, network,
-            runtime=(project.oci_runtime or CONTAINER_RUNTIME))
+            runtime=(project.oci_runtime or CONTAINER_RUNTIME),
+            cap_add=caps, devices=devs)
         await self.docker.start(cid)
+        await self._attach_egress(cid, project)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
         self.image_cids[project.name] = cid
@@ -527,6 +582,12 @@ class RuntimeManager:
             await self.docker.remove(existing)
             self.tracker.remove(existing)
         binds = list(_attested_broker_binds(project.mode))
+
+        # Add creds.sock if project uses broker handles
+        if _project_uses_broker(project) and BROKER_VOLUME_NAME:
+            creds_bind = f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"
+            if creds_bind not in binds:
+                binds.append(creds_bind)
         for v in project.volumes or []:
             await self.docker.ensure_volume(v["name"])
             binds.append(f"{v['name']}:{v['mount']}")
@@ -542,12 +603,25 @@ class RuntimeManager:
             val = os.environ.get(key)
             if val is not None:
                 env.append(f"{key}={val}")
+
+        # Inject broker socket path and token if project uses broker
+        if _project_uses_broker(project) and BROKER_VOLUME_NAME:
+            env.append(f"BROKER_SOCKET={BROKER_MOUNT_IN_APP}/creds.sock")
+            broker_token = self._generate_broker_token(project.name)
+            env.append(f"BROKER_TOKEN={broker_token}")
+        if getattr(project, "egress", False) and not getattr(project, "egress_provider", False):
+            env.append(f"EGRESS_PROXY_URL={EGRESS_PROXY_URL}")
+            env.append(f"ALL_PROXY={EGRESS_PROXY_URL}")
         runtime = project.oci_runtime or CONTAINER_RUNTIME
+        caps = project.cap_add if project.mode == "attested" else []
+        devs = project.devices if project.mode == "attested" else []
         cid = await self.docker.create_container(
             cname, project.image, [], binds, labels, network,
             env=env, runtime=runtime,
-            restart_policy=IMAGE_APP_RESTART_POLICY)
+            restart_policy=IMAGE_APP_RESTART_POLICY,
+            cap_add=caps, devices=devs)
         await self.docker.start(cid)
+        await self._attach_egress(cid, project)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
         self.image_cids[project.name] = cid
@@ -569,6 +643,20 @@ class RuntimeManager:
     def get_image_route(self, name: str) -> tuple[str, int] | None:
         return self.image_routes.get(name)
 
+    def set_broker_store(self, broker_store):
+        """Set the broker store (called by main.py after init)."""
+        self.broker_store = broker_store
+
+    def get_broker_project(self, token: str) -> str | None:
+        """Get the project name for a broker token, or None if invalid."""
+        return self.broker_tokens.get(token)
+
+    def _generate_broker_token(self, project: str) -> str:
+        """Generate a new broker token for a project."""
+        token = f"bt-{secrets.token_urlsafe(16)}"
+        self.broker_tokens[token] = project
+        return token
+
     def get_route(self, runtime: str, mode: str) -> tuple[str, int] | None:
         if runtime == "static" or runtime == "dockerfile" or runtime == "image":
             return None
@@ -583,6 +671,43 @@ class RuntimeManager:
             return None
         return (ip, RUNTIME_CONFIG[config_key]["port"])
 
+    def get_project_liveness(self, project) -> dict:
+        """Return liveness info for a project: {running, container_id, backend}.
+
+        This is the single source of truth for project liveness, used by both
+        GET /_api/routes and GET /_api/status to ensure consistent reporting.
+        """
+        result = {"running": False, "container_id": None, "backend": None}
+
+        if project.runtime == "static":
+            result["running"] = True
+            result["backend"] = "static files"
+        elif project.runtime == "dockerfile":
+            cid = project.container_id
+            result["container_id"] = cid
+            result["running"] = bool(cid)
+            result["backend"] = f"container:{cid or 'unknown'}"
+        elif project.runtime == "image" or project.isolation == "container":
+            # Image runtime or isolated container (deno/bun with isolation:container)
+            route = self.image_routes.get(project.name)
+            cid = self.image_cids.get(project.name)
+            result["container_id"] = cid
+            if route:
+                result["running"] = True
+                result["backend"] = f"{route[0]}:{route[1]}"
+            else:
+                result["backend"] = "runtime not running"
+        else:
+            # Shared runtime (deno/bun/node/python)
+            route = self.get_route(project.runtime, project.mode)
+            if route:
+                result["running"] = True
+                result["backend"] = f"{route[0]}:{route[1]}"
+            else:
+                result["backend"] = "runtime not running"
+
+        return result
+
     async def recover_all(self):
         runtimes_needed = set()
         image_projects = []
@@ -594,9 +719,20 @@ class RuntimeManager:
                 isolated_projects.append(p)
             elif p.runtime not in ("static", "dockerfile"):
                 runtimes_needed.add(p.runtime)
+        # Recover each project independently — a single failure (e.g. a transient image
+        # pull 500) must NOT abort startup and take down the daemon + every other app.
         for rt in runtimes_needed:
-            await self.refresh(rt)
+            try:
+                await self.refresh(rt)
+            except Exception as e:
+                log.error("recover: runtime %s failed, skipping: %s", rt, e)
         for p in image_projects:
-            await self.start_image(p)
+            try:
+                await self.start_image(p)
+            except Exception as e:
+                log.error("recover: image project %s failed, skipping: %s", p.name, e)
         for p in isolated_projects:
-            await self.start_isolated(p)
+            try:
+                await self.start_isolated(p)
+            except Exception as e:
+                log.error("recover: isolated project %s failed, skipping: %s", p.name, e)

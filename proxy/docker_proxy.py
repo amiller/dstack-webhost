@@ -153,6 +153,11 @@ class DockerProxy:
         # Replace whatever network the client requested with the appropriate network
         host_config = body.get("HostConfig", {})
         host_config.pop("NetworkMode", None)
+        # Elevated capabilities are NOT grantable via the tenant socket — the only path
+        # is the daemon's own gated create (caps ⟹ attested, surfaced in the manifest).
+        host_config.pop("CapAdd", None)
+        host_config.pop("Devices", None)
+        host_config.pop("Privileged", None)
         body["HostConfig"] = host_config
 
         body["NetworkingConfig"] = {"EndpointsConfig": {network: {}}}

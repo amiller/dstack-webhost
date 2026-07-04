@@ -21,6 +21,7 @@ class Project:
     entry: str
     port: int
     mode: str = "dev"
+    public: bool = False  # visibility axis: listed for anonymous callers
     env: dict = None
     container_id: str = ""
     deployed_at: str = ""
@@ -36,6 +37,13 @@ class Project:
     isolation: str = "shared"
     env_passthrough: List[str] = field(default_factory=list)
     oci_runtime: str = ""  # per-project OCI runtime, e.g. "runsc" (gVisor); falls back to CONTAINER_RUNTIME
+    # Elevated container capabilities — honored ONLY for mode=="attested" projects (see
+    # deploy gate), so the grant is always on the verifiable attested surface. Used e.g.
+    # for an in-container OpenVPN sidecar (CAP_NET_ADMIN + /dev/net/tun).
+    cap_add: List[str] = field(default_factory=list)
+    devices: List[str] = field(default_factory=list)
+    egress: bool = False           # route this project's outbound through the shared VPN egress network
+    egress_provider: bool = False  # this project PROVIDES the egress (the VPN); joins tee-egress as alias "egress-vpn"
 
     def __post_init__(self):
         if self.env is None:

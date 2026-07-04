@@ -177,6 +177,13 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     mode = manifest.get("mode") or repo_manifest.get("mode", "dev")
     if mode not in ("dev", "attested"):
         mode = "dev"
+    # Elevated caps are honored ONLY for attested projects, so the grant is always on
+    # the verifiable surface. Prefer the repo-committed manifest so tree_hash commits to
+    # them (a verifier fetching the source commit can confirm what was granted).
+    cap_add = repo_manifest.get("cap_add") or manifest.get("cap_add", []) or []
+    devices = repo_manifest.get("devices") or manifest.get("devices", []) or []
+    if (cap_add or devices) and mode != "attested":
+        raise ValueError("cap_add/devices require mode=attested")
     env_vars = {**repo_manifest.get("env", {}), **manifest.get("env", {})}
     isolation = manifest.get("isolation") or repo_manifest.get("isolation", "shared")
     if isolation not in ("shared", "container"):
@@ -224,11 +231,15 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
 
     project = Project(
         name=name, runtime=runtime, entry=entry, port=port, mode=mode,
+        public=bool(manifest.get("public", False)),
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         source=source, ref=ref, commit_sha=commit_sha, tree_hash=tree_hash,
         listen=listen_config, isolation=isolation,
-        env_passthrough=manifest.get("env_passthrough", []) or [],
+        env_passthrough=manifest.get("env_passthrough") or repo_manifest.get("env_passthrough", []) or [],
         oci_runtime=manifest.get("oci_runtime", ""),
+        cap_add=cap_add, devices=devices,
+        egress=bool(manifest.get("egress", False)),
+        egress_provider=bool(manifest.get("egress_provider", False)),
     )
     store.save(project)
 
@@ -241,13 +252,14 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     project.image_digest = digest
     store.save(project)
 
-    # Only record audit log for attested mode
-    if mode == "attested":
-        audit = audit_manager.get_audit_log(name)
-        await audit.record(AuditEntry(
-            timestamp=time.time(), action="deploy", image=image, image_digest=digest,
-            detail=json.dumps({"name": name, "source": source, "ref": ref,
-                               "commit": commit_sha, "tree_hash": tree_hash})))
+    # Record every deploy — dev projects share the CVM with attested tenants,
+    # so their mutations must be auditable too.
+    audit = audit_manager.get_audit_log(name)
+    await audit.record(AuditEntry(
+        timestamp=time.time(), action="deploy", image=image, image_digest=digest,
+        detail=json.dumps({"name": name, "mode": mode, "source": source, "ref": ref,
+                           "commit": commit_sha, "tree_hash": tree_hash,
+                           "cap_add": cap_add, "devices": devices})))
 
     log.info("Deployed %s from %s@%s (%s)", name, source, ref or "HEAD", commit_sha[:12])
     return project
@@ -266,6 +278,12 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     mode = manifest.get("mode", "dev")
     if mode not in ("dev", "attested"):
         mode = "dev"
+    # Image projects have no source tree, so the caps are bound by the append-only audit
+    # detail + the image @sha256 digest (immutable code), not tree_hash. Still attested-only.
+    cap_add = manifest.get("cap_add", []) or []
+    devices = manifest.get("devices", []) or []
+    if (cap_add or devices) and mode != "attested":
+        raise ValueError("cap_add/devices require mode=attested")
     env_vars = manifest.get("env", {})
 
     listen_manifest = manifest.get("listen") or {}
@@ -285,12 +303,15 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     oci_runtime = manifest.get("oci_runtime", "")
     project = Project(
         name=name, runtime="image", entry="", port=0, mode=mode,
+        public=bool(manifest.get("public", False)),
         env=env_vars, deployed_at=datetime.now(timezone.utc).isoformat(),
         source=manifest.get("source", ""), ref=manifest.get("ref", ""),
         commit_sha=manifest.get("commit_sha", ""), tree_hash=manifest.get("tree_hash", ""),
         image=image, image_port=image_port, volumes=volumes,
         env_passthrough=env_passthrough, listen=listen_config,
-        oci_runtime=oci_runtime,
+        oci_runtime=oci_runtime, cap_add=cap_add, devices=devices,
+        egress=bool(manifest.get("egress", False)),
+        egress_provider=bool(manifest.get("egress_provider", False)),
     )
     store.save(project)
 
@@ -298,11 +319,11 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     project.image_digest = digest
     store.save(project)
 
-    if mode == "attested":
-        audit = audit_manager.get_audit_log(name)
-        await audit.record(AuditEntry(
-            timestamp=time.time(), action="deploy", image=image, image_digest=digest,
-            detail=json.dumps({"name": name, "image": image, "image_port": image_port})))
+    audit = audit_manager.get_audit_log(name)
+    await audit.record(AuditEntry(
+        timestamp=time.time(), action="deploy", image=image, image_digest=digest,
+        detail=json.dumps({"name": name, "image": image, "image_port": image_port,
+                           "image_digest": digest, "cap_add": cap_add, "devices": devices})))
 
     log.info("Deployed image project %s from %s (digest %s)", name, image, digest[:19])
     return project
@@ -312,12 +333,10 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
                    tracker: ContainerTracker, rtm: RuntimeManager, name: str):
     project = store.load(name)
 
-    # Only record audit log for attested mode
-    if project.mode == "attested":
-        audit = audit_manager.get_audit_log(name)
-        await audit.record(AuditEntry(
-            timestamp=time.time(), action="teardown", detail=name,
-            image_digest=project.image_digest))
+    audit = audit_manager.get_audit_log(name)
+    await audit.record(AuditEntry(
+        timestamp=time.time(), action="teardown", detail=name,
+        image_digest=project.image_digest))
 
     store.delete(name)
 

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fleet Console</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #1a202c;
+            padding: 2rem;
+        }
+        .header {
+            max-width: 1400px;
+            margin: 0 auto 2rem;
+        }
+        .header h1 {
+            font-size: 1.8rem;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+        }
+        .header p {
+            color: #718096;
+            font-size: 0.95rem;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .mode-section {
+            margin-bottom: 2rem;
+        }
+        .mode-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .mode-header h2 {
+            font-size: 1.3rem;
+            color: #2d3748;
+        }
+        .mode-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .mode-badge.dev {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+        .mode-badge.attested {
+            background: #c6f6d5;
+            color: #276749;
+        }
+        .table-wrapper {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        thead {
+            background: #f7fafc;
+        }
+        th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        td {
+            padding: 0.75rem 1rem;
+            border-top: 1px solid #e2e8f0;
+        }
+        tr:hover td {
+            background: #f7fafc;
+        }
+        .health-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+        .health-dot.running {
+            background: #48bb78;
+            box-shadow: 0 0 0 2px #48bb7840;
+        }
+        .health-dot.stopped {
+            background: #e53e3e;
+            box-shadow: 0 0 0 2px #e53e3e40;
+        }
+        .mono {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.85rem;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .badge.runtime {
+            background: #edf2f7;
+            color: #4a5568;
+        }
+        .badge.isolation {
+            background: #e6fffa;
+            color: #285e61;
+        }
+        .links {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .link {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            text-decoration: none;
+            transition: background 0.15s;
+        }
+        .link.app {
+            background: #4299e1;
+            color: white;
+        }
+        .link.app:hover {
+            background: #3182ce;
+        }
+        .link.verify {
+            background: #48bb78;
+            color: white;
+        }
+        .link.verify:hover {
+            background: #38a169;
+        }
+        .link.audit {
+            background: #90cdf4;
+            color: #1a365d;
+        }
+        .link.audit:hover {
+            background: #63b3ed;
+        }
+        .time-ago {
+            color: #718096;
+            font-size: 0.85rem;
+        }
+        .empty {
+            text-align: center;
+            padding: 2rem;
+            color: #a0aec0;
+            font-style: italic;
+        }
+        .error {
+            background: #fed7d7;
+            border: 1px solid #fc8181;
+            color: #742a2a;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #718096;
+        }
+        .summary {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 1.5rem;
+        }
+        .summary-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            color: #4a5568;
+        }
+        .summary-number {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Fleet Console</h1>
+        <p>Real-time status of all deployed projects</p>
+    </div>
+
+    <div id="error" style="display: none;"></div>
+    <div id="loading" class="loading">Loading fleet status...</div>
+    <div id="content" style="display: none;">
+        <div class="container">
+            <div class="summary">
+                <div class="summary-item">
+                    Total: <span class="summary-number" id="total-count">0</span>
+                </div>
+                <div class="summary-item">
+                    Running: <span class="summary-number" style="color: #48bb78;" id="running-count">0</span>
+                </div>
+                <div class="summary-item">
+                    Stopped: <span class="summary-number" style="color: #e53e3e;" id="stopped-count">0</span>
+                </div>
+                <div class="summary-item">
+                    Attested: <span class="summary-number" style="color: #276749;" id="attested-count">0</span>
+                </div>
+            </div>
+
+            <div id="dev-section" class="mode-section" style="display: none;">
+                <div class="mode-header">
+                    <h2>Dev Projects</h2>
+                    <span class="mode-badge dev">dev</span>
+                </div>
+                <div class="table-wrapper">
+                    <table id="dev-table">
+                        <thead>
+                            <tr>
+                                <th>Health</th>
+                                <th>Project</th>
+                                <th>Runtime</th>
+                                <th>Source</th>
+                                <th>Commit</th>
+                                <th>Digest</th>
+                                <th>Deployed</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="attested-section" class="mode-section" style="display: none;">
+                <div class="mode-header">
+                    <h2>Attested Projects</h2>
+                    <span class="mode-badge attested">attested</span>
+                </div>
+                <div class="table-wrapper">
+                    <table id="attested-table">
+                        <thead>
+                            <tr>
+                                <th>Health</th>
+                                <th>Project</th>
+                                <th>Runtime</th>
+                                <th>Source</th>
+                                <th>Commit</th>
+                                <th>Digest</th>
+                                <th>Deployed</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadStatus() {
+            const loadingEl = document.getElementById('loading');
+            const contentEl = document.getElementById('content');
+            const errorEl = document.getElementById('error');
+
+            try {
+                const response = await fetch('/_api/status');
+                if (!response.ok) {
+                    throw new Error(`Failed to load status: ${response.status}`);
+                }
+                const projects = await response.json();
+
+                loadingEl.style.display = 'none';
+                contentEl.style.display = 'block';
+
+                renderStatus(projects);
+            } catch (error) {
+                loadingEl.style.display = 'none';
+                errorEl.style.display = 'block';
+                errorEl.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        function renderStatus(projects) {
+            const devProjects = projects.filter(p => p.mode === 'dev');
+            const attestedProjects = projects.filter(p => p.mode === 'attested');
+
+            // Update summary
+            document.getElementById('total-count').textContent = projects.length;
+            document.getElementById('running-count').textContent = projects.filter(p => p.running).length;
+            document.getElementById('stopped-count').textContent = projects.filter(p => !p.running).length;
+            document.getElementById('attested-count').textContent = attestedProjects.length;
+
+            // Render dev projects
+            const devSection = document.getElementById('dev-section');
+            const devTable = document.getElementById('dev-table').querySelector('tbody');
+            if (devProjects.length > 0) {
+                devSection.style.display = 'block';
+                devTable.innerHTML = devProjects.map(p => renderRow(p)).join('');
+            } else {
+                devSection.style.display = 'none';
+            }
+
+            // Render attested projects
+            const attestedSection = document.getElementById('attested-section');
+            const attestedTable = document.getElementById('attested-table').querySelector('tbody');
+            if (attestedProjects.length > 0) {
+                attestedSection.style.display = 'block';
+                attestedTable.innerHTML = attestedProjects.map(p => renderRow(p)).join('');
+            } else {
+                attestedSection.style.display = 'none';
+            }
+
+            if (devProjects.length === 0 && attestedProjects.length === 0) {
+                contentEl.innerHTML = '<div class="empty">No projects deployed</div>';
+            }
+        }
+
+        function renderRow(project) {
+            const healthClass = project.running ? 'running' : 'stopped';
+            const healthLabel = project.running ? 'Running' : 'Stopped';
+            const shortCommit = project.commit_sha ? project.commit_sha.slice(0, 8) : '-';
+            const shortDigest = project.image_digest ? project.image_digest.slice(0, 12) : '-';
+            const timeAgo = project.deployed_at ? formatTimeAgo(project.deployed_at) : '-';
+
+            let links = `<a href="/${project.name}/" class="link app" target="_blank">App</a>`;
+            if (project.mode === 'attested') {
+                links += ` <a href="/${project.name}/.well-known/tee-attestation" class="link verify" target="_blank">Verify</a>`;
+            }
+            links += ` <a href="/_api/projects/${project.name}/audit" class="link audit" target="_blank">Audit</a>`;
+
+            const isolationBadge = project.isolation && project.isolation !== 'shared'
+                ? `<span class="badge isolation">${project.isolation}</span>`
+                : '';
+
+            return `
+                <tr>
+                    <td>
+                        <span class="health-dot ${healthClass}"></span>
+                        ${healthLabel}
+                    </td>
+                    <td class="mono">${project.name}</td>
+                    <td>
+                        <span class="badge runtime">${project.runtime}</span>
+                        ${isolationBadge}
+                    </td>
+                    <td class="mono">${project.source || '-'}</td>
+                    <td class="mono">${shortCommit}</td>
+                    <td class="mono">${shortDigest}</td>
+                    <td class="time-ago">${timeAgo}</td>
+                    <td>
+                        <div class="links">${links}</div>
+                    </td>
+                </tr>
+            `;
+        }
+
+        function formatTimeAgo(deployedAt) {
+            const now = Date.now() / 1000;
+            const deployed = new Date(deployedAt).getTime() / 1000;
+            const diff = now - deployed;
+
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+            return `${Math.floor(diff / 86400)}d ago`;
+        }
+
+        // Auto-refresh every 30 seconds
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStatus();
+            setInterval(loadStatus, 30000);
+        });
+    </script>
+</body>
+</html>

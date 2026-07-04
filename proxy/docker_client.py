@@ -31,12 +31,20 @@ class DockerClient:
                                binds: list[str], labels: dict, network: str,
                                env: list[str] | None = None,
                                runtime: str = "",
-                               restart_policy: dict | None = None) -> str:
+                               restart_policy: dict | None = None,
+                               cap_add: list[str] | None = None,
+                               devices: list[str] | None = None) -> str:
         host_config: dict = {"Binds": binds}
         if runtime:
             host_config["Runtime"] = runtime
         if restart_policy:
             host_config["RestartPolicy"] = restart_policy
+        if cap_add:
+            host_config["CapAdd"] = cap_add
+        if devices:
+            host_config["Devices"] = [
+                {"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"}
+                for d in devices]
         body = {
             "Image": image,
             "Cmd": cmd or None,
@@ -90,9 +98,12 @@ class DockerClient:
             return ""
         return data.get("Id", "")
 
-    async def connect_network(self, container: str, network: str):
+    async def connect_network(self, container: str, network: str, aliases: list[str] | None = None):
+        body = {"Container": container}
+        if aliases:
+            body["EndpointConfig"] = {"Aliases": aliases}
         status, data = await self._raw_request(
-            "POST", f"/networks/{network}/connect", json={"Container": container})
+            "POST", f"/networks/{network}/connect", json=body)
         if status >= 400 and b"already exists" not in data:
             raise RuntimeError(f"connect_network failed ({status}): {data!r}")
 

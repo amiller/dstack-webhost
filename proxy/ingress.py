@@ -1,11 +1,14 @@
 """Ingress reverse proxy + management API on port 8080."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import hmac
 import json
 import logging
 import os
+import time
 from dataclasses import asdict
 
 import aiohttp
@@ -14,12 +17,15 @@ from aiohttp import web
 from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
-from .audit import AuditLogManager
+from .audit import AuditLogManager, AuditEntry
 from .deploy import deploy, teardown, promote
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
+from .tokens import DEFAULT_TTL, TokenStore
+from .broker import BrokerStore
 from . import secp
+from . import evidence
 
 log = logging.getLogger(__name__)
 
@@ -55,13 +61,16 @@ MIME_TYPES = {
 class Ingress:
     def __init__(self, store: ProjectStore, docker: DockerClient,
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
-                 rtm: RuntimeManager, tunnel_store: TunnelStore):
+                 rtm: RuntimeManager, tunnel_store: TunnelStore,
+                 token_store: TokenStore, broker_store: BrokerStore | None = None):
         self.store = store
         self.docker = docker
         self.audit_manager = audit_manager
         self.tracker = tracker
         self.rtm = rtm
         self.tunnel_store = tunnel_store
+        self.token_store = token_store
+        self.broker_store = broker_store
         self.port_map: dict[int, str] = {}  # port -> project_name
 
     async def handle(self, request: web.Request) -> web.Response:
@@ -105,9 +114,9 @@ class Ingress:
             authed = (API_TOKEN and auth.startswith("Bearer ")
                       and hmac.compare_digest(auth[7:], API_TOKEN))
             visible = [p for p in self.store.list()
-                       if authed or p.mode == "attested"]
+                       if authed or p.mode == "attested" or p.public]
             projects = {p.name: {
-                "runtime": p.runtime, "mode": p.mode,
+                "runtime": p.runtime, "mode": p.mode, "public": p.public,
                 "source": p.source, "commit_sha": p.commit_sha,
                 "tree_hash": p.tree_hash,
             } for p in visible}
@@ -464,15 +473,20 @@ class Ingress:
             log.error("WebSocket proxy error: %s", e)
             return web.json_response({"error": "websocket proxy failed"}, status=500)
 
-    def _check_auth(self, request: web.Request) -> web.Response | None:
+    def _check_auth(self, request: web.Request, api_path: str,
+                    owner_only: bool = False) -> web.Response | None:
         if not API_TOKEN:
             return None
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return web.json_response({"error": "missing token"}, status=401)
         token = auth[7:]
-        if not hmac.compare_digest(token, API_TOKEN):
-            return web.json_response({"error": "invalid token"}, status=403)
+        if hmac.compare_digest(token, API_TOKEN):
+            return None
+        if owner_only:
+            return web.json_response({"error": "owner token required"}, status=403)
+        if not self.token_store.authenticate(token, api_path):
+            return web.json_response({"error": "invalid token or scope"}, status=403)
         return None
 
     def _substrate_info(self) -> dict:
@@ -486,6 +500,18 @@ class Ingress:
             "deno_entry_shim_sha256": shim_sha,
             "networks": [runtimes_mod.NETWORK_DEV, runtimes_mod.NETWORK_ATTESTED],
         }
+
+    def _api_version(self) -> dict:
+        """Return daemon version and git commit. In a built image DAEMON_COMMIT is
+        baked at build time (no .git present); locally it falls to a git read."""
+        commit = os.environ.get("DAEMON_COMMIT")
+        if not commit:
+            import subprocess
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=os.path.dirname(os.path.dirname(__file__)),
+            ).decode().strip()
+        return {"version": os.environ.get("DAEMON_VERSION", "dev"), "commit": commit}
 
     def _public_attested_path(self, path: str) -> str | None:
         """RFC 0015: return project name if `path` is a public verifier endpoint."""
@@ -512,6 +538,11 @@ class Ingress:
                 "Access-Control-Max-Age": "86400",
             })
 
+        if method == "GET" and path == "version":
+            resp = web.json_response(self._api_version())
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
+
         if method == "GET" and path == "substrate":
             resp = web.json_response(self._substrate_info())
             resp.headers["Access-Control-Allow-Origin"] = "*"
@@ -530,7 +561,7 @@ class Ingress:
                     if path.startswith("attest/"):
                         resp = await self._api_attest(public_name)
                     elif path.startswith("verification/"):
-                        resp = await self._api_verification(public_name)
+                        resp = await self._api_verification(request, public_name)
                     elif path.endswith("/audit"):
                         resp = await self._api_audit(public_name)
                     else:
@@ -538,9 +569,19 @@ class Ingress:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
-        denied = self._check_auth(request)
+        owner_only = path == "tokens" or path.startswith("tokens/")
+        denied = self._check_auth(request, path, owner_only=owner_only)
         if denied:
             return denied
+
+        # Scoped token API endpoints
+        if path == "tokens" and method == "POST":
+            return await self._api_create_token(request)
+        if path == "tokens" and method == "GET":
+            return await self._api_list_tokens()
+        if path.startswith("tokens/") and method == "DELETE":
+            token_id = path.split("/")[1]
+            return await self._api_revoke_token(token_id)
 
         # Tunnel API endpoints
         if path == "tunnels" and method == "POST":
@@ -550,6 +591,21 @@ class Ingress:
         if path.startswith("tunnels/") and method == "DELETE":
             tunnel_id = path.split("/")[1]
             return await self._api_delete_tunnel(tunnel_id)
+
+        # Grant API endpoints (RFC 0018 credential broker)
+        if path == "grants" and method == "POST":
+            return await self._api_create_grant(request)
+        if path == "grants" and method == "GET":
+            return await self._api_list_grants(request)
+        if path.startswith("grants/") and method == "DELETE":
+            grant_id = path.split("/")[1]
+            return await self._api_revoke_grant(grant_id)
+        if path.startswith("grants/") and path.endswith("/reauthorize") and method == "POST":
+            grant_id = path.split("/")[1]
+            return await self._api_reauthorize_grant(request, grant_id)
+        if path.startswith("grants/") and path.endswith("/usage") and method == "GET":
+            grant_id = path.split("/")[1]
+            return await self._api_grant_usage(grant_id)
 
         if path == "routes" and method == "GET":
             return await self._api_routes()
@@ -584,7 +640,15 @@ class Ingress:
 
         if path.startswith("verification/"):
             name = path.split("/")[1]
-            return await self._api_verification(name)
+            return await self._api_verification(request, name)
+
+        # RFC 0016: aggregate status endpoint (authed)
+        if path == "status" and method == "GET":
+            return await self._api_aggregate_status()
+
+        # RFC 0016: console page (authed)
+        if path == "console" and method == "GET":
+            return await self._api_console()
 
         return web.json_response({"error": "not found"}, status=404)
 
@@ -609,23 +673,12 @@ class Ingress:
             if project.listen and project.listen.port:
                 port = project.listen.port
                 protocol = project.listen.protocol or "http"
-
-                if project.runtime == "static":
-                    backend = "static files"
-                elif project.runtime == "dockerfile":
-                    backend = f"container:{project.container_id or 'unknown'}"
-                else:
-                    route = self.rtm.get_route(project.runtime, project.mode)
-                    if route:
-                        backend = f"{route[0]}:{route[1]}"
-                    else:
-                        backend = "runtime not running"
-
+                liveness = self.rtm.get_project_liveness(project)
                 routes.append({
                     "host_port": port,
                     "protocol": protocol,
                     "project": project.name,
-                    "backend": backend
+                    "backend": liveness["backend"]
                 })
 
         return web.json_response(routes)
@@ -697,6 +750,8 @@ class Ingress:
             "image": project.image, "image_port": project.image_port,
             "volumes": project.volumes, "env_passthrough": project.env_passthrough,
             "oci_runtime": project.oci_runtime,
+            "cap_add": project.cap_add, "devices": project.devices,
+            "egress": project.egress, "egress_provider": project.egress_provider,
         }
         if project.listen:
             manifest["listen"] = {
@@ -754,28 +809,80 @@ class Ingress:
                 data = await resp.json()
                 return web.json_response(_sanitize_getkey(data), status=resp.status)
 
-    async def _api_verification(self, name: str) -> web.Response:
-        """Get trust chain data for project verification."""
+    async def _api_verification(self, request: web.Request, name: str) -> web.Response:
+        """Get the RFC 0020 evidence bundle for project verification.
+
+        RFC 0016: supports ?format=html for a human-readable rendering.
+        """
         try:
             project = self.store.load(name)
             if project.mode != "attested":
                 return web.json_response({"error": "project not attested"}, status=400)
 
-            # Get dstack quote
-            quote = None
+            # HTML rendering (RFC 0016 human view)
+            if request.query.get("format", "") == "html":
+                return await self._render_verification_html(request, project)
+
+            # Build RFC 0020 Evidence Bundle (machine-verifiable, no verdict)
+            bundle = evidence.EvidenceBundle()
+            platform_quote = {}
+            binding_quote = {}
             if DSTACK_SOCK:
                 try:
                     key_path = f"/tee-daemon/projects/{name}"
-                    body = {"path": key_path}
                     conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
                     async with aiohttp.ClientSession(connector=conn) as session:
-                        async with session.post("http://localhost/GetKey", json=body) as resp:
-                            if resp.status == 200:
-                                quote = _sanitize_getkey(await resp.json())
-                except Exception as e:
-                    log.warning("Failed to get dstack quote: %s", e)
+                        # GetQuote for TDX platform quote
+                        try:
+                            body = {"path": key_path}
+                            async with session.post("http://localhost/GetQuote", json=body) as resp:
+                                if resp.status == 200:
+                                    platform_quote = await resp.json()
+                        except Exception as e:
+                            log.warning("GetQuote failed: %s", e)
 
-            # Get audit log
+                        # GetKey for signature chain (KMS-rooted attestation)
+                        async with session.post("http://localhost/GetKey", json={"path": key_path}) as resp:
+                            if resp.status == 200:
+                                binding_quote = _sanitize_getkey(await resp.json())
+                except Exception as e:
+                    log.warning("Failed to get dstack quotes: %s", e)
+
+            bundle.platform_quote = platform_quote
+            bundle.webhost_app_id = os.environ.get("WEBHOST_APP_ID", "")
+
+            # On-chain info (MVP: chain_id 0 for non-anchored, empty addresses)
+            # In production: populate from base-prod RPC and contract addresses
+            bundle.onchain = evidence.OnchainInfo(
+                chain_id=0,  # MVP: non-anchored (pha-prod7)
+                kms_contract="",
+                dstackapp="",
+                allowed_compose_hash="",
+                allowed_os_image="",
+            )
+
+            # Gateway info (MVP: empty, to be populated from pinned gateway refs)
+            bundle.gateway = evidence.GatewayInfo(
+                domain="",
+                app_id="",
+                zt_cert_ref="",
+            )
+
+            # App info
+            bundle.app = evidence.AppInfo(
+                project=project.name,
+                source=evidence.SourceInfo(
+                    repo=project.source or "",
+                    ref=project.ref or "",
+                    commit_sha=project.commit_sha or "",
+                    tree_hash=project.tree_hash or "",
+                    tree_hash_kind="git" if project.source else "sha256",
+                ),
+                image_digest=project.image_digest or "",
+                binding_quote=binding_quote,
+            )
+
+            # Get audit log (retained for backward compatibility, in main bundle for now)
             audit = []
             try:
                 audit_log = self.audit_manager.get_audit_log(name)
@@ -783,13 +890,61 @@ class Ingress:
             except Exception as e:
                 log.warning("Failed to get audit log: %s", e)
 
-            return web.json_response({
-                "project": asdict(project),
-                "quote": quote,
-                "audit": audit,
-            })
+            result = bundle.to_dict()
+            result["audit"] = audit  # Retain audit for existing consumers
+            return web.json_response(result)
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
+
+    async def _render_verification_html(self, request: web.Request, project) -> web.Response:
+        """Render the verification bundle as an HTML page."""
+        # Get dstack quote
+        quote = None
+        if DSTACK_SOCK:
+            try:
+                key_path = f"/tee-daemon/projects/{project.name}"
+                body = {"path": key_path}
+                conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
+                async with aiohttp.ClientSession(connector=conn) as session:
+                    async with session.post("http://localhost/GetKey", json=body) as resp:
+                        if resp.status == 200:
+                            quote = _sanitize_getkey(await resp.json())
+            except Exception as e:
+                log.warning("Failed to get dstack quote: %s", e)
+
+        # Get audit log
+        audit = []
+        try:
+            audit_log = self.audit_manager.get_audit_log(project.name)
+            audit = audit_log.to_json()
+        except Exception as e:
+            log.warning("Failed to get audit log: %s", e)
+
+        # Build JSON data for the template
+        verification_data = {
+            "project": asdict(project),
+            "quote": quote,
+            "audit": audit,
+        }
+
+        # Read and render template
+        template_path = os.path.join(
+            os.path.dirname(__file__), "templates", "verification.html")
+        with open(template_path, "r") as f:
+            template = f.read()
+
+        html = template.replace("{{ project_name }}", project.name)
+
+        # Add data as JSON in a script tag for the template to use
+        data_script = f'window.verificationData = {json.dumps(verification_data)};'
+        html = html.replace(
+            '<script>',
+            f'<script>{data_script}\n        '
+        )
+
+        resp = web.Response(text=html, content_type="text/html")
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp
 
     async def _api_create_tunnel(self, request: web.Request) -> web.Response:
         """Create a new tunnel."""
@@ -838,3 +993,192 @@ class Ingress:
         if self.tunnel_store.delete(tunnel_id):
             return web.json_response({"ok": True})
         return web.json_response({"error": "tunnel not found"}, status=404)
+
+    async def _api_create_token(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            scope = data.get("scope", "")
+            ttl = data.get("ttl", DEFAULT_TTL)
+            try:
+                ttl = int(ttl)
+            except (TypeError, ValueError):
+                return web.json_response({"error": "ttl must be an integer"}, status=400)
+            token, bearer = self.token_store.create(scope, ttl)
+            body = token.public()
+            body["token"] = bearer
+            return web.json_response(body, status=201)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except Exception as e:
+            log.error("Error creating scoped API token: %s", e)
+            return web.json_response({"error": "internal server error"}, status=500)
+
+    async def _api_list_tokens(self) -> web.Response:
+        return web.json_response([t.public() for t in self.token_store.list()])
+
+    async def _api_revoke_token(self, token_id: str) -> web.Response:
+        if self.token_store.revoke(token_id):
+            return web.json_response({"ok": True})
+        return web.json_response({"error": "token not found"}, status=404)
+
+    async def _api_create_grant(self, request: web.Request) -> web.Response:
+        """Create a new credential grant (RFC 0018)."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        try:
+            data = await request.json()
+            project = data.get("project", "")
+            name = data.get("name", "")
+            scope = data.get("scope", "")
+            upstream = data.get("upstream", {})
+            secret = data.get("secret", "")
+            ttl = data.get("ttl")
+            mode = data.get("mode", "proxy")
+
+            # Validate required fields
+            if not project:
+                return web.json_response({"error": "project is required"}, status=400)
+            if not name:
+                return web.json_response({"error": "name is required"}, status=400)
+            if not upstream or not upstream.get("base_url"):
+                return web.json_response({"error": "upstream.base_url is required"}, status=400)
+            if not secret:
+                return web.json_response({"error": "secret is required"}, status=400)
+
+            # Verify project exists
+            try:
+                self.store.load(project)
+            except FileNotFoundError:
+                return web.json_response({"error": "project not found"}, status=404)
+
+            # Validate upstream config
+            if not upstream.get("allow_paths"):
+                upstream["allow_paths"] = ["/*"]
+            if not upstream.get("allow_methods"):
+                upstream["allow_methods"] = ["POST"]
+            if not upstream.get("inject"):
+                upstream["inject"] = {"header": "Authorization", "template": "Bearer {secret}"}
+
+            # Create grant
+            grant = await self.broker_store.create(
+                project=project,
+                name=name,
+                scope=scope,
+                upstream=upstream,
+                secret=secret,
+                ttl=ttl,
+                mode=mode
+            )
+
+            # Audit log
+            await self.audit_manager.get_audit_log(project).record(AuditEntry(
+                timestamp=time.time(), action="grant",
+                detail=json.dumps({"grant_id": grant.id, "name": name})))
+
+            return web.json_response({
+                "id": grant.id,
+                "expires_at": grant.expires_at
+            }, status=201)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except RuntimeError as e:
+            return web.json_response({"error": str(e)}, status=503)
+        except Exception as e:
+            log.error("Error creating grant: %s", e)
+            return web.json_response({"error": "internal server error"}, status=500)
+
+    async def _api_list_grants(self, request: web.Request) -> web.Response:
+        """List grants, optionally filtered by project."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        project = request.query.get("project")
+        grants = self.broker_store.list(project=project)
+        return web.json_response([g.to_json() for g in grants])
+
+    async def _api_revoke_grant(self, grant_id: str) -> web.Response:
+        """Revoke a grant (immediate effect)."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        grant = self.broker_store.get(grant_id)
+        if not grant:
+            return web.json_response({"error": "grant not found"}, status=404)
+
+        project = grant.project
+        if self.broker_store.revoke(grant_id):
+            # Audit log
+            await self.audit_manager.get_audit_log(project).record(AuditEntry(
+                timestamp=time.time(), action="revoke",
+                detail=json.dumps({"grant_id": grant_id})))
+            return web.json_response({"ok": True})
+        return web.json_response({"error": "grant not found"}, status=404)
+
+    async def _api_reauthorize_grant(self, request: web.Request, grant_id: str) -> web.Response:
+        """Reauthorize a grant: rotate secret, extend TTL, or change scope."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        try:
+            data = await request.json()
+            secret = data.get("secret")
+            ttl = data.get("ttl")
+            scope = data.get("scope")
+
+            grant = await self.broker_store.reauthorize(
+                grant_id=grant_id,
+                secret=secret,
+                ttl=ttl,
+                scope=scope
+            )
+
+            if not grant:
+                return web.json_response({"error": "grant not found"}, status=404)
+
+            # Audit log
+            await self.audit_manager.get_audit_log(grant.project).record(AuditEntry(
+                timestamp=time.time(), action="reauthorize",
+                detail=json.dumps({"grant_id": grant_id})))
+
+            return web.json_response({"ok": True, "expires_at": grant.expires_at})
+        except Exception as e:
+            log.error("Error reauthorizing grant: %s", e)
+            return web.json_response({"error": "internal server error"}, status=500)
+
+    async def _api_grant_usage(self, grant_id: str) -> web.Response:
+        """Get recent usage for a grant."""
+        if not self.broker_store:
+            return web.json_response({"error": "broker not available"}, status=503)
+        grant = self.broker_store.get(grant_id)
+        if not grant:
+            return web.json_response({"error": "grant not found"}, status=404)
+        usage = self.broker_store.get_usage(grant_id)
+        return web.json_response(usage)
+
+    async def _api_aggregate_status(self) -> web.Response:
+        """RFC 0016: Aggregate status for all projects with liveness.
+
+        Returns manifest fields + live liveness (running, container_id, backend).
+        For attested projects, includes the public verification URL.
+        """
+        projects = []
+        for project in self.store.list():
+            data = asdict(project)
+            # Add liveness info
+            liveness = self.rtm.get_project_liveness(project)
+            data["running"] = liveness["running"]
+            data["container_id"] = liveness["container_id"]
+            data["backend"] = liveness["backend"]
+            # For attested projects, include public verification URL
+            if project.mode == "attested":
+                # Get the scheme and host from the environment or request
+                data["verification_url"] = f"/_api/verification/{project.name}"
+            projects.append(data)
+        return web.json_response(projects)
+
+    async def _api_console(self) -> web.Response:
+        """RFC 0016: Serve the fleet console HTML page."""
+        console_path = os.path.join(
+            os.path.dirname(__file__), "templates", "console.html")
+        try:
+            with open(console_path, "r") as f:
+                return web.Response(text=f.read(), content_type="text/html")
+        except FileNotFoundError:
+            return web.json_response({"error": "console not found"}, status=404)

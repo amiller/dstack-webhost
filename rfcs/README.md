@@ -27,6 +27,13 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0021](0021-app-self-improvement-evidence-spend.md) | App Self-Improvement via Attestation-Evidence Spend | Draft |
 | [0022](0022-spec-based-appraisal-curated-list.md) | Spec-Based Appraisal and Curated App List | Draft |
 | [0023](0023-staging-cvm-autonomous-dev.md) | Staging CVM for Autonomous Daemon Development | Draft |
+| [0024](0024-cross-pod-federation.md) | Cross-pod federation — code-identity admission + mutual attestation | Draft |
+| [0025](0025-attested-capabilities.md) | Attested container capabilities | Draft |
+| [0026](0026-scoped-debug-sessions.md) | Operator Debug Access (promotion-gated) | Draft |
+| [0027](0027-per-app-attestation-granularity.md) | Per-App Attestation Granularity | Draft |
+| [0028](0028-browser-render-pool.md) | Browser Runtime & Render Pool | Draft |
+| [0029](0029-attested-with-declared-debug.md) | Attested Apps with Declared Operator Debug | Draft |
+| [0030](0030-acceptance-must-verify.md) | Acceptance Must Verify, Not Ping (who verifies the verifier) | Draft |
 
 ## Conventions
 

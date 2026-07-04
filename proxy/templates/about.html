@@ -42,10 +42,10 @@
   </section>
 
   <section class="card-list">
-    <h2>Two modes per project</h2>
-    <p><strong>Dev</strong> is for iteration. Push code, test, change it, throw it away. No audit log, no public verifier; trust is whatever you'd get on Vercel.</p>
-    <p><strong>Attested</strong> is the trust claim. The daemon records the source hash, opens an audit log, binds the hash into the TEE quote, and exposes the verifier endpoints to anonymous callers. Promotion is deliberate, like cutting a release.</p>
-    <p>A single CVM holds as many of each as you like. Most apps stay private. You share the URL of an attested project when someone needs to verify it.</p>
+    <h2>Two axes: visibility and attestation</h2>
+    <p><strong>Dev</strong> is for iteration. Push code, test, change it, throw it away. No audit log, no public verifier; trust is whatever you'd get on Vercel. Dev projects are private by default but can be made public for low-stakes sharing.</p>
+    <p><strong>Attested</strong> is the trust claim. The daemon records the source hash, opens an audit log, binds the hash into the TEE quote, and exposes the verifier endpoints to anonymous callers. Attested projects are public by default—their whole point is verifiable sharing.</p>
+    <p>A single CVM holds as many of each as you like. Dev projects stay private by default; promote to public-dev for sharing without attestation, or to attested when you need a verifiable claim.</p>
   </section>
 
   <section class="card-list">
