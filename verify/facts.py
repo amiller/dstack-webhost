@@ -93,6 +93,13 @@ class SourceFacts:
 
 
 @dataclass
+class OperatorDebugFacts:
+    """RFC 0029 declared operator-debug door facts (a fact, not a verdict)."""
+    enabled: bool = False
+    last_session_at: str = ""  # null until Half B opens audited sessions
+
+
+@dataclass
 class Facts:
     """
     Complete attestation facts for a TEE-hosted app.
@@ -116,6 +123,7 @@ class Facts:
     channel: ChannelFacts = field(default_factory=ChannelFacts)
     app_id: str = ""
     attestation_kind: Literal["daemon-vouched", "app-cvm", "unknown"] = "unknown"
+    operator_debug: OperatorDebugFacts = field(default_factory=OperatorDebugFacts)
     quote: QuoteFacts = field(default_factory=QuoteFacts)
     binding: BindingFacts = field(default_factory=BindingFacts)
     onchain: OnchainFacts = field(default_factory=OnchainFacts)
@@ -134,6 +142,10 @@ class Facts:
             },
             "app_id": self.app_id,
             "attestation_kind": self.attestation_kind,
+            "operator_debug": {
+                "enabled": self.operator_debug.enabled,
+                "last_session_at": self.operator_debug.last_session_at,
+            },
             "quote": {
                 "quote_valid": self.quote.quote_valid,
                 "quote_format": self.quote.quote_format,
@@ -521,6 +533,12 @@ async def verify(
         # RFC 0025: app-cvm would have a different quote structure
         facts.attestation_kind = "daemon-vouched"
 
+        # RFC 0029: surface the declared operator-debug door as a fact (no verdict).
+        app_block = bundle_data.get("app", {}) or {}
+        od = app_block.get("operator_debug") or {}
+        facts.operator_debug.enabled = bool(od.get("enabled", False))
+        facts.operator_debug.last_session_at = od.get("last_session_at", "") or ""
+
         # Verify quote
         facts.quote = _verify_quote_signature(quote_data)
         if facts.quote.verification_error:
@@ -595,6 +613,12 @@ async def verify_from_bundle(bundle_data: dict, chain_config: dict | None = None
             facts.binding.app_pubkey = quote_data.get("pubkey", "")
 
         facts.attestation_kind = "daemon-vouched"
+
+        # RFC 0029: surface the declared operator-debug door as a fact (no verdict).
+        app_block = bundle_data.get("app", {}) or {}
+        od = app_block.get("operator_debug") or {}
+        facts.operator_debug.enabled = bool(od.get("enabled", False))
+        facts.operator_debug.last_session_at = od.get("last_session_at", "") or ""
 
         # Verify quote
         facts.quote = _verify_quote_signature(quote_data)

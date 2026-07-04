@@ -124,6 +124,15 @@
             background: #e6fffa;
             color: #285e61;
         }
+        .badge.operator-debug {
+            background: #fefcbf;
+            color: #744210;
+        }
+        .lockdown-hint code {
+            background: #fffaf0;
+            padding: 0 0.2rem;
+            border-radius: 3px;
+        }
         .links {
             display: flex;
             gap: 0.5rem;
@@ -357,13 +366,19 @@
             const isolationBadge = project.isolation && project.isolation !== 'shared'
                 ? `<span class="badge isolation">${project.isolation}</span>`
                 : '';
+            const operatorDebugBadge = project.operator_debug
+                ? `<span class="badge operator-debug" title="Declared operator-debug door (RFC 0029)">operator-debug</span>`
+                : '';
 
             const ladder = project.ladder;
+            const lockDownHint = project.operator_debug
+                ? ` · <span class="lockdown-hint">remove <code>operator_debug</code> &amp; re-promote for fully-locked attested</span>`
+                : '';
             const ladderRow = ladder ? `
                 <tr class="ladder-row">
                     <td></td>
                     <td colspan="7">
-                        <span class="ladder-rung">${escapeHtml(ladder.label)}</span> · ${escapeHtml(ladder.next)}
+                        <span class="ladder-rung">${escapeHtml(ladder.label)}</span> · ${escapeHtml(ladder.next)}${lockDownHint}
                     </td>
                 </tr>
             ` : '';
@@ -378,6 +393,7 @@
                     <td>
                         <span class="badge runtime">${project.runtime}</span>
                         ${isolationBadge}
+                        ${operatorDebugBadge}
                     </td>
                     <td class="mono">${project.source || '-'}</td>
                     <td class="mono">${shortCommit}</td>

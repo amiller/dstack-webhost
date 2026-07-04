@@ -42,6 +42,10 @@ class Project:
     # for an in-container OpenVPN sidecar (CAP_NET_ADMIN + /dev/net/tun).
     cap_add: List[str] = field(default_factory=list)
     devices: List[str] = field(default_factory=list)
+    # RFC 0029: a declared, measured operator-debug door (full trust, audited). Honored
+    # ONLY for mode=="attested" (see deploy gate), so the door is always on the verifiable
+    # surface — its existence is part of the measurement, never a hidden side channel.
+    operator_debug: bool = False
 
     def __post_init__(self):
         if self.env is None:

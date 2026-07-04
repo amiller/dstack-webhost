@@ -184,6 +184,11 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     devices = repo_manifest.get("devices") or manifest.get("devices", []) or []
     if (cap_add or devices) and mode != "attested":
         raise ValueError("cap_add/devices require mode=attested")
+    # operator_debug is a measured boolean (RFC 0029); prefer the repo-committed value so
+    # tree_hash commits to it, mirroring cap_add. A declared door is full trust, attested-only.
+    operator_debug = bool(repo_manifest.get("operator_debug", manifest.get("operator_debug", False)))
+    if operator_debug and mode != "attested":
+        raise ValueError("operator_debug requires mode=attested")
     env_vars = {**repo_manifest.get("env", {}), **manifest.get("env", {})}
     isolation = manifest.get("isolation") or repo_manifest.get("isolation", "shared")
     if isolation not in ("shared", "container"):
@@ -237,7 +242,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         listen=listen_config, isolation=isolation,
         env_passthrough=manifest.get("env_passthrough") or repo_manifest.get("env_passthrough", []) or [],
         oci_runtime=manifest.get("oci_runtime", ""),
-        cap_add=cap_add, devices=devices,
+        cap_add=cap_add, devices=devices, operator_debug=operator_debug,
     )
     store.save(project)
 
@@ -257,7 +262,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         timestamp=time.time(), action="deploy", image=image, image_digest=digest,
         detail=json.dumps({"name": name, "mode": mode, "source": source, "ref": ref,
                            "commit": commit_sha, "tree_hash": tree_hash,
-                           "cap_add": cap_add, "devices": devices})))
+                           "cap_add": cap_add, "devices": devices,
+                           "operator_debug": operator_debug})))
 
     log.info("Deployed %s from %s@%s (%s)", name, source, ref or "HEAD", commit_sha[:12])
     return project
@@ -282,6 +288,9 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     devices = manifest.get("devices", []) or []
     if (cap_add or devices) and mode != "attested":
         raise ValueError("cap_add/devices require mode=attested")
+    operator_debug = bool(manifest.get("operator_debug", False))
+    if operator_debug and mode != "attested":
+        raise ValueError("operator_debug requires mode=attested")
     env_vars = manifest.get("env", {})
 
     listen_manifest = manifest.get("listen") or {}
@@ -308,6 +317,7 @@ async def _deploy_image(store: ProjectStore, audit_manager,
         image=image, image_port=image_port, volumes=volumes,
         env_passthrough=env_passthrough, listen=listen_config,
         oci_runtime=oci_runtime, cap_add=cap_add, devices=devices,
+        operator_debug=operator_debug,
     )
     store.save(project)
 
@@ -319,7 +329,10 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     await audit.record(AuditEntry(
         timestamp=time.time(), action="deploy", image=image, image_digest=digest,
         detail=json.dumps({"name": name, "image": image, "image_port": image_port,
-                           "image_digest": digest, "cap_add": cap_add, "devices": devices})))
+                           "image_digest": digest, "commit": manifest.get("commit_sha", ""),
+                           "tree_hash": manifest.get("tree_hash", ""),
+                           "cap_add": cap_add, "devices": devices,
+                           "operator_debug": operator_debug})))
 
     log.info("Deployed image project %s from %s (digest %s)", name, image, digest[:19])
     return project
