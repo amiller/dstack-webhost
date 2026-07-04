@@ -166,6 +166,44 @@ def test_caps_require_attested():
     print("  attested + caps accepted and surfaced on project ✓")
 
 
+def test_operator_debug():
+    """RFC 0029 Half A: operator_debug is a measured bool gated to attested mode."""
+    print("\n--- Test: operator_debug requires mode=attested (RFC 0029) ---")
+    repo = create_test_repo("test-opdebug", {
+        "index.html": b"<html><body>operator-debug</body></html>",
+    })
+    # dev mode (default) + operator_debug => rejected (door must be on the attested surface)
+    resp = api_post("/projects", json={"name": "test-opdebug", "source": repo,
+                                       "runtime": "static", "operator_debug": True})
+    assert resp.status_code >= 400, f"dev-mode operator_debug should be rejected, got {resp.status_code}"
+    assert "operator_debug requires mode=attested" in resp.text, resp.text
+    print(f"  dev-mode + operator_debug rejected ({resp.status_code}) ✓")
+    # attested mode + operator_debug => accepted, surfaced on project + verification bundle
+    resp = api_post("/projects", json={"name": "test-opdebug", "source": repo,
+                                       "runtime": "static", "mode": "attested",
+                                       "operator_debug": True})
+    assert resp.status_code == 201, f"attested operator_debug deploy failed: {resp.status_code} {resp.text}"
+    project = resp.json()
+    assert project["operator_debug"] is True, project
+    print("  attested + operator_debug accepted and surfaced on project ✓")
+    # The door is a live RFC 0020 fact in the verification bundle's app block
+    resp = api_get("/verification/test-opdebug")
+    assert resp.status_code == 200, f"verification failed: {resp.text}"
+    od = resp.json()["app"]["operator_debug"]
+    assert od["enabled"] is True, od
+    assert od["last_session_at"] == "", od  # null until Half B
+    print(f"  verification bundle surfaces operator_debug={od} ✓")
+    # A plain attested project (no door) reports enabled=False, not a missing key
+    repo2 = create_test_repo("test-opdebug-off", {"index.html": b"off"})
+    resp = api_post("/projects", json={"name": "test-opdebug-off", "source": repo2,
+                                       "runtime": "static", "mode": "attested"})
+    assert resp.status_code == 201, resp.text
+    resp = api_get("/verification/test-opdebug-off")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["app"]["operator_debug"]["enabled"] is False
+    print("  attested without operator_debug reports enabled=False ✓")
+
+
 def test_ingress_static():
     print("\n--- Test: static serving ---")
     resp = requests.get(f"{INGRESS}/test-static/")
@@ -942,7 +980,7 @@ def await_if_needed(func, *args, **kwargs):
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -959,6 +997,7 @@ def main():
         test_version()
         test_deploy_static()
         test_caps_require_attested()
+        test_operator_debug()
         test_ingress_static()
         test_scoped_tokens()
         test_git_blocked()

@@ -49,12 +49,20 @@ class SourceInfo:
 
 
 @dataclass
+class OperatorDebugInfo:
+    """RFC 0029 declared operator-debug door facts (a fact, not a verdict)."""
+    enabled: bool = False
+    last_session_at: str = ""  # null until Half B opens audited sessions
+
+
+@dataclass
 class AppInfo:
     """App-specific information."""
     project: str = ""
     source: SourceInfo = field(default_factory=SourceInfo)
     image_digest: str = ""
     binding_quote: dict = field(default_factory=dict)  # Daemon's promotion quote binding tree_hash
+    operator_debug: OperatorDebugInfo = field(default_factory=OperatorDebugInfo)
 
 
 @dataclass
@@ -161,6 +169,7 @@ async def fetch_bundle(endpoint: str, name: str, session: aiohttp.ClientSession)
                     source=SourceInfo(**data.get("app", {}).get("source", {})),
                     image_digest=data.get("app", {}).get("image_digest", ""),
                     binding_quote=data.get("app", {}).get("binding_quote", {}),
+                    operator_debug=OperatorDebugInfo(**(data.get("app", {}).get("operator_debug") or {})),
                 ),
             )
     except Exception as e:

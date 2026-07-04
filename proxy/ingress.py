@@ -879,6 +879,9 @@ class Ingress:
                 ),
                 image_digest=project.image_digest or "",
                 binding_quote=binding_quote,
+                operator_debug=evidence.OperatorDebugInfo(
+                    enabled=bool(project.operator_debug),
+                ),
             )
 
             # Get audit log (retained for backward compatibility, in main bundle for now)
