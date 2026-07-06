@@ -84,22 +84,44 @@ The mechanical part — proving the code running on this CVM is the same code in
     return;
   }
 
-  const p = data.project || {};
+  if (data.schema_version !== '1.0.0') {
+    statusEl.className = 'status fail';
+    statusEl.innerHTML = '<strong>Unrecognized bundle schema.</strong> This page understands schema 1.0.0; the daemon returned <code>' + escape(String(data.schema_version)) + '</code>.';
+    return;
+  }
+  const app = data.app || {};
+  const src = app.source || {};
+  const p = { source: src.repo, commit_sha: src.commit_sha, tree_hash: src.tree_hash };
   const audit = data.audit || [];
-  const quote = data.quote || {};
+  const quote = app.binding_quote || {};
+  const hasQuote = !!(quote.pubkey || (quote.signature_chain || []).length || (data.platform_quote || {}).quote);
+  // An image deploy pins a digest but carries no source provenance — a distinct, honest verdict, not a broken bundle.
+  const imageDeploy = !p.source && !!app.image_digest;
   const issues = [];
 
-  if (!p.source) issues.push('No source URL recorded.');
-  if (!p.commit_sha) issues.push('No commit SHA recorded.');
-  if (!p.tree_hash) issues.push('No tree hash recorded.');
-  if (!(quote.quote || quote.pubkey || quote.report)) issues.push('No TEE quote returned.');
+  if (!imageDeploy) {
+    if (!p.source) issues.push('No source URL recorded.');
+    if (!p.commit_sha) issues.push('No commit SHA recorded.');
+    if (!p.tree_hash) issues.push('No tree hash recorded.');
+  }
+  if (!hasQuote) issues.push('No TEE quote returned.');
   if (audit.length === 0) issues.push('Audit log is empty.');
+  else if (imageDeploy) {
+    // Image deploys go straight to attested with no promote; the honest requirement is a digest-pinned deploy reference.
+    const lastDeploy = [...audit].reverse().find(e => e.action === 'deploy');
+    if (!lastDeploy || !/@sha256:[0-9a-f]{64}/.test(lastDeploy.image || '')) issues.push('Deploy reference is not digest-pinned — a floating tag can be swapped after the fact.');
+  }
   else if (!audit.some(e => e.action === 'promote')) issues.push('Audit log has no promote event.');
 
   let githubTreeOk = null;
   let githubTreeSha = null;
   let ghOwner = null, ghRepo = null;
-  if (p.source && /github\.com/.test(p.source) && p.commit_sha) {
+  let treeCheckGap = null;
+  if (p.tree_hash && !/^[0-9a-f]{40}$/.test(p.tree_hash)) {
+    // The daemon emits a sha256-style tree hash; GitHub's API only exposes sha1 git tree hashes,
+    // so this page cannot cross-check it. Say so — do not render a false match or mismatch.
+    treeCheckGap = 'The daemon records a ' + p.tree_hash.length + '-char tree hash (kind: ' + (src.tree_hash_kind || '?') + '); GitHub exposes 40-char sha1 tree hashes, so this page cannot cross-check them. Verify the tree yourself: clone the repo at the commit and recompute.';
+  } else if (p.source && /github\.com/.test(p.source) && p.commit_sha) {
     const m = p.source.match(/github\.com\/([^\/]+)\/([^\/?#]+?)(?:\.git)?(?:[?#].*)?$/);
     if (m) {
       ghOwner = m[1]; ghRepo = m[2];
@@ -140,7 +162,13 @@ The mechanical part — proving the code running on this CVM is the same code in
   const sourceHref = p.source && p.commit_sha ? p.source + '/tree/' + p.commit_sha : (p.source || '#');
   const sourceLink = '<a class="source-link" href="' + escape(sourceHref) + '" target="_blank">' + escape(sourceLabel) + ' @ ' + escape(commitShort) + '</a>';
 
-  if (issues.length === 0) {
+  if (issues.length === 0 && imageDeploy) {
+    statusEl.className = 'status partial';
+    statusEl.innerHTML = '<strong>Attested image deploy — no source provenance.</strong> The CVM runs image <code>' + escape(app.image_digest.slice(0, 26)) + '…</code>, pinned by a dstack-signed quote, but the daemon has no source repo or commit for it. An auditor cannot tie this container to public code; treat it like a binary you were handed. Audit log: ' + escape(auditSummary) + '.';
+  } else if (issues.length === 0 && treeCheckGap) {
+    statusEl.className = 'status partial';
+    statusEl.innerHTML = 'The CVM is running ' + sourceLink + '. The TEE quote is signed by Phala dstack and binds that source hash; the audit log has been ' + escape(auditSummary) + '. <strong>One gap:</strong> ' + escape(treeCheckGap);
+  } else if (issues.length === 0) {
     statusEl.className = 'status pass';
     statusEl.innerHTML = 'The CVM is running ' + sourceLink + '. The TEE quote is signed by Phala dstack and binds that source hash; the audit log has been ' + escape(auditSummary) + '. The mechanical part of the audit checks out.';
   } else {
@@ -156,15 +184,19 @@ The mechanical part — proving the code running on this CVM is the same code in
   const verificationUrl = daemon + '/_api/verification/' + encodeURIComponent(project);
 
   const bundleArtifacts = [
-    {
+    imageDeploy ? {
       title: 'Source code',
-      body: 'Pinned to commit <code>' + escape(p.commit_sha || '?') + '</code> in <a href="' + escape(p.source || '#') + '" target="_blank">' + escape(sourceLabel) + '</a>. Tree SHA <code>' + escape((p.tree_hash || '').slice(0, 16)) + '…</code>'
-        + (githubTreeSha ? (githubTreeOk ? ' matches GitHub.' : ' does <strong>not</strong> match GitHub (<code>' + escape(githubTreeSha.slice(0, 16)) + '…</code>).') : '.'),
+      body: '<strong>None recorded.</strong> This project was deployed as an image, digest <code>' + escape(app.image_digest.slice(0, 26)) + '…</code>. There is no repo or commit to read.',
+      audit: 'An auditor has nothing to read here — the trust argument stops at the image digest.',
+    } : {
+      title: 'Source code',
+      body: 'Pinned to commit <code>' + escape(p.commit_sha || '?') + '</code> in <a href="' + escape(p.source || '#') + '" target="_blank">' + escape(sourceLabel) + '</a>. Tree hash <code>' + escape((p.tree_hash || '').slice(0, 16)) + '…</code>'
+        + (githubTreeSha ? (githubTreeOk ? ' matches GitHub.' : ' does <strong>not</strong> match GitHub (<code>' + escape(githubTreeSha.slice(0, 16)) + '…</code>).') : (treeCheckGap ? ' — ' + escape(treeCheckGap) : '.')),
       audit: 'An auditor reads the diff at this commit and decides whether the logic is sound.',
     },
     {
       title: 'TEE attestation',
-      body: 'A dstack-signed quote is available at <a href="' + escape(attestUrl) + '" target="_blank">/_api/attest/' + escape(project) + '</a>. ' + (quote.quote || quote.pubkey || quote.report ? 'It is present and binds this source hash to the running CVM.' : '<strong>Missing.</strong>'),
+      body: 'A dstack-signed quote is available at <a href="' + escape(attestUrl) + '" target="_blank">/_api/attest/' + escape(project) + '</a>. ' + (hasQuote ? (imageDeploy ? 'It is present and binds this image digest to the running CVM.' : 'It is present and binds this source hash to the running CVM.') : '<strong>Missing.</strong>'),
       audit: 'An auditor verifies the quote\'s signature chain against the Phala base contract that anchors this CVM\'s app id.',
     },
     {
