@@ -31,6 +31,11 @@
   .badge.unattested { background: #6e7781; color: #fff; }
   .badge.public { background: #0969da; color: #fff; }
   .badge.private { background: #d4d8de; color: #24292f; }
+  .badge.owner { background: #bf8700; color: #fff; }
+  .card.owner-only { border-style: dashed; border-color: #d4a72c; background: #fffbea; }
+  .owner-status { font-size: 0.88em; margin: 0 0 0.75rem; }
+  .owner-status.authed { color: #1a7f37; }
+  .owner-status.rejected { color: #9a6700; }
   /* hero chain */
   .chain { display: grid; gap: 0; }
   .step { display: grid; grid-template-columns: 2rem 1fr; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid #eef1f4; }
@@ -71,6 +76,7 @@
   <section class="card-list">
     <h2>Apps deployed here</h2>
     <p class="sub">Two independent axes per app — <strong>attestation</strong> (does the running code bind to a source hash?) and <strong>visibility</strong> (is it advertised?). Hover a badge to see exactly what it claims.</p>
+    <p id="owner-status" class="owner-status"></p>
     <div id="apps"><p class="muted">Loading…</p></div>
   </section>
 </main>
@@ -80,15 +86,67 @@
   <a href="/about">About this CVM</a>
   ·
   <a href="https://amiller.github.io/dstack-webhost/" target="_blank">About this platform →</a>
+  ·
+  <span id="owner-link"></span>
 </div>
 <script>
 (function() {
   const BASE = window.__TEE_BASE__ || '';
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const getJSON = async path => {
-    const r = await fetch(BASE + path, { headers: { Accept: 'application/json' } });
+  const getJSON = async (path, bearer) => {
+    const headers = { Accept: 'application/json' };
+    if (bearer) headers['Authorization'] = 'Bearer ' + bearer;
+    const r = await fetch(BASE + path, { headers });
     if (!r.ok) throw new Error(path + ' → ' + r.status);
     return r.json();
+  };
+
+  // Owner-token login (localStorage). The pod owner authenticates to see the
+  // non-attested/private projects the anonymous listing hides. The token is
+  // never rendered anywhere on the page after entry.
+  const TOKEN_KEY = 'tee_owner_token';
+  const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
+  const setToken = t => { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {} };
+  const clearToken = () => { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} };
+
+  // The root listing returns 200 with the public set even for a wrong bearer,
+  // so a presented token is validated separately via /_api/projects, which
+  // answers 401/403 when the bearer is not a valid owner token. Returns true
+  // (valid), false (rejected), or null (indeterminate — leave the token be).
+  const probeToken = async token => {
+    try {
+      const r = await fetch(BASE + '/_api/projects', { headers: { Authorization: 'Bearer ' + token } });
+      if (r.status === 200) return true;
+      if (r.status === 401 || r.status === 403) return false;
+      return null;
+    } catch (e) { return null; }
+  };
+
+  const promptAndLogin = () => {
+    const t = window.prompt('Enter your owner token (API_TOKEN):') || '';
+    if (!t) return;
+    setToken(t);
+    location.reload();
+  };
+
+  const setOwnerStatus = (state) => {
+    const bar = document.getElementById('owner-status');
+    const link = document.getElementById('owner-link');
+    bar.className = 'owner-status';
+    bar.textContent = '';
+    if (state === 'authed') {
+      bar.className = 'owner-status authed';
+      bar.textContent = 'Viewing as owner — non-attested projects are shown.';
+      link.innerHTML = 'viewing as owner · <a href="#" id="owner-logout">logout</a>';
+      document.getElementById('owner-logout').onclick = e => { e.preventDefault(); clearToken(); location.reload(); };
+    } else {
+      if (state === 'rejected') {
+        bar.className = 'owner-status rejected';
+        bar.textContent = 'Owner token rejected — showing the public view.';
+      }
+      link.innerHTML = '<a href="#" id="owner-login">owner login</a>';
+      document.getElementById('owner-login').onclick = e => { e.preventDefault(); promptAndLogin(); };
+    }
   };
 
   const setStep = (n, ok, html) => {
@@ -193,12 +251,16 @@
       const visBadge = p.public
         ? '<span class="badge public" title="Public: advertised on this landing page. Says nothing about attestation.">public</span>'
         : '<span class="badge private" title="Private: reachable by URL but not advertised. Says nothing about attestation.">private</span>';
+      const ownerOnly = p.mode !== 'attested' && !p.public;
+      const ownerBadge = ownerOnly
+        ? '<span class="badge owner" title="Owner-only: not attested and not public — visible only because you are authenticated as the owner.">owner-only</span>'
+        : '';
       const sourceLink = p.source && /github\.com/.test(p.source)
         ? '<a href="' + esc(p.source) + (p.commit_sha ? '/tree/' + esc(p.commit_sha) : '') + '" target="_blank">source</a>' : '';
       const runLink = '<a href="/' + esc(name) + '/">open</a>';
       const verifyLink = '<a href="' + verifyBase + '?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '" target="_blank">verify</a>';
       const meta = p.commit_sha ? 'commit ' + esc(p.commit_sha.slice(0, 7)) : '';
-      return '<div class="card"><h3>' + esc(name) + attBadge + visBadge + '</h3>' +
+      return '<div class="card' + (ownerOnly ? ' owner-only' : '') + '"><h3>' + esc(name) + attBadge + visBadge + ownerBadge + '</h3>' +
         (meta ? '<div class="meta">' + meta + '</div>' : '') +
         '<div class="links">' + runLink + ' · ' + verifyLink + (sourceLink ? ' · ' + sourceLink : '') + '</div></div>';
     }).join('') + '</div>';
@@ -206,9 +268,18 @@
 
   (async function() {
     let projects;
+    setOwnerStatus('anon');
     try {
-      const data = await getJSON('/');
+      const token = getToken();
+      let authed = false, rejected = false, bearer = null;
+      if (token) {
+        const ok = await probeToken(token);
+        if (ok === true) { authed = true; bearer = token; }
+        else if (ok === false) { clearToken(); rejected = true; }
+      }
+      const data = await getJSON('/', bearer);
       projects = data.projects || {};
+      if (authed || rejected) setOwnerStatus(authed ? 'authed' : 'rejected');
     } catch (e) {
       document.getElementById('hero').innerHTML = '<p class="err">Could not load projects: ' + esc(e.message) + '</p>';
       document.getElementById('apps').innerHTML = '<p class="err">Could not load: ' + esc(e.message) + '</p>';
