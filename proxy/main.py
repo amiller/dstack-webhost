@@ -18,6 +18,7 @@ from .tunnel import TunnelStore
 from .tokens import TokenStore
 from .broker import BrokerStore, BrokerProxy
 from . import ingress as ingress_mod
+from . import deploy as deploy_mod
 from .ingress import Ingress
 
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
@@ -44,6 +45,7 @@ async def start():
 
     dstack_sock = DSTACK_SOCK if os.path.exists(DSTACK_SOCK) else None
     ingress_mod.DSTACK_SOCK = dstack_sock
+    deploy_mod.DSTACK_SOCK = dstack_sock
 
     tracker = ContainerTracker()
     audit_manager = AuditLogManager(AUDIT_DIR)

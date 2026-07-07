@@ -46,6 +46,12 @@ class Project:
     # ONLY for mode=="attested" (see deploy gate), so the door is always on the verifiable
     # surface — its existence is part of the measurement, never a hidden side channel.
     operator_debug: bool = False
+    # RFC 0025 per-app attestation fields
+    app_id: str = ""  # TDX workload app_id (from TDX_WORKLOAD_ID env var or GetKey response)
+    app_pubkey: str = ""  # KMS-derived per-path compressed public key (hex)
+    binding_quote: str = ""  # TDX quote binding app_id/name/tree_hash/app_pubkey (hex)
+    report_data: str = ""  # SHA-512 of preimage (64 bytes, hex)
+    attestation_kind: str = ""  # "daemon-vouched" or "app-cvm"
 
     def __post_init__(self):
         if self.env is None:
