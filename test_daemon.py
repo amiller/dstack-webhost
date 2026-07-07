@@ -1019,6 +1019,175 @@ def test_tier0_source_binding_survives_promote():
     print(f"  audit recorded deploy+promote: {actions} ✓")
 
 
+def test_dstack_proxy_project_scoped():
+    """Issue #80/#7: GetKey must derive the key path from the proxy's bound
+    project_id (never a caller-supplied path), and reject traversal-shaped names.
+
+    Mirrors the operator's vulnerable->fixed demo: an own-project key is derived
+    correctly, and a cross-project `path` cannot redirect derivation.
+    """
+    import asyncio
+    import shutil
+    import aiohttp
+    from aiohttp import web
+    from proxy.dstack_proxy import DstackProxy
+
+    print("\n--- Test: dstack GetKey scoped to bound project (#80) ---")
+
+    async def fake_upstream(request):
+        # Echo the (possibly rewritten) body so the test sees what path the proxy
+        # actually forwarded to dstack.
+        body = await request.read()
+        return web.Response(body=body, content_type="application/json")
+
+    async def run():
+        tmp = tempfile.mkdtemp(prefix="dstack-proxy-test-")
+        try:
+            upstream_sock = os.path.join(tmp, "upstream.sock")
+            up_app = web.Application()
+            up_app.router.add_route("*", "/{path:.*}", fake_upstream)
+            up_runner = web.AppRunner(up_app)
+            await up_runner.setup()
+            await web.UnixSite(up_runner, upstream_sock).start()
+
+            proxy = DstackProxy(upstream_sock, "projA")
+            px_app = web.Application()
+            px_app.router.add_route("*", "/{path:.*}", proxy.handle)
+            px_runner = web.AppRunner(px_app)
+            await px_runner.setup()
+            client_sock = os.path.join(tmp, "proxy.sock")
+            await web.UnixSite(px_runner, client_sock).start()
+
+            conn = aiohttp.UnixConnector(path=client_sock)
+            async with aiohttp.ClientSession(connector=conn) as s:
+                # own-key derives projA/master
+                async with s.post("http://localhost/GetKey", json={"name": "master"}) as r:
+                    assert r.status == 200, r.status
+                    assert (await r.json())["path"] == "/tee-daemon/projects/projA/master"
+                # legacy cross-project path is IGNORED -> still projA/master
+                async with s.post("http://localhost/GetKey", json={
+                    "name": "master",
+                    "path": "/tee-daemon/projects/projB/secret",
+                }) as r:
+                    assert r.status == 200, r.status
+                    assert (await r.json())["path"] == "/tee-daemon/projects/projA/master"
+                # bad names rejected (traversal / empty / leading dot)
+                for bad in ["", "../x", "a/b", "a\\b", ".hidden", "a..b"]:
+                    async with s.post("http://localhost/GetKey", json={"name": bad}) as r:
+                        assert r.status == 400, (bad, r.status)
+                # a different project's proxy derives its OWN key (no cross-talk)
+                proxyB = DstackProxy(upstream_sock, "projB")
+                b_app = web.Application()
+                b_app.router.add_route("*", "/{path:.*}", proxyB.handle)
+                b_runner = web.AppRunner(b_app)
+                await b_runner.setup()
+                b_sock = os.path.join(tmp, "proxyB.sock")
+                await web.UnixSite(b_runner, b_sock).start()
+                bconn = aiohttp.UnixConnector(path=b_sock)
+                async with aiohttp.ClientSession(connector=bconn) as s2:
+                    async with s2.post("http://localhost/GetKey", json={"name": "master"}) as r:
+                        assert (await r.json())["path"] == "/tee-daemon/projects/projB/master"
+                await b_runner.cleanup()
+                # non-GetKey methods still pass through (no name required)
+                async with s.post("http://localhost/Info", json={}) as r:
+                    assert r.status == 200, r.status
+                # disallowed method denied
+                async with s.post("http://localhost/RawSign", json={}) as r:
+                    assert r.status == 403, r.status
+            await px_runner.cleanup()
+            await up_runner.cleanup()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    asyncio.run(run())
+    print("  project-scoped GetKey derivation OK ✓")
+
+
+def test_dstack_proxy_manager_per_project():
+    """Issue #80: DstackProxyManager serves one project-scoped socket per project
+    (dstack.sock + creds.sock in each project's own subdir), so a project's
+    container can be given only its own broker dir."""
+    import asyncio
+    import shutil
+    import aiohttp
+    from aiohttp import web
+    from proxy.dstack_proxy import DstackProxyManager
+
+    print("\n--- Test: DstackProxyManager per-project sockets (#80) ---")
+
+    async def fake_upstream(request):
+        body = await request.read()
+        return web.Response(body=body, content_type="application/json")
+
+    async def creds_handler(request):
+        # Stand-in for BrokerProxy: token-auth is irrelevant here; we only verify
+        # the SAME runner is reachable on every project's creds.sock.
+        return web.json_response({"ok": True})
+
+    async def run():
+        tmp = tempfile.mkdtemp(prefix="dstack-mgr-test-")
+        broker_dir = os.path.join(tmp, "broker")
+        os.makedirs(broker_dir)
+        try:
+            upstream_sock = os.path.join(tmp, "upstream.sock")
+            up_app = web.Application()
+            up_app.router.add_route("*", "/{path:.*}", fake_upstream)
+            up_runner = web.AppRunner(up_app)
+            await up_runner.setup()
+            await web.UnixSite(up_runner, upstream_sock).start()
+
+            creds_app = web.Application()
+            creds_app.router.add_route("*", "/{path:.*}", creds_handler)
+            creds_runner = web.AppRunner(creds_app)
+            await creds_runner.setup()
+
+            mgr = DstackProxyManager(upstream_sock, broker_dir, creds_runner)
+            await mgr.ensure("projA")
+            await mgr.ensure("projB")
+
+            # Each project got its OWN dstack.sock + creds.sock in its own subdir.
+            for p in ("projA", "projB"):
+                assert os.path.exists(os.path.join(broker_dir, p, "dstack.sock"))
+                assert os.path.exists(os.path.join(broker_dir, p, "creds.sock"))
+
+            async def getkey(project, name):
+                conn = aiohttp.UnixConnector(path=os.path.join(broker_dir, project, "dstack.sock"))
+                async with aiohttp.ClientSession(connector=conn) as s:
+                    async with s.post("http://localhost/GetKey", json={"name": name}) as r:
+                        return r.status, (await r.json()).get("path")
+
+            # projA's socket derives projA's key; projB's derives projB's — no cross-talk.
+            st, path = await getkey("projA", "master")
+            assert st == 200 and path == "/tee-daemon/projects/projA/master", (st, path)
+            st, path = await getkey("projB", "master")
+            assert st == 200 and path == "/tee-daemon/projects/projB/master", (st, path)
+
+            # The shared creds runner is reachable on BOTH project sockets.
+            for p in ("projA", "projB"):
+                conn = aiohttp.UnixConnector(path=os.path.join(broker_dir, p, "creds.sock"))
+                async with aiohttp.ClientSession(connector=conn) as s:
+                    async with s.post("http://localhost/proxy/g-x", json={}) as r:
+                        assert r.status == 200, (p, r.status)
+                        assert (await r.json()) == {"ok": True}
+
+            # ensure is idempotent; remove tears the project's sockets down.
+            await mgr.ensure("projA")
+            await mgr.remove("projA")
+            assert not os.path.exists(os.path.join(broker_dir, "projA", "dstack.sock"))
+            assert not os.path.exists(os.path.join(broker_dir, "projA", "creds.sock"))
+            # projB unaffected by projA's removal.
+            assert os.path.exists(os.path.join(broker_dir, "projB", "dstack.sock"))
+
+            await mgr.stop_all()
+            await creds_runner.cleanup()
+            await up_runner.cleanup()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    asyncio.run(run())
+    print("  per-project broker sockets (dstack + creds) OK ✓")
+
+
 def await_if_needed(func, *args, **kwargs):
     """Helper to run async functions in sync context if needed."""
     import asyncio
@@ -1042,6 +1211,8 @@ def main():
     cleanup_containers()
     start_daemon()
     try:
+        test_dstack_proxy_project_scoped()
+        test_dstack_proxy_manager_per_project()
         test_auth()
         test_version()
         test_deploy_static()

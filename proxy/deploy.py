@@ -350,6 +350,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     )
     store.save(project)
 
+    await rtm.ensure_project_broker(name)
+
     if isolation == "container" and runtime in ("deno", "bun"):
         digest = await rtm.start_isolated(project)
     else:
@@ -425,6 +427,8 @@ async def _deploy_image(store: ProjectStore, audit_manager,
     )
     store.save(project)
 
+    await rtm.ensure_project_broker(name)
+
     digest = await rtm.start_image(project)
     project.image_digest = digest
     store.save(project)
@@ -459,6 +463,8 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
         await rtm.stop_isolated(name)
     elif project.runtime not in ("static", "dockerfile"):
         await rtm.refresh(project.runtime)
+
+    await rtm.remove_project_broker(name)
 
     log.info("Torn down %s", name)
 
