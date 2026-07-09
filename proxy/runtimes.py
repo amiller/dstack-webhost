@@ -26,24 +26,19 @@ DATA_VOLUME_NAME = os.environ.get("DAEMON_DATA_VOLUME_NAME", "")
 DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 # Named volume backing the daemon's BROKER_SOCKET_DIR, which holds ONLY the
 # already-filtered dstack broker socket (proxy/main.py serves it at
-# BROKER_SOCKET_DIR/dstack.sock). It is deliberately separate from PROXY_DIR,
-# which also holds docker.sock (the docker-control proxy) — apps must NOT get
-# that. Under Docker-in-Docker the daemon can't bind a host path into sibling
-# containers, so the broker lives on a named volume mounted by both. When set,
-# attested app containers mount it at /run/broker (broker at
-# /run/broker/dstack.sock; nothing else). Mirrors DAEMON_VOLUME_NAME.
-BROKER_VOLUME_NAME = os.environ.get("BROKER_VOLUME_NAME", "")
+# BROKER_SOCKET_DIR/<project>/dstack.sock). It is deliberately separate from
+# PROXY_DIR, which also holds docker.sock (the docker-control proxy) — apps
+# must NOT get that. Each project gets its OWN subdir (one project-scoped
+# DstackProxy per project — see dstack_proxy.DstackProxyManager), and a
+# project's container is mounted ONLY its own subdir, so it cannot reach
+# another project's broker socket (cross-tenant key derivation, issue #7).
+# Under Docker-in-Docker the daemon can't bind its own container path into a
+# sibling, so the operator points BROKER_HOST_PATH at the host path that backs
+# BROKER_SOCKET_DIR (e.g. bind-mount /var/run/tee-broker:/var/run/broker and set
+# BROKER_HOST_PATH=/var/run/tee-broker). Mirrors DAEMON_VOLUME_NAME.
+BROKER_HOST_PATH = os.environ.get("BROKER_HOST_PATH", "")
 BROKER_MOUNT_IN_APP = "/run/broker"
 IMAGE_APP_RESTART_POLICY = {"Name": "on-failure", "MaximumRetryCount": 5}
-
-
-def _attested_broker_binds(mode: str) -> list[str]:
-    """Bind ONLY the filtered dstack broker socket into attested app containers,
-    at a dedicated path (no docker.sock, no /var/run clobber).
-    Read-only is fine: connect() doesn't write the socket file."""
-    if mode != "attested" or not BROKER_VOLUME_NAME:
-        return []
-    return [f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"]
 
 
 def _project_uses_broker(project) -> bool:
@@ -51,6 +46,29 @@ def _project_uses_broker(project) -> bool:
     if not project.env:
         return False
     return any(str(v).startswith("broker:") for v in project.env.values())
+
+
+def _project_needs_broker(project) -> bool:
+    """A project needs its broker dir mounted if it is attested (GetKey/GetQuote
+    via the dstack proxy) or uses broker: credential handles (creds.sock)."""
+    return project.mode == "attested" or _project_uses_broker(project)
+
+
+def _project_broker_binds(project) -> list[str]:
+    """Mount ONLY this project's own broker subdir into a container-isolated
+    project's container. Read-only is fine: connect() doesn't write the socket."""
+    if not BROKER_HOST_PATH or not _project_needs_broker(project):
+        return []
+    return [f"{BROKER_HOST_PATH}/{project.name}:{BROKER_MOUNT_IN_APP}:ro"]
+
+
+def _shared_broker_binds() -> list[str]:
+    """Shared runtime (one container, many projects): co-tenants are co-trust by
+    construction (shared V8/fs/env), so per-project isolation is moot here —
+    mount the broker parent read-only for reachability."""
+    if not BROKER_HOST_PATH:
+        return []
+    return [f"{BROKER_HOST_PATH}:{BROKER_MOUNT_IN_APP}:ro"]
 # Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").
 # Empty string keeps Docker's default (runc).
 CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
@@ -288,6 +306,7 @@ class RuntimeManager:
         self.image_cids: dict[str, str] = {}  # project name -> cid
         self.broker_store = None  # Set by main.py after broker init
         self.broker_tokens: dict[str, str] = {}  # broker_token -> project name
+        self.broker_proxy_manager = None  # Set by main.py; per-project dstack proxies
 
     async def refresh(self, runtime: str):
         if runtime == "static" or runtime == "dockerfile":
@@ -361,14 +380,11 @@ class RuntimeManager:
                 binds.append(f"{DATA_VOLUME_NAME}:{DATA_VOLUME_MOUNT_IN_RUNTIME}:rw")
                 data_root = DATA_VOLUME_MOUNT_IN_RUNTIME
 
-            # Expose the filtered dstack broker to attested shared-runtime tenants.
-            binds += _attested_broker_binds(mode)
-
-            # Expose creds.sock if any project in this runtime uses broker
-            if BROKER_VOLUME_NAME and any(_project_uses_broker(p) for p in mode_projects):
-                creds_bind = f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"
-                if creds_bind not in binds:
-                    binds.append(creds_bind)
+            # Expose the broker to shared-runtime tenants that need it. Co-tenants
+            # here are co-trust (one V8 isolate, shared fs/env), so the broker
+            # parent is mounted whole rather than per-project.
+            if BROKER_HOST_PATH and any(_project_needs_broker(p) for p in mode_projects):
+                binds += _shared_broker_binds()
 
             # Write router with correct projects root, filtering by mode
             router_code = config["router_code"].replace("/projects/", f"{projects_root}/").replace('"/projects"', f'"{projects_root}"')
@@ -468,18 +484,11 @@ class RuntimeManager:
         binds.append(f"{proj_data_volume}:/data:rw")
         data_dir_in = "/data"
 
-        broker_binds = _attested_broker_binds(project.mode)
+        broker_binds = _project_broker_binds(project)
         binds += broker_binds
         broker_sock = f"{BROKER_MOUNT_IN_APP}/dstack.sock" if broker_binds else ""
-
-        # Add creds.sock if project uses broker handles
-        if _project_uses_broker(project) and BROKER_VOLUME_NAME:
-            creds_bind = f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"
-            if creds_bind not in binds:
-                binds.append(creds_bind)
-            creds_sock = f"{BROKER_MOUNT_IN_APP}/creds.sock"
-            read_paths.append(creds_sock)
-            write_paths.append(creds_sock)
+        uses_creds = _project_uses_broker(project) and bool(broker_binds)
+        creds_sock = f"{BROKER_MOUNT_IN_APP}/creds.sock" if uses_creds else ""
 
         labels = {
             "tee-proxy.managed": "true",
@@ -490,8 +499,9 @@ class RuntimeManager:
         if project.mode == "attested":
             labels["tee-daemon.attested"] = "true"
 
-        read_paths = [files_in, entry_in] + ([data_dir_in] if data_dir_in else []) + ([broker_sock] if broker_sock else [])
-        write_paths = ([data_dir_in] if data_dir_in else []) + ([broker_sock] if broker_sock else [])
+        socket_paths = [s for s in (broker_sock, creds_sock) if s]
+        read_paths = [files_in, entry_in] + ([data_dir_in] if data_dir_in else []) + socket_paths
+        write_paths = ([data_dir_in] if data_dir_in else []) + socket_paths
         cmd = [
             "deno", "run", "--no-prompt",
             f"--allow-read={','.join(read_paths)}",
@@ -511,8 +521,8 @@ class RuntimeManager:
                 env[key] = val
 
         # Inject broker socket path and token if project uses broker
-        if _project_uses_broker(project) and BROKER_VOLUME_NAME:
-            env["BROKER_SOCKET"] = f"{BROKER_MOUNT_IN_APP}/creds.sock"
+        if uses_creds:
+            env["BROKER_SOCKET"] = creds_sock
             broker_token = self._generate_broker_token(project.name)
             env["BROKER_TOKEN"] = broker_token
         cmd += [
@@ -560,13 +570,8 @@ class RuntimeManager:
             await self.docker.stop(existing)
             await self.docker.remove(existing)
             self.tracker.remove(existing)
-        binds = list(_attested_broker_binds(project.mode))
-
-        # Add creds.sock if project uses broker handles
-        if _project_uses_broker(project) and BROKER_VOLUME_NAME:
-            creds_bind = f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"
-            if creds_bind not in binds:
-                binds.append(creds_bind)
+        binds = list(_project_broker_binds(project))
+        uses_creds = _project_uses_broker(project) and bool(binds)
         for v in project.volumes or []:
             await self.docker.ensure_volume(v["name"])
             binds.append(f"{v['name']}:{v['mount']}")
@@ -584,7 +589,7 @@ class RuntimeManager:
                 env.append(f"{key}={val}")
 
         # Inject broker socket path and token if project uses broker
-        if _project_uses_broker(project) and BROKER_VOLUME_NAME:
+        if uses_creds:
             env.append(f"BROKER_SOCKET={BROKER_MOUNT_IN_APP}/creds.sock")
             broker_token = self._generate_broker_token(project.name)
             env.append(f"BROKER_TOKEN={broker_token}")
@@ -621,6 +626,20 @@ class RuntimeManager:
     def set_broker_store(self, broker_store):
         """Set the broker store (called by main.py after init)."""
         self.broker_store = broker_store
+
+    def set_broker_proxy_manager(self, mgr):
+        """Set the per-project dstack proxy manager (called by main.py after init)."""
+        self.broker_proxy_manager = mgr
+
+    async def ensure_project_broker(self, name: str):
+        """Create this project's per-project broker sockets (idempotent)."""
+        if self.broker_proxy_manager:
+            await self.broker_proxy_manager.ensure(name)
+
+    async def remove_project_broker(self, name: str):
+        """Tear down this project's per-project broker sockets."""
+        if self.broker_proxy_manager:
+            await self.broker_proxy_manager.remove(name)
 
     def get_broker_project(self, token: str) -> str | None:
         """Get the project name for a broker token, or None if invalid."""
