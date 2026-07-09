@@ -22,6 +22,40 @@ AUTH = {"Authorization": f"Bearer {TEST_TOKEN}"}
 daemon_proc = None
 tmpdir = None
 
+# RFC 0028 fake browser-bridge: a Deno stdlib HTTP server implementing the
+# pool's contract (/health, /session, /render, /reset). /render sleeps so
+# concurrency is observable and reports max_active so the test can prove the
+# pool serializes leases. State is in-memory; /reset clears it.
+FAKE_BROWSER_BRIDGE = r"""
+const sessions = new Map();
+let active = 0, maxActive = 0;
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj),
+    {status, headers: {"content-type": "application/json"}});
+}
+Deno.serve({port: 3000}, async (req) => {
+  const u = new URL(req.url);
+  if (req.method === "GET" && u.pathname === "/health") return json({ok: true});
+  if (req.method === "POST") {
+    let body = {};
+    try { body = await req.json(); } catch (_) {}
+    if (u.pathname === "/session") {
+      sessions.set(String(body.domain || ""), String(body.cookies ?? ""));
+      return json({ok: true});
+    }
+    if (u.pathname === "/render") {
+      active++; if (active > maxActive) maxActive = active;
+      await new Promise((r) => setTimeout(r, 400));
+      const v = sessions.get(String(body.domain || "")) ?? "";
+      active--;
+      return json({body: v, max_active: maxActive});
+    }
+    if (u.pathname === "/reset") { sessions.clear(); return json({ok: true}); }
+  }
+  return json({error: "not found"}, 404);
+});
+"""
+
 
 def api_post(path, **kwargs):
     return requests.post(f"{API}{path}", headers=AUTH, **kwargs)
@@ -79,6 +113,22 @@ def start_daemon():
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
         "FOO": "isolated-deno-passthrough",
     }
+    # RFC 0028: enable a 1-slot browser pool driven by a fake browser-bridge
+    # (Deno, stdlib) that implements the pool's HTTP contract. Lets the
+    # end-to-end suite prove isolation/reset/fairness with real docker without
+    # depending on a real Neko/Chromium image.
+    fake_dir = os.path.join(tmpdir, "fake-browser")
+    os.makedirs(fake_dir, exist_ok=True)
+    with open(os.path.join(fake_dir, "server.ts"), "w") as f:
+        f.write(FAKE_BROWSER_BRIDGE)
+    env.update({
+        "BROWSER_POOL_IMAGE": "denoland/deno:latest",
+        "BROWSER_POOL_CMD": "deno run --allow-net /app/server.ts",
+        "BROWSER_POOL_BINDS": f"{fake_dir}:/app:ro",
+        "BROWSER_POOL_SIZE": "1",
+        "BROWSER_POOL_PORT": "3000",
+        "BROWSER_POOL_LEASE_TTL": "5",
+    })
     daemon_proc = subprocess.Popen(
         [sys.executable, "-m", "proxy.main"],
         cwd=os.path.dirname(__file__),
@@ -105,6 +155,9 @@ def cleanup_containers():
         ["docker", "rm", "-f", "tee-runtime-deno", "tee-runtime-node", "tee-runtime-python"],
         capture_output=True)
     subprocess.run(["docker", "network", "rm", "tee-apps"], capture_output=True)
+    # RFC 0028 browser pool containers (tee-browser-*)
+    subprocess.run("docker rm -f $(docker ps -aq --filter name=tee-browser-) 2>/dev/null || true",
+                   shell=True, capture_output=True)
 
 
 def test_auth():
@@ -1027,6 +1080,76 @@ def await_if_needed(func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
+def test_browser_pool():
+    """RFC 0028: pool isolates per-lease jars, resets between leases, and
+    serializes/fairly-queues acquires against a 1-slot pool."""
+    from concurrent.futures import ThreadPoolExecutor
+    print("\n--- Test: RFC 0028 browser pool (isolation/reset/fairness/timeout) ---")
+
+    # The pool warms in the background (image pull + health poll); wait for it.
+    status = None
+    for _ in range(80):
+        r = api_get("/browser/pool")
+        if r.status_code == 200 and r.json().get("started"):
+            status = r.json()
+            break
+        time.sleep(0.5)
+    assert status, f"browser pool never became ready: {r.status_code} {r.text}"
+    assert status["size"] == 1, status
+    print(f"  pool ready: size={status['size']} ✓")
+
+    # --- per-lease isolation + reset (the core 0028 fix) ---
+    # Lease A injects USER_A and renders -> sees USER_A.
+    r = api_post("/browser/render", json={"domain": "example.com", "jar": "USER_A", "url": "/me"})
+    assert r.status_code == 200, r.text
+    assert r.json()["body"] == "USER_A", r.json()
+    # A fresh lease with NO jar must see empty (reset cleared USER_A). Without
+    # reset this leaks USER_A to the next tenant — the exact bug in 0028.
+    r = api_post("/browser/render", json={"domain": "example.com", "jar": "", "url": "/me"})
+    assert r.status_code == 200, r.text
+    assert r.json()["body"] == "", f"reset leaked prior session: {r.json()}"
+    # A different jar lands cleanly.
+    r = api_post("/browser/render", json={"domain": "example.com", "jar": "USER_B", "url": "/me"})
+    assert r.json()["body"] == "USER_B", r.json()
+    print("  per-lease isolation + reset ✓")
+
+    # --- fairness: a 1-slot pool must serialize concurrent leases ---
+    def render(jar):
+        return api_post("/browser/render", json={"domain": "ex.com", "jar": jar, "url": "/x"})
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fa, fb = ex.submit(render, "C1"), ex.submit(render, "C2")
+        ra, rb = fa.result(), fb.result()
+    assert ra.status_code == 200 and rb.status_code == 200, (ra.text, rb.text)
+    # The bridge reports max concurrent /render calls it ever saw. A 1-slot pool
+    # serializes leases so it must be 1; a broken pool handing one container to
+    # both callers would see 2.
+    assert ra.json()["max_active"] == 1, ra.json()
+    assert rb.json()["max_active"] == 1, rb.json()
+    print("  fairness: concurrent leases serialized (max_active=1) ✓")
+
+    # --- acquire timeout under contention ---
+    def render_slow():
+        # holds the only slot for ~0.4s (bridge sleep)
+        return api_post("/browser/render", json={"domain": "ex.com", "jar": "S", "url": "/x"})
+    def render_hurry():
+        return api_post("/browser/render", json={"domain": "ex.com", "jar": "H", "url": "/x", "timeout": 0.1})
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        f_slow = ex.submit(render_slow)
+        # Wait until render_slow has acquired the slot (busy=1), then contend.
+        for _ in range(40):
+            if api_get("/browser/pool").json().get("busy") == 1:
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("render_slow never acquired the slot")
+        r_hurry = render_hurry()  # pool busy -> acquire times out at 0.1s
+        r_slow = f_slow.result()
+    assert r_slow.status_code == 200, r_slow.text
+    assert r_hurry.status_code == 503, f"expected lease timeout 503, got {r_hurry.status_code} {r_hurry.text}"
+    assert "timeout" in r_hurry.json().get("error", ""), r_hurry.json()
+    print("  acquire timeout under contention -> 503 ✓")
+
+
 def test_teardown():
     print("\n--- Test: teardown ---")
     for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src"]:
@@ -1078,6 +1201,7 @@ def main():
         test_rfc0020_two_policies()
         test_rfc0020_source_pull()
         test_tier0_source_binding_survives_promote()
+        test_browser_pool()
         test_teardown()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:

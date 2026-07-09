@@ -24,6 +24,7 @@ from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
 from .tokens import DEFAULT_TTL, TokenStore
 from .broker import BrokerStore
+from .browser_pool import BrowserPool, LeaseTimeout
 from . import secp
 from . import evidence
 from .ladder import ladder_hint
@@ -63,7 +64,8 @@ class Ingress:
     def __init__(self, store: ProjectStore, docker: DockerClient,
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
                  rtm: RuntimeManager, tunnel_store: TunnelStore,
-                 token_store: TokenStore, broker_store: BrokerStore | None = None):
+                 token_store: TokenStore, broker_store: BrokerStore | None = None,
+                 browser_pool: BrowserPool | None = None):
         self.store = store
         self.docker = docker
         self.audit_manager = audit_manager
@@ -72,6 +74,7 @@ class Ingress:
         self.tunnel_store = tunnel_store
         self.token_store = token_store
         self.broker_store = broker_store
+        self.browser_pool = browser_pool
         self.port_map: dict[int, str] = {}  # port -> project_name
 
     async def handle(self, request: web.Request) -> web.Response:
@@ -643,6 +646,12 @@ class Ingress:
             name = path.split("/")[1]
             return await self._api_verification(request, name)
 
+        # RFC 0028: browser render pool (authed)
+        if path == "browser/render" and method == "POST":
+            return await self._api_browser_render(request)
+        if path == "browser/pool" and method == "GET":
+            return self._api_browser_pool_status()
+
         # RFC 0016: aggregate status endpoint (authed)
         if path == "status" and method == "GET":
             return await self._api_aggregate_status()
@@ -1185,3 +1194,37 @@ class Ingress:
                 return web.Response(text=f.read(), content_type="text/html")
         except FileNotFoundError:
             return web.json_response({"error": "console not found"}, status=404)
+
+    def _api_browser_pool_status(self) -> web.Response:
+        """RFC 0028: pool liveness (slots free/busy, active leases)."""
+        if not self.browser_pool:
+            return web.json_response({"error": "browser pool not available"}, status=503)
+        return web.json_response(self.browser_pool.status())
+
+    async def _api_browser_render(self, request: web.Request) -> web.Response:
+        """RFC 0028: one-shot lease -> drive -> release. Acquires a browser from
+        the pool, injects the requester's jar for `domain` only, renders `url`,
+        and resets the container before it returns to the pool — so concurrent
+        callers never see each other's session."""
+        if not self.browser_pool:
+            return web.json_response({"error": "browser pool not available"}, status=503)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json"}, status=400)
+        domain = data.get("domain", "")
+        jar = data.get("jar", "")
+        url = data.get("url", "")
+        if not url:
+            return web.json_response({"error": "url is required"}, status=400)
+        timeout = float(data.get("timeout") or 0) or None
+        try:
+            result = await self.browser_pool.render(domain, jar, url, timeout=timeout)
+        except LeaseTimeout as e:
+            return web.json_response({"error": "lease timeout", "detail": str(e)},
+                                     status=503)
+        except Exception as e:
+            log.error("browser render failed: %s", e)
+            return web.json_response({"error": "render failed", "detail": str(e)},
+                                     status=502)
+        return web.json_response(result)
