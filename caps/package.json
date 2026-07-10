@@ -1,0 +1,19 @@
+{
+  "name": "@dstack-webhost/caps",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-wasm-modules test.mjs",
+    "accept": "node --experimental-wasm-modules accept.mjs",
+    "accept:remote": "node --experimental-wasm-modules accept.mjs --url"
+  },
+  "dependencies": {
+    "@biscuit-auth/biscuit-wasm": "0.6.0",
+    "@ucanto/client": "^9.0.2",
+    "@ucanto/core": "^10.4.6",
+    "@ucanto/principal": "^9.0.3",
+    "@ucanto/server": "^11.0.3",
+    "@ucanto/transport": "^9.2.1",
+    "@ucanto/validator": "^10.0.1"
+  }
+}
