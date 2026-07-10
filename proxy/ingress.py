@@ -117,14 +117,23 @@ class Ingress:
             auth = request.headers.get("Authorization", "")
             authed = (API_TOKEN and auth.startswith("Bearer ")
                       and hmac.compare_digest(auth[7:], API_TOKEN))
-            visible = [p for p in self.store.list()
+            all_projects = self.store.list()
+            visible = [p for p in all_projects
                        if authed or p.mode == "attested" or p.public]
             projects = {p.name: {
                 "runtime": p.runtime, "mode": p.mode, "public": p.public,
                 "source": p.source, "commit_sha": p.commit_sha,
                 "tree_hash": p.tree_hash,
+                # RFC 0029 layering signal: a measured operator-debug door.
+                # Gated to attested at deploy time, so this only ever appears
+                # on the public-attested surface — its existence is part of the
+                # measurement, never a hidden side channel.
+                "operator_debug": p.operator_debug,
             } for p in visible}
-            resp = web.json_response({"projects": projects})
+            # Count of projects hidden from this viewer — drives the anonymous
+            # "pointer to the interesting ones" on the landing page (#43).
+            hidden = 0 if authed else len(all_projects) - len(visible)
+            resp = web.json_response({"projects": projects, "hidden": hidden})
             resp.headers["Access-Control-Allow-Origin"] = "*"
             return resp
 
