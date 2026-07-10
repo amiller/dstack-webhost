@@ -878,6 +878,40 @@ def test_list_projects():
         assert p["tree_hash"]
 
 
+def test_root_listing_layers():
+    """The public root listing drives the 3-layer console: anonymous sees only the
+    attested surface plus a `hidden` count (the #43 pointer); an owner bearer sees
+    everything. The listing carries the RFC 0029 `operator_debug` layering signal."""
+    print("\n--- Test: root listing layers + operator_debug + hidden count ---")
+    repo_dev = create_test_repo("listing-dev", {"index.html": b"dev"})
+    repo_att = create_test_repo("listing-attested", {"index.html": b"attested"})
+    repo_od = create_test_repo("listing-override", {"index.html": b"override"})
+    api_post("/projects", json={"name": "listing-dev", "source": repo_dev, "runtime": "static"})
+    api_post("/projects", json={"name": "listing-attested", "source": repo_att, "runtime": "static", "mode": "attested"})
+    r = api_post("/projects", json={"name": "listing-override", "source": repo_od,
+                                     "runtime": "static", "mode": "attested", "operator_debug": True})
+    assert r.status_code == 201, r.text
+
+    hdr_json = {"Accept": "application/json"}
+    anon = requests.get(f"{INGRESS}/", headers=hdr_json).json()
+    assert "listing-dev" not in anon["projects"], "private/dev leaked to anonymous"
+    assert "listing-attested" in anon["projects"], "attested hidden from anonymous"
+    assert "listing-override" in anon["projects"], "attested+operator_debug hidden from anonymous"
+    assert isinstance(anon["hidden"], int) and anon["hidden"] >= 1, anon
+    print(f"  anonymous: attested visible, dev hidden, hidden={anon['hidden']} ✓")
+
+    owner = requests.get(f"{INGRESS}/", headers={**hdr_json, **AUTH}).json()
+    assert "listing-dev" in owner["projects"], "owner cannot see private/dev"
+    assert owner["hidden"] == 0, owner
+    assert owner["projects"]["listing-attested"]["operator_debug"] is False
+    assert owner["projects"]["listing-override"]["operator_debug"] is True, "operator_debug layer signal missing"
+    print("  owner: all layers visible, operator_debug surfaced per layer ✓")
+
+    for n in ("listing-dev", "listing-attested", "listing-override"):
+        api_delete(f"/projects/{n}")
+    print("  cleaned up ✓")
+
+
 def test_rfc0020_bundle():
     """Test that the RFC 0020 verification endpoint returns the full bundle schema."""
     print("\n--- Test: RFC 0020 bundle schema ---")
@@ -1366,6 +1400,7 @@ def main():
         test_redeploy()
         test_audit_log()
         test_list_projects()
+        test_root_listing_layers()
         test_rfc0020_bundle()
         test_rfc0020_tamper()
         test_rfc0020_non_anchored()
