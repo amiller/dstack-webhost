@@ -244,9 +244,17 @@ class Ingress:
                                        data=body if body else None,
                                        headers=headers) as resp:
                 resp_body = await resp.read()
-                return web.Response(
+                # Forward the upstream's CORS headers — otherwise they're dropped here and
+                # browser extensions / verifiers can't call proxied app APIs. These are public
+                # app endpoints; default permissive when the app set nothing.
+                out = web.Response(
                     body=resp_body, status=resp.status,
                     content_type=resp.content_type)
+                out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
+                for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
+                    if resp.headers.get(h):
+                        out.headers[h] = resp.headers[h]
+                return out
 
     def update_port_map(self):
         """Update the port map based on current projects.
@@ -392,9 +400,17 @@ class Ingress:
                                        data=body if body else None,
                                        headers=headers) as resp:
                 resp_body = await resp.read()
-                return web.Response(
+                # Forward the upstream's CORS headers — otherwise they're dropped here and
+                # browser extensions / verifiers can't call proxied app APIs. These are public
+                # app endpoints; default permissive when the app set nothing.
+                out = web.Response(
                     body=resp_body, status=resp.status,
                     content_type=resp.content_type)
+                out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
+                for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
+                    if resp.headers.get(h):
+                        out.headers[h] = resp.headers[h]
+                return out
 
     async def _proxy_websocket(self, request: web.Request, backend_url: str, path: str) -> web.Response:
         """Proxy WebSocket connection to backend."""

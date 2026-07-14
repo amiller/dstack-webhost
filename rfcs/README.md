@@ -27,6 +27,7 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0021](0021-app-self-improvement-evidence-spend.md) | App Self-Improvement via Attestation-Evidence Spend | Draft |
 | [0022](0022-spec-based-appraisal-curated-list.md) | Spec-Based Appraisal and Curated App List | Draft |
 | [0023](0023-staging-cvm-autonomous-dev.md) | Staging CVM for Autonomous Daemon Development | Draft |
+| [0024](0024-cross-pod-federation.md) | Cross-pod Federation (code-identity admission + mutual attestation) | Draft |
 
 ## Conventions
 
