@@ -768,11 +768,15 @@ def test_audit_log():
     resp = api_get("/audit")
     entries = resp.json()
     deploy_entries = [e for e in entries if e["action"] == "deploy"]
+    git_deploys = 0
     for e in deploy_entries:
         detail = json.loads(e["detail"])
+        if "image_digest" in detail:  # image deploys have no git source
+            continue
         assert "commit" in detail
         assert "tree_hash" in detail
-    print(f"  {len(deploy_entries)} deploys, all have commit + tree_hash ✓")
+        git_deploys += 1
+    print(f"  {len(deploy_entries)} deploys ({git_deploys} git-sourced with commit + tree_hash) ✓")
 
 
 def test_list_projects():
@@ -942,7 +946,7 @@ def await_if_needed(func, *args, **kwargs):
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test"]:
+    for name in ["test-static", "test-deno", "test-auto", "test-tarball", "test-image", "test-caps", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
