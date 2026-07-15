@@ -87,14 +87,14 @@
   <h1>What the swarm can show you, walked and dated</h1>
   <div class="fresh">
     <span class="oldest">oldest evidence on this page: 0m ago</span>
-    <span class="assembled">html assembled 2026-07-14 07:32 CDT (assembly time is not evidence freshness)</span>
+    <span class="assembled">html assembled 2026-07-14 19:34 CDT (assembly time is not evidence freshness)</span>
   </div>
 <section class="block"><h2>Your asks</h2>
 <p class="cap">Open <code>operator-ask</code> issues across the repos — the things you asked to see, each with its current flow status. This section leads the report so an evaporated plan is visible, not forgotten.</p>
 <ul class="asks">
 <li><span class="s-pill s-none">flow not yet walked</span> <b>webhost-apps#67</b> — <a href="https://github.com/amiller/webhost-apps/issues/67" target="_blank" rel="noopener">Migrate remaining case-study apps to the shared oauth3Connect helper (SDK consistency)</a></li>
-<li><span class="s-pill s-ok">flow walked (2d 12h ago)</span> <b>webhost-apps#66</b> — <a href="https://github.com/amiller/webhost-apps/issues/66" target="_blank" rel="noopener">share-kit: shared oauth3Connect() helper (connect + step-up recovery + honest errors); adopt in timeline-peek</a></li>
-<li><span class="s-pill s-ok">flow walked (2d 12h ago)</span> <b>webhost-apps#64</b> — <a href="https://github.com/amiller/webhost-apps/issues/64" target="_blank" rel="noopener">reddit-karma: render the account's real reddit data (karma endpoint unshipped → use /items)</a></li>
+<li><span class="s-pill s-ok">flow walked (3d 0h ago)</span> <b>webhost-apps#66</b> — <a href="https://github.com/amiller/webhost-apps/issues/66" target="_blank" rel="noopener">share-kit: shared oauth3Connect() helper (connect + step-up recovery + honest errors); adopt in timeline-peek</a></li>
+<li><span class="s-pill s-ok">flow walked (3d 0h ago)</span> <b>webhost-apps#64</b> — <a href="https://github.com/amiller/webhost-apps/issues/64" target="_blank" rel="noopener">reddit-karma: render the account's real reddit data (karma endpoint unshipped → use /items)</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>webhost-apps#9</b> — <a href="https://github.com/amiller/webhost-apps/issues/9" target="_blank" rel="noopener">timeline-peek: phone dead-ends — owner mode is extension-only, add the wallet signIn path</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>webhost-apps#8</b> — <a href="https://github.com/amiller/webhost-apps/issues/8" target="_blank" rel="noopener">twitter-debug: posting requires DEBUG_SECRET — replace with a consent-gated OAuth3 write cap</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>oauth3-server#81</b> — <a href="https://github.com/teleport-computer/oauth3-server/issues/81" target="_blank" rel="noopener">Rename the 'journeys' suite; reserve 'user journeys' for the mental-model exercise</a></li>
@@ -104,6 +104,9 @@
 <section class="block"><h2>What improved since yesterday</h2>
 <p class="cap">PRs merged in the last 24h, grouped by repo. Where the PR committed a <code>.evidence/issue-&lt;N&gt;/</code> gallery, it renders inline below; otherwise it is labelled "merged, no flow evidence" — the report curates merge-time proof, it never fabricates it.</p>
 <h3>oauth3-server</h3><ul class="improved">
+<li><b>#117</b> <a href="https://github.com/teleport-computer/oauth3-server/pull/117" target="_blank" rel="noopener">evidence(#81): /journeys→/smoke deploy re-verified LIVE on staging (69843a8)</a>
+ <span class="s-pill s-none">merged, no flow evidence</span>
+</li>
 <li><b>#116</b> <a href="https://github.com/teleport-computer/oauth3-server/pull/116" target="_blank" rel="noopener">evidence(#81): deploy-verify — /journeys→/smoke rename now LIVE on staging</a>
  <span class="s-pill s-none">merged, no flow evidence</span>
 </li>
@@ -189,11 +192,12 @@
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/screenshare-debug/" target="_blank" rel="noopener">screenshare-debug</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">screen-stream consent demo (aishley sibling of feedling / timeline-peek). Capture → scoped, revocable grant → debug echo-sink (proof of delivery) or aishley enclave. oauth3 = identity + grant trust root, never in the frame path. Desktop-only (getDisplayMedia).</p>
 <p class="signal">signal: <code>title &quot;screenshare-debug — screen → pod under consent&quot;</code></p>
 <p class="note">prod: FAIL signal='title &quot;screenshare-debug — screen → pod under consent&quot;' not satisfied on https://pod.dstack.soc1024.com/screenshare-debug/</p>
+<p class="note">staging: FAIL signal='title &quot;screenshare-debug — screen → pod under consent&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/screenshare-debug/</p>
 </div></div>
 </div></section>
 <section class="block smoke"><h2>Swarm activity <span class="tag">lanes &amp; queue</span></h2>
@@ -204,6 +208,7 @@
 <ul class="swarm-list">
 <li><code>2026-07-14</code> <b>oauth3-server</b> — <a href="https://github.com/teleport-computer/oauth3-server/pull/114" target="_blank">handler: rename /journeys route → /smoke (#81, oauth3-server lane)</a></li>
 <li><code>2026-07-14</code> <b>oauth3-server</b> — <a href="https://github.com/teleport-computer/oauth3-server/pull/116" target="_blank">evidence(#81): deploy-verify — /journeys→/smoke rename now LIVE on staging</a></li>
+<li><code>2026-07-14</code> <b>oauth3-server</b> — <a href="https://github.com/teleport-computer/oauth3-server/pull/117" target="_blank">evidence(#81): /journeys→/smoke deploy re-verified LIVE on staging (69843a8)</a></li>
 <li><code>2026-07-12</code> <b>oauth3-server</b> — <a href="https://github.com/teleport-computer/oauth3-server/pull/113" target="_blank">vault: account-qualified jars — one identity, multiple accounts per plugin (#111)</a></li>
 <li><code>2026-07-12</code> <b>oauth3-server</b> — <a href="https://github.com/teleport-computer/oauth3-server/pull/112" target="_blank">Rename USER-JOURNEYS.md → SMOKE-CHECKS.md; de-journey persona docs (#81, oauth3-server lane)</a></li>
 <li><code>2026-07-11</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/68" target="_blank">share-kit: shared oauth3Connect() helper + timeline-peek adoption (#66)</a></li>
@@ -221,16 +226,15 @@
 <li><code>2026-07-10</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/52" target="_blank">feedling: verbose/test mode — ping on ANY watch (#49)</a></li>
 <li><code>2026-07-10</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/50" target="_blank">feedling: stop mislabeling the whole history page as &#x27;today&#x27;</a></li>
 <li><code>2026-07-10</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/55" target="_blank">cart-share: friend organic-ifies your Amazon cart under a scoped, substitute-only capability</a></li>
-<li><code>2026-07-10</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/57" target="_blank">cart-share v2: read the owner&#x27;s real Amazon cart (jar-backed)</a></li>
 </ul>
 <h3>Lane health over time</h3>
 <table class="swarm-table"><tr><th>lane</th><th>runs logged</th><th>pass rate</th><th>latest</th></tr>
-<tr><td><b>browser-pool</b></td><td>249</td><td>249/249</td><td style="color:#00838a">07-14T12:32 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
-<tr><td><b>e2e-verifier</b></td><td>249</td><td>17/249</td><td style="color:#c2185b">07-14T12:32 — FAIL: e2e-flow engine exited 1</td></tr>
-<tr><td><b>login-with-everything</b></td><td>249</td><td>105/249</td><td style="color:#00838a">07-14T12:32 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
+<tr><td><b>browser-pool</b></td><td>250</td><td>250/250</td><td style="color:#00838a">07-15T00:34 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
+<tr><td><b>e2e-verifier</b></td><td>250</td><td>17/250</td><td style="color:#c2185b">07-15T00:34 — FAIL: e2e-flow engine exited 1</td></tr>
+<tr><td><b>login-with-everything</b></td><td>250</td><td>106/250</td><td style="color:#00838a">07-15T00:34 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
 </table>
 <p class="cap" style="color:#57606a">History collection started 2026-07-06; each 30-min refresh appends a snapshot.</p>
-<h3>Agent census</h3><p>0 running, 18 idle/stopped on the paseo daemon right now.</p>
+<h3>Agent census</h3><p>1 running, 18 idle/stopped on the paseo daemon right now.</p>
 <h3>Next — open <code>ready</code> work</h3>
 <ul class="swarm-list">
 <li><b>oauth3-server</b> — <a href="https://github.com/teleport-computer/oauth3-server/issues/58" target="_blank">Design system: apply to shell() pages (home/privacy/terms/evidence)</a></li>
