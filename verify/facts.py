@@ -16,9 +16,9 @@ emptying out. The round-trip test (``test_bundle_roundtrip``) locks that
 contract.
 
 The library is honest about what it can and cannot verify:
-- The TDX quote is parsed but DCAP/QVL signature verification requires external
-  tooling (Intel PCS / Phala verifier, tracked separately as #93); quote_valid
-  stays False until that lands — never claim a verdict we did not earn.
+- The TDX quote is verified with the dcap-qvl CLI (signature + collateral,
+  #93); a missing tool, malformed quote, or failed verification surfaces in
+  quote.verification_error with quote_valid False — never a masked pass.
 - On non-anchored ecosystems (chain_id 0, e.g. pha-prod), onchain_approved is
   surfaced as False — a FACT, not an error. With consumer-supplied chain_config,
   the base-prod DstackApp allowlist is checked over eth_call and the result
@@ -34,8 +34,13 @@ The library is honest about what it can and cannot verify:
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
-from dataclasses import dataclass, field
+import os
+import re
+import subprocess
+import tempfile
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -88,6 +93,8 @@ class QuoteFacts:
     collateral_url: str = ""
     verification_error: str = ""
     quote_raw: str = ""
+    report_data: str = ""
+    signature_chain_root: str = ""
 
 
 @dataclass
@@ -176,6 +183,8 @@ class Facts:
                 "rtmr": self.quote.rtmr,
                 "collateral_url": self.quote.collateral_url,
                 "verification_error": self.quote.verification_error,
+                "quote_raw": self.quote.quote_raw,
+                "report_data": self.quote.report_data,
             },
             "binding": {
                 "kind": self.binding.kind,
@@ -282,10 +291,13 @@ def _compute_report_data_preimage(
 
 def _verify_quote_signature(platform_quote: dict) -> QuoteFacts:
     """
-    Extract TDX quote fields. Full DCAP/QVL signature verification requires
-    external tooling (Intel PCS collateral / Phala verifier) and is NOT
-    performed here — quote_valid stays False and the limitation is surfaced as
-    a fact, never masked. Wiring real DCAP/QVL is tracked as #93.
+    Verify the TDX platform quote with the dcap-qvl CLI (signature and
+    collateral verification) and parse the verified report into MRTD/RTMR
+    facts (#93). A missing tool, malformed quote, or failed verification is
+    surfaced in verification_error with quote_valid False — never masked.
+
+    Args:
+        platform_quote: TDX GetQuote response from the bundle
     """
     facts = QuoteFacts()
     if not platform_quote:
@@ -296,8 +308,57 @@ def _verify_quote_signature(platform_quote: dict) -> QuoteFacts:
         facts.quote_raw = quote_blob
         facts.quote_format = "tdx-legacy"
     facts.report_data = platform_quote.get("report_data", "") or ""
-    facts.verification_error = "DCAP/QVL quote signature verification not performed"
-    facts.quote_valid = False
+    if not facts.quote_raw:
+        facts.verification_error = "Quote data has no raw TDX quote"
+        return facts
+    if not re.fullmatch(r"(?:0x)?[0-9a-fA-F\s]+", facts.quote_raw) or len(re.sub(r"^0x|\s", "", facts.quote_raw)) % 2:
+        facts.verification_error = "TDX quote is not valid hexadecimal"
+        return facts
+
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".quote", delete=False) as quote_file:
+            quote_file.write(facts.quote_raw)
+            quote_path = quote_file.name
+        try:
+            result = subprocess.run(
+                ["dcap-qvl", "verify", "--hex", quote_path],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        finally:
+            os.unlink(quote_path)
+    except FileNotFoundError:
+        facts.verification_error = "dcap-qvl is not installed or not on PATH"
+        return facts
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        facts.verification_error = f"dcap-qvl execution failed: {exc}"
+        return facts
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        facts.verification_error = detail[-1] if detail else f"dcap-qvl exited with status {result.returncode}"
+        return facts
+
+    try:
+        report = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        facts.verification_error = f"dcap-qvl returned invalid JSON: {exc}"
+        return facts
+
+    facts.quote_valid = True
+    facts.quote_format = "tdx"
+    facts.verification_error = ""
+    report_data = report.get("report", {})
+    report_data = report_data.get("TD15", {}).get("base", report_data.get("TD10", report_data))
+    facts.mrtd = report_data.get("mr_td", "")
+    facts.rtmr = {
+        f"rtmr{i}": report_data.get(f"rt_mr{i}", "")
+        for i in range(4)
+        if report_data.get(f"rt_mr{i}")
+    }
+    facts.report_data = report_data.get("report_data", facts.report_data)
     return facts
 
 
@@ -359,6 +420,69 @@ def _extract_onchain_facts(onchain: OnchainInfo) -> OnchainFacts:
     if chain_id not in (0, 8453):
         facts.error = f"unexpected chain_id {chain_id}; no policy to evaluate"
     return facts
+
+
+def _quoted_compose_hash(quote_data: dict) -> str:
+    event_log = quote_data.get("event_log", [])
+    if isinstance(event_log, str):
+        try:
+            event_log = json.loads(event_log)
+        except json.JSONDecodeError:
+            return ""
+    if not isinstance(event_log, list):
+        return ""
+    for event in reversed(event_log):
+        if isinstance(event, dict) and event.get("event") == "compose-hash":
+            return str(event.get("event_payload", ""))
+    return ""
+
+
+def _compare_measurements(
+    quote_facts: QuoteFacts,
+    quote_data: dict,
+    approved: dict | None,
+) -> list[str]:
+    """Compare quote measurements with explicit consumer-supplied approval data."""
+    if not approved:
+        return []
+    errors = []
+    approved_compose = str(approved.get("allowed_compose_hash", approved.get("compose_hash", "")))
+    quoted_compose = _quoted_compose_hash(quote_data)
+    if approved_compose:
+        if not quoted_compose:
+            errors.append("measurement mismatch: quote has no measured compose hash")
+        elif quoted_compose != approved_compose:
+            errors.append(
+                f"measurement mismatch: quote compose hash {quoted_compose} != approved {approved_compose}"
+            )
+    approved_mrtd = str(approved.get("mrtd", ""))
+    if approved_mrtd and quote_facts.mrtd.lower() != approved_mrtd.lower():
+        errors.append(f"measurement mismatch: MRTD {quote_facts.mrtd} != approved {approved_mrtd}")
+    approved_rtmr = approved.get("rtmr", {})
+    if isinstance(approved_rtmr, dict):
+        for name, expected in approved_rtmr.items():
+            actual = quote_facts.rtmr.get(name, "")
+            if actual.lower() != str(expected).lower():
+                errors.append(f"measurement mismatch: {name} {actual} != approved {expected}")
+    return errors
+
+
+def _audit_source_errors(tree_hash: str, audit_log: list) -> list[str]:
+    if not tree_hash or not audit_log:
+        return []
+    recorded = set()
+    for entry in audit_log:
+        detail = entry.get("detail", {}) if isinstance(entry, dict) else {}
+        if isinstance(detail, str):
+            try:
+                detail = json.loads(detail)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(detail, dict) and detail.get("tree_hash"):
+            recorded.add(detail["tree_hash"])
+    if recorded and tree_hash not in recorded:
+        return [f"source binding mismatch: tree hash {tree_hash} is absent from the audit log"]
+    return []
 
 
 async def _verify_onchain_approval(
@@ -556,6 +680,11 @@ async def _verify_bundle(
     facts.quote = _verify_quote_signature(bundle.platform_quote)
     if facts.quote.verification_error:
         facts.errors.append(f"quote: {facts.quote.verification_error}")
+    # measurement comparison vs consumer-supplied approval data (chain_config),
+    # else the bundle's own declared onchain allowlist — explicit, never silent
+    facts.errors.extend(_compare_measurements(
+        facts.quote, bundle.platform_quote, chain_config or asdict(bundle.onchain)
+    ))
 
     # binding leg (RFC 0025 report-data preimage)
     binding_quote = bundle.app.binding_quote
@@ -588,6 +717,7 @@ async def _verify_bundle(
     # audit sanity — a bundle with no promote event has no binding trail
     if not any(isinstance(e, dict) and e.get("action") == "promote" for e in bundle.audit):
         facts.errors.append("audit: no promote event recorded")
+    facts.errors.extend(_audit_source_errors(facts.source.tree_hash, bundle.audit))
 
     if base_url:
         facts.channel.domain = facts.channel.domain or urlparse(base_url).netloc
