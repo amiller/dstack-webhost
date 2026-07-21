@@ -23,18 +23,27 @@ from .bundle import (
     OperatorDebugInfo,
     SourceInfo,
 )
-from .facts import (
-    BindingFacts,
-    BundleFetchError,
-    BundleParseError,
-    ChannelFacts,
-    Facts,
-    OnchainFacts,
-    QuoteFacts,
-    SourceFacts,
-    verify,
-    verify_from_bundle,
-)
+# The wire schema is imported eagerly: it is pure dataclasses (stdlib only), and the DAEMON
+# imports it to build bundles. The verification half is loaded lazily instead, so `verify.bundle`
+# can be imported without pulling `facts` — which needs aiohttp today and shells out to dcap-qvl
+# after #93. That keeps the producer's dependency surface to a schema. It matters because the
+# daemon is ATTESTED: anything it imports becomes part of what is being attested, so the thing
+# being verified must not depend on the verifier.
+_LAZY = {
+    "BindingFacts", "BundleFetchError", "BundleParseError", "ChannelFacts", "Facts",
+    "OnchainFacts", "QuoteFacts", "SourceFacts", "verify", "verify_from_bundle",
+}
+
+
+def __getattr__(name):  # PEP 562
+    if name in _LAZY:
+        from . import facts
+        return getattr(facts, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | _LAZY)
 
 __all__ = [
     # Bundle wire schema (single definition, shared with proxy/)
