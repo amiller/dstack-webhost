@@ -920,9 +920,21 @@ class Ingress:
         except Exception as e:
             log.warning("Failed to get audit log: %s", e)
 
-        # Build JSON data for the template
+        # Build JSON data for the template.
+        # This endpoint is PUBLIC for attested projects (RFC 0015: a relying party must be able to
+        # verify what is running without holding the admin token). asdict(project) carries
+        # project.env, so embedding it published every attested project's secrets to anyone who
+        # asked -- BRIDGE_SECRET, OPENVPN_PASS, ZAI_API_KEY, OAuth client secrets. The template
+        # never reads env; it was leaked incidentally by serialising the whole record.
+        # Allowlist what the page renders instead of denylisting what it must not.
+        safe_project = {
+            k: v for k, v in asdict(project).items()
+            if k not in ("env",)
+        }
+        # env_passthrough is a list of NAMES with no values, and naming which secrets the KMS
+        # injects is part of what a verifier checks -- keep it.
         verification_data = {
-            "project": asdict(project),
+            "project": safe_project,
             "quote": quote,
             "audit": audit,
         }
