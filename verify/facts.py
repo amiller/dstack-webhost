@@ -20,7 +20,9 @@ The library is honest about what it can and cannot verify:
   tooling (Intel PCS / Phala verifier, tracked separately as #93); quote_valid
   stays False until that lands — never claim a verdict we did not earn.
 - On non-anchored ecosystems (chain_id 0, e.g. pha-prod), onchain_approved is
-  surfaced as False — a FACT, not an error.
+  surfaced as False — a FACT, not an error. With consumer-supplied chain_config,
+  the base-prod DstackApp allowlist is checked over eth_call and the result
+  surfaces the same way (approved/error as facts, never a verdict).
 - The RFC 0025 report-data binding is recomputed from the bundle's claimed
   (app_id, project, tree_hash, app_pubkey) and compared to the quote's
   report_data; an empty/zero or non-matching report_data is recorded in
@@ -34,7 +36,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import aiohttp
@@ -98,6 +100,7 @@ class OnchainFacts:
     allowed_compose_hash: str = ""
     allowed_os_image: str = ""
     approved: bool = False
+    repro: dict = field(default_factory=dict)
     error: str = ""
 
 
@@ -192,6 +195,7 @@ class Facts:
                 "allowed_compose_hash": self.onchain.allowed_compose_hash,
                 "allowed_os_image": self.onchain.allowed_os_image,
                 "approved": self.onchain.approved,
+                "repro": self.onchain.repro,
                 "error": self.onchain.error,
             },
             "source": {
@@ -332,10 +336,11 @@ def _verify_binding_preimage(
 
 def _extract_onchain_facts(onchain: OnchainInfo) -> OnchainFacts:
     """
-    Surface on-chain approval as facts. chain_id 0 (non-anchored, e.g.
-    pha-prod) is an expected state — approved=False with NO error. The real
-    base-prod DstackApp allowlist RPC is tracked as #90; until it lands,
-    approved stays False even on chain_id 8453 (honest, not masked).
+    Surface the bundle's declared on-chain anchoring as facts. chain_id 0
+    (non-anchored, e.g. pha-prod) is an expected state — approved=False with
+    NO error. Without chain_config there is no independent allowlist check,
+    so approved stays False even on chain_id 8453 (honest, not masked); the
+    real DstackApp RPC check is :func:`_verify_onchain_approval`.
     """
     facts = OnchainFacts()
     chain_id = onchain.chain_id
@@ -350,10 +355,133 @@ def _extract_onchain_facts(onchain: OnchainInfo) -> OnchainFacts:
         facts.chain_name = "non-anchored"
     else:
         facts.chain_name = f"chain-{chain_id}"
-    facts.approved = False  # real allowlist check is #90; never claim unearned approval
+    facts.approved = False  # no independent allowlist check without chain_config
     if chain_id not in (0, 8453):
         facts.error = f"unexpected chain_id {chain_id}; no policy to evaluate"
     return facts
+
+
+async def _verify_onchain_approval(
+    session: aiohttp.ClientSession,
+    app_id: str,
+    chain_config: dict | None = None,
+) -> OnchainFacts:
+    """
+    Check app_id against the base-prod DstackApp allowlist over eth_call,
+    using the CONSUMER's chain_config (rpc_url, contract address, boot-info
+    fields) — an independent re-check that does not trust the daemon's own
+    declaration. Failures land in OnchainFacts.error; this never raises.
+    """
+    facts = OnchainFacts()
+
+    if not app_id:
+        facts.error = "No app_id provided for on-chain verification"
+        return facts
+
+    if not chain_config:
+        facts.chain_id = "0"
+        facts.chain_name = "pha-prod"
+        return facts
+
+    rpc_url = chain_config.get("rpc_url") or chain_config.get("endpoint")
+    contract = chain_config.get("contract_address") or chain_config.get("dstackapp")
+    if not rpc_url or not contract:
+        facts.error = "Base-prod RPC configuration requires rpc_url and contract_address"
+        return facts
+
+    boot_info = {
+        "appId": app_id,
+        "composeHash": chain_config.get("compose_hash", "0x"),
+        "instanceId": chain_config.get("instance_id", "0x"),
+        "deviceId": chain_config.get("device_id", "0x"),
+        "mrAggregated": chain_config.get("mr_aggregated", "0x"),
+        "mrSystem": chain_config.get("mr_system", "0x"),
+        "osImageHash": chain_config.get("os_image_hash", "0x"),
+        "tcbStatus": chain_config.get("tcb_status", "UpToDate"),
+        "advisoryIds": chain_config.get("advisory_ids", []),
+    }
+    facts.kms_contract = str(chain_config.get("kms_contract", ""))
+    facts.dstackapp_address = str(contract)
+    facts.allowed_compose_hash = str(boot_info["composeHash"])
+    facts.allowed_os_image = str(boot_info["osImageHash"])
+    facts.repro = {
+        "contract_address": str(contract),
+        "method": "isAppAllowed((address,bytes32,address,bytes32,bytes32,bytes32,bytes32,string,string[]))",
+        "args": boot_info,
+    }
+
+    try:
+        async with session.post(
+            rpc_url,
+            json={"jsonrpc": "2.0", "id": 1, "method": "eth_chainId", "params": []},
+        ) as response:
+            response.raise_for_status()
+            chain_data = await response.json()
+        chain_id = int(chain_data["result"], 16)
+        facts.chain_id = str(chain_id)
+        facts.chain_name = "base-prod" if chain_id == 8453 else "unknown"
+        if chain_id != 8453:
+            facts.error = f"RPC chain_id {chain_id} is not Base mainnet (8453)"
+            return facts
+
+        calldata = _encode_is_app_allowed(boot_info)
+        async with session.post(
+            rpc_url,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "eth_call",
+                "params": [{"to": contract, "data": calldata}, "latest"],
+            },
+        ) as response:
+            response.raise_for_status()
+            call_data = await response.json()
+        result = call_data["result"]
+        if not isinstance(result, str) or len(result) < 66:
+            raise ValueError("eth_call returned an invalid ABI result")
+        facts.approved = int(result[2:66], 16) != 0
+    except Exception as exc:
+        facts.error = f"Base-prod RPC check failed: {exc}"
+
+    return facts
+
+
+def _word(value: str, max_size: int = 32) -> bytes:
+    raw = bytes.fromhex(value.removeprefix("0x")) if value not in ("", "0x") else b""
+    if len(raw) > max_size:
+        raise ValueError(f"value is longer than {max_size} bytes")
+    return raw.rjust(32, b"\0")
+
+
+def _dynamic_bytes(value: bytes) -> bytes:
+    padding = b"\0" * ((32 - len(value) % 32) % 32)
+    return len(value).to_bytes(32, "big") + value + padding
+
+
+def _encode_is_app_allowed(boot_info: dict[str, Any]) -> str:
+    """Encode the dstack AppBootInfo tuple for its eth_call."""
+    static = [
+        _word(boot_info["appId"], 20),
+        _word(boot_info["composeHash"]),
+        _word(boot_info["instanceId"], 20),
+        _word(boot_info["deviceId"]),
+        _word(boot_info["mrAggregated"]),
+        _word(boot_info["mrSystem"]),
+        _word(boot_info["osImageHash"]),
+    ]
+    tcb = _dynamic_bytes(boot_info["tcbStatus"].encode())
+    advisory_values = [_dynamic_bytes(item.encode()) for item in boot_info["advisoryIds"]]
+    advisory_head = len(advisory_values) * 32
+    advisory = len(advisory_values).to_bytes(32, "big")
+    advisory += b"".join(
+        (advisory_head + sum(len(value) for value in advisory_values[:index])).to_bytes(32, "big")
+        for index in range(len(advisory_values))
+    )
+    advisory += b"".join(advisory_values)
+    head_size = 9 * 32
+    tuple_data = b"".join(static) + (head_size).to_bytes(32, "big")
+    tuple_data += (head_size + len(tcb)).to_bytes(32, "big") + tcb + advisory
+    return "0x1e079198" + (32).to_bytes(32, "big").hex() + tuple_data.hex()
 
 
 def _extract_source_facts(source: SourceInfo) -> SourceFacts:
@@ -384,7 +512,12 @@ def _signature_chain_root(binding_quote: dict) -> str:
     return str(first)
 
 
-def _verify_bundle(bundle_data: dict, base_url: str = "") -> Facts:
+async def _verify_bundle(
+    bundle_data: dict,
+    base_url: str = "",
+    session: aiohttp.ClientSession | None = None,
+    chain_config: dict | None = None,
+) -> Facts:
     """Shared verification core for verify() and verify_from_bundle().
 
     Every producer field on the EvidenceBundle is mapped to a Facts home here;
@@ -439,8 +572,12 @@ def _verify_bundle(bundle_data: dict, base_url: str = "") -> Facts:
     if facts.binding.error:
         facts.errors.append(f"binding: {facts.binding.error}")
 
-    # onchain leg — facts; chain_id 0 is not an error
+    # onchain leg — facts; chain_id 0 is not an error. With chain_config, the
+    # DstackApp allowlist is re-checked over base-prod RPC (#90) against the
+    # consumer's configuration, replacing the daemon's own declaration.
     facts.onchain = _extract_onchain_facts(bundle.onchain)
+    if chain_config is not None:
+        facts.onchain = await _verify_onchain_approval(session, facts.app_id, chain_config)
     if facts.onchain.error:
         facts.errors.append(f"onchain: {facts.onchain.error}")
 
@@ -471,8 +608,9 @@ async def verify(
     Args:
         endpoint: Full verification URL (/_api/verification/<project>).
         session: Optional aiohttp session (created if not provided).
-        chain_config: Reserved for the base-prod allowlist RPC (#90); unused
-            until that lands.
+        chain_config: Optional base-prod allowlist RPC config (rpc_url,
+            contract_address, boot-info fields); when given, the DstackApp
+            allowlist is checked over eth_call (#90).
 
     Returns:
         Facts. Raises BundleFetchError on transport failure, BundleParseError
@@ -491,7 +629,9 @@ async def verify(
             if resp.status != 200:
                 raise BundleFetchError(f"HTTP {resp.status}: {await resp.text()}")
             bundle_data = await resp.json()
-        return _verify_bundle(bundle_data, base_url=base_url)
+        return await _verify_bundle(
+            bundle_data, base_url=base_url, session=session, chain_config=chain_config
+        )
     finally:
         if own_session:
             await session.close()
@@ -505,10 +645,17 @@ async def verify_from_bundle(bundle_data: dict, chain_config: dict | None = None
 
     Args:
         bundle_data: Verification bundle JSON.
-        chain_config: Reserved for the base-prod allowlist RPC (#90); unused.
+        chain_config: Optional base-prod allowlist RPC config (rpc_url,
+            contract_address, boot-info fields); when given, the DstackApp
+            allowlist is checked over eth_call (#90).
 
     Returns:
         Facts. A structurally invalid bundle surfaces in Facts.errors[] rather
         than raising — the library never throws a verdict.
     """
-    return _verify_bundle(bundle_data, base_url="")
+    if chain_config is None:
+        return await _verify_bundle(bundle_data, base_url="")
+    async with aiohttp.ClientSession() as session:
+        return await _verify_bundle(
+            bundle_data, base_url="", session=session, chain_config=chain_config
+        )
