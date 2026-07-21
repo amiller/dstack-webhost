@@ -1,35 +1,42 @@
 """
-Facts library for TEE attestation verification.
+Facts library for TEE attestation verification (RFC 0020/0025).
 
-Per RFC 0020/0025: verify(bundle) -> Facts returns structured facts about
-what's running in a TEE. Renders NO verdict — policy lives in the consumer.
+    verify(endpoint)          -> await Facts   # fetch + verify a live bundle over HTTP
+    verify_from_bundle(dict)  -> await Facts   # verify a pre-fetched bundle dict
 
-Facts include:
-- channel: gateway attestation info
-- app_id: dstack application identifier
-- binding: report-data quote binding (RFC 0025)
-- attestation_kind: "daemon-vouched" | "app-cvm"
-- onchain_approved: whether app_id is on-chain-anchored
-- errors: list of verification failures
+Both return structured Facts about what's running in a TEE. The library renders
+NO verdict and shows no green/red — the accept-or-reject policy lives entirely
+in the consumer (see verify/policies.py for two reference policies). Every
+problem lands in Facts.errors[]; verify() never throws a verdict.
 
 The library is honest about what it can and cannot verify:
-- On staging (pha-prod), quotes verify but onchain_approved=false (chain_id=0)
-- Full DCAP/QVL verification requires external tooling; facts surface limitations
-- MRTD/RTMR measurements are surfaced; comparison to approved compose is consumer policy
+- The TDX quote is parsed but DCAP/QVL signature verification requires external
+  tooling (Intel PCS / Phala verifier, tracked separately as #93); quote_valid
+  stays False until that lands — never claim a verdict we did not earn.
+- On non-anchored ecosystems (chain_id 0, e.g. pha-prod), onchain_approved is
+  surfaced as False — a FACT, not an error.
+- The RFC 0025 report-data binding is recomputed from the bundle's claimed
+  (app_id, project, tree_hash, app_pubkey) and compared to the quote's
+  report_data; an empty/zero or non-matching report_data is recorded in
+  errors[] as a tree_hash binding failure.
+- The RFC 0029 declared operator-debug door is surfaced as a fact (enabled /
+  last_session_at), never a verdict.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Literal
-from urllib.parse import urljoin
+from typing import Literal
+from urllib.parse import urlparse
 
 import aiohttp
 
 log = logging.getLogger(__name__)
+
+# Domain separator for RFC 0025 report-data binding preimages.
+REPORT_DATA_DOMAIN = b"tee-daemon/app-attest/v1"
 
 
 @dataclass
@@ -104,20 +111,9 @@ class Facts:
     """
     Complete attestation facts for a TEE-hosted app.
 
-    This is the output of verify() — a structured collection of facts
-    about what's running. No verdict, no accept/reject. The consumer
-    decides policy based on these facts.
-
-    Attributes:
-        schema_version: Bundle schema version
-        channel: Gateway channel attestation
-        app_id: dstack application identifier
-        attestation_kind: "daemon-vouched" | "app-cvm"
-        quote: TDX quote verification facts
-        binding: Per-app binding quote facts
-        onchain: On-chain approval facts
-        source: Source code location facts
-        errors: List of verification errors (non-empty = some check failed)
+    This is the output of verify() — a structured collection of facts about
+    what's running. No verdict, no accept/reject. The consumer decides policy
+    based on these facts (see verify/policies.py).
     """
     schema_version: str = "1.0"
     channel: ChannelFacts = field(default_factory=ChannelFacts)
@@ -190,277 +186,266 @@ class Facts:
         """
         Check if all verifications passed (errors list is empty).
 
-        This is a CONVENIENCE method for simple policies, not the library's
-        verdict. A consumer may have a different policy (e.g., accept even
-        if onchain_approved=false on staging, or require specific tree_hash).
+        This is a CONVENIENCE method for simple consumers, NOT the library's
+        verdict. A consumer may legitimately accept facts whose errors[] is
+        non-empty (e.g. an allowlist policy on a staging bundle whose quote
+        binding is unverifiable). Policy lives in the consumer.
         """
         return len(self.errors) == 0
 
 
 class BundleParseError(Exception):
     """Raised when the bundle cannot be parsed."""
-    pass
 
 
 class BundleFetchError(Exception):
     """Raised when the bundle cannot be fetched."""
-    pass
 
 
-def _parse_bundle(bundle_data: dict) -> tuple:
+# --- bundle parsing ---------------------------------------------------------
+
+def _parse_bundle(bundle_data: dict) -> tuple[dict, dict, dict, dict, list]:
     """
-    Parse bundle into constituent parts.
+    Parse an RFC 0020 evidence bundle into its constituent parts.
 
-    Returns:
-        (project_data, quote_data, audit_log)
-
-    Raises:
-        BundleParseError: If bundle structure is invalid
+    Returns (app, platform_quote, onchain, gateway, audit). Raises
+    BundleParseError on any structural problem — never silently returns empty
+    parts, because that is exactly how a verification leg could stop checking
+    without anyone noticing.
     """
     if not isinstance(bundle_data, dict):
         raise BundleParseError("Bundle must be a JSON object")
-
-    project = bundle_data.get("project", {})
-    quote = bundle_data.get("quote") or {}
+    app = bundle_data.get("app", {})
+    platform_quote = bundle_data.get("platform_quote") or {}
+    onchain = bundle_data.get("onchain") or {}
+    gateway = bundle_data.get("gateway") or {}
     audit = bundle_data.get("audit") or []
-
-    if not isinstance(project, dict):
-        raise BundleParseError("project must be a JSON object")
+    if not isinstance(app, dict):
+        raise BundleParseError("app must be a JSON object")
+    if not isinstance(platform_quote, dict):
+        raise BundleParseError("platform_quote must be a JSON object")
+    if not isinstance(onchain, dict):
+        raise BundleParseError("onchain must be a JSON object")
+    if not isinstance(gateway, dict):
+        raise BundleParseError("gateway must be a JSON object")
     if not isinstance(audit, list):
         raise BundleParseError("audit must be a JSON array")
+    return app, platform_quote, onchain, gateway, audit
 
-    return project, quote, audit
 
+# --- RFC 0025 report-data binding preimage ----------------------------------
 
 def _compute_report_data_preimage(
     app_id: str,
     name: str,
     tree_hash: str,
     app_pubkey: str,
-    domain: bytes = b"tee-daemon/app-attest/v1",
+    domain: bytes = REPORT_DATA_DOMAIN,
 ) -> str:
     """
-    Compute the report_data preimage hash (RFC 0025).
+    Compute the report_data preimage the daemon's quote must commit to.
 
-    The report_data field in a TDX quote carries a SHA-512 hash of:
-        domain || app_id || name || tree_hash || app_pubkey
+    report_data = SHA-512(domain || app_id || name || tree_hash || app_pubkey)
 
-    Args:
-        app_id: dstack application identifier
-        name: Project name
-        tree_hash: Source tree hash
-        app_pubkey: App's compressed public key (hex string)
-        domain: Domain separator for binding quotes
-
-    Returns:
-        Hex-encoded SHA-512 hash (64 bytes)
+    A daemon-vouched quote binds the project's tree_hash this way (RFC 0025); a
+    consumer re-runs this and compares to the quote's report_data to detect a
+    tampered tree_hash.
     """
-    preimage = domain + app_id.encode() + name.encode() + tree_hash.encode() + bytes.fromhex(app_pubkey)
+    preimage = (
+        domain
+        + app_id.encode()
+        + name.encode()
+        + tree_hash.encode()
+        + bytes.fromhex(app_pubkey)
+    )
     return hashlib.sha512(preimage).hexdigest()
 
 
-def _verify_quote_signature(quote_data: dict) -> QuoteFacts:
+# --- verification legs ------------------------------------------------------
+
+def _verify_quote_signature(platform_quote: dict) -> QuoteFacts:
     """
-    Verify TDX quote signature and extract measurements.
-
-    This is a SKELETON implementation. Full DCAP/QVL verification requires
-    external tooling (Intel DCAP verifier, Phala's verification service).
-
-    Current implementation:
-    - Checks if quote-like fields exist
-    - Extracts available measurement data
-    - Reports limitations honestly in facts
-
-    Args:
-        quote_data: Quote data from bundle (GetKey response)
-
-    Returns:
-        QuoteFacts with verification results
+    Extract TDX quote fields. Full DCAP/QVL signature verification requires
+    external tooling (Intel PCS collateral / Phala verifier) and is NOT
+    performed here — quote_valid stays False and the limitation is surfaced as
+    a fact, never masked. Wiring real DCAP/QVL is tracked as #93.
     """
     facts = QuoteFacts()
-
-    if not quote_data or not isinstance(quote_data, dict):
-        facts.verification_error = "No quote data in bundle"
+    if not platform_quote:
+        facts.verification_error = "No platform quote in bundle"
         return facts
-
-    # Check for signature_chain (KMS-rooted attestation)
-    sig_chain = quote_data.get("signature_chain", [])
-    if sig_chain and isinstance(sig_chain, list) and len(sig_chain) > 0:
-        facts.signature_chain_root = sig_chain[0].get("authority", "unknown")
-        facts.quote_format = "dstack-kms"
-
-    # Check for pubkey (app's derived key)
-    if "pubkey" in quote_data:
-        facts.app_pubkey = quote_data["pubkey"]
-
-    # Check for raw quote bytes (if available)
-    if "quote" in quote_data and isinstance(quote_data["quote"], str):
-        facts.quote_raw = quote_data["quote"]
-
-    # Check for quote report data (if pre-parsed)
-    if "report_data" in quote_data:
-        facts.report_data = quote_data["report_data"]
-
-    # Skeleton: we cannot verify DCAP/QVL without external tooling
-    # This would require Intel's DCAP verifier or Phala's verification service
-    facts.verification_error = "Full DCAP/QVL verification requires external tooling"
-    facts.quote_valid = False  # Honest: not verified without tooling
-
+    quote_blob = platform_quote.get("quote")
+    if isinstance(quote_blob, str) and quote_blob:
+        facts.quote_raw = quote_blob
+        facts.quote_format = "tdx-legacy"
+    facts.report_data = platform_quote.get("report_data", "") or ""
+    facts.verification_error = "DCAP/QVL quote signature verification not performed"
+    facts.quote_valid = False
     return facts
 
 
 def _verify_binding_preimage(
-    project: dict,
-    quote_data: dict,
+    project: str,
+    tree_hash: str,
+    app_pubkey: str,
+    app_id: str,
+    platform_quote: dict,
 ) -> BindingFacts:
     """
-    Verify report_data binding (RFC 0025).
-
-    For daemon-vouched attestation, the daemon generates a quote with
-    report_data = SHA-512(domain || app_id || name || tree_hash || app_pubkey).
-
-    This function recomputes the preimage hash and checks if it matches
-    the quote's report_data.
-
-    Args:
-        project: Project metadata from bundle
-        quote_data: Quote data from bundle
-
-    Returns:
-        BindingFacts with verification results
+    Verify the RFC 0025 report-data binding: recompute the preimage from the
+    bundle's claimed (app_id, project, tree_hash, app_pubkey) and compare to
+    the quote's report_data. An empty/zero report_data means the quote does
+    not bind the tree_hash at all; a non-matching report_data means the
+    bundle's claimed tree_hash differs from what the quote bound. Both surface
+    as errors[]; neither throws.
     """
     facts = BindingFacts()
-
-    if not quote_data or not isinstance(quote_data, dict):
-        facts.error = "No quote data for binding verification"
+    facts.report_data = platform_quote.get("report_data", "") or ""
+    if not (project and tree_hash and app_pubkey):
+        facts.error = "missing project/tree_hash/app_pubkey for binding preimage"
         return facts
-
-    name = project.get("name", "")
-    tree_hash = project.get("tree_hash", "")
-    app_pubkey = quote_data.get("pubkey", "")
-
-    if not all([name, tree_hash, app_pubkey]):
-        facts.error = "Missing required fields for binding verification"
-        return facts
-
-    # For daemon-vouched, we'd need the app_id from platform metadata
-    # For now, we can't fully verify without the quote's report_data
-    # Mark as daemon-vouched but note limitations
     facts.kind = "report-data-quote"
     facts.app_pubkey = app_pubkey
-
-    sig_chain = quote_data.get("signature_chain", [])
-    if sig_chain and isinstance(sig_chain, list) and len(sig_chain) > 0:
-        facts.signature_chain_root = sig_chain[0].get("authority", "unknown")
-
-    # Skeleton: full verification requires the actual report_data from the quote
-    facts.error = "report-data preimage verification requires quote report_data field"
-
+    rd = facts.report_data
+    if not rd or set(rd.lower()) == {"0"}:
+        facts.error = "quote report_data is empty/zero — tree_hash not bound by the quote"
+        return facts
+    expected = _compute_report_data_preimage(app_id, project, tree_hash, app_pubkey)
+    facts.preimage_verified = (rd.lower() == expected.lower())
+    if not facts.preimage_verified:
+        facts.error = "report_data does not commit to the bundle's claimed tree_hash"
     return facts
 
 
-async def _verify_onchain_approval(
-    session: aiohttp.ClientSession,
-    app_id: str,
-    chain_config: dict | None = None,
-) -> OnchainFacts:
+def _extract_onchain_facts(onchain: dict) -> OnchainFacts:
     """
-    Check if app_id is on-chain-approved on base-prod.
-
-    This requires calling the base-prod RPC to check the DstackApp allowlist.
-    On staging (pha-prod), chain_id=0 and apps are not on-chain-anchored.
-
-    Args:
-        session: HTTP session for RPC calls
-        app_id: dstack application identifier
-        chain_config: Optional chain RPC config (endpoint, contract address)
-
-    Returns:
-        OnchainFacts with approval status
+    Surface on-chain approval as facts. chain_id 0 (non-anchored, e.g.
+    pha-prod) is an expected state — approved=False with NO error. The real
+    base-prod DstackApp allowlist RPC is tracked as #90; until it lands,
+    approved stays False even on chain_id 8453 (honest, not masked).
     """
     facts = OnchainFacts()
-
-    if not app_id:
-        facts.error = "No app_id provided for on-chain verification"
-        return facts
-
-    # Default to staging behavior: chain_id=0, not approved
-    # This is honest about the current state
-    facts.chain_id = "0"
-    facts.chain_name = "unknown"
-    facts.approved = False
-    facts.error = "On-chain approval check requires base-prod RPC configuration"
-
+    chain_id = onchain.get("chain_id", 0)
+    facts.chain_id = str(chain_id)
+    facts.kms_contract = onchain.get("kms_contract", "") or ""
+    facts.dstackapp_address = onchain.get("dstackapp", "") or ""
+    facts.allowed_compose_hash = onchain.get("allowed_compose_hash", "") or ""
+    facts.allowed_os_image = onchain.get("allowed_os_image", "") or ""
+    if chain_id == 8453:
+        facts.chain_name = "base-prod"
+    elif chain_id == 0:
+        facts.chain_name = "non-anchored"
+    else:
+        facts.chain_name = f"chain-{chain_id}"
+    facts.approved = False  # real allowlist check is #90; never claim unearned approval
+    if chain_id not in (0, 8453):
+        facts.error = f"unexpected chain_id {chain_id}; no policy to evaluate"
     return facts
 
 
-async def _verify_source_tree(
-    session: aiohttp.ClientSession,
-    project: dict,
-) -> SourceFacts:
-    """
-    Verify source tree hash against GitHub.
-
-    Checks that the tree_hash in the bundle matches what GitHub reports
-    for the pinned commit.
-
-    Args:
-        session: HTTP session
-        project: Project metadata from bundle
-
-    Returns:
-        SourceFacts with verification results
-    """
+def _extract_source_facts(app: dict) -> SourceFacts:
     facts = SourceFacts()
-
-    source = project.get("source", "")
-    commit_sha = project.get("commit_sha", "")
-    tree_hash = project.get("tree_hash", "")
-
-    facts.repo = source
-    facts.ref = project.get("ref", "")
-    facts.commit_sha = commit_sha
-    facts.tree_hash = tree_hash
-
-    if not all([source, commit_sha, tree_hash]):
-        facts.error = "Missing source repo, commit_sha, or tree_hash"
+    src = app.get("source")
+    if not isinstance(src, dict):
+        facts.error = "app.source must be a JSON object"
         return facts
+    facts.repo = src.get("repo", "") or ""
+    facts.ref = src.get("ref", "") or ""
+    facts.commit_sha = src.get("commit_sha", "") or ""
+    facts.tree_hash = src.get("tree_hash", "") or ""
+    return facts
 
-    # Check if this is a GitHub repo
-    if "github.com" not in source:
-        facts.error = "Source is not a GitHub repo; cannot verify tree hash"
+
+def _extract_operator_debug(app: dict) -> OperatorDebugFacts:
+    """RFC 0029: surface the declared operator-debug door as a fact, no verdict."""
+    facts = OperatorDebugFacts()
+    od = app.get("operator_debug")
+    if not isinstance(od, dict):
         return facts
+    facts.enabled = bool(od.get("enabled", False))
+    facts.last_session_at = od.get("last_session_at", "") or ""
+    return facts
 
-    # Parse owner/repo from GitHub URL
-    import re
-    m = re.match(r"github\.com[:/]([^/]+)/([^/#]+?)(\.git)?$", source.replace("https://", "").replace("http://", ""))
-    if not m:
-        facts.error = f"Could not parse GitHub repo from {source}"
-        return facts
 
-    owner, repo = m.group(1), m.group(2)
+def _signature_chain_root(binding_quote: dict) -> str:
+    """Best-effort root identifier from a binding quote's signature_chain.
+    Entries are hex strings on real dstack bundles; older fixture shapes used
+    dicts with an 'authority' field."""
+    chain = binding_quote.get("signature_chain")
+    if not isinstance(chain, list) or not chain:
+        return ""
+    first = chain[0]
+    if isinstance(first, dict):
+        return str(first.get("authority", ""))
+    return str(first)
 
+
+def _verify_bundle(bundle_data: dict, base_url: str = "") -> Facts:
+    """Shared verification core for verify() and verify_from_bundle()."""
+    facts = Facts()
     try:
-        # Fetch commit from GitHub API
-        url = f"https://api.github.com/repos/{owner}/{repo}/git/commits/{commit_sha}"
-        async with session.get(url, headers={"Accept": "application/vnd.github.v3+json"}) as resp:
-            if resp.status == 200:
-                gh_data = await resp.json()
-                gh_tree = gh_data.get("tree", {}).get("sha", "")
-                facts.github_tree_sha = gh_tree
-                facts.github_tree_match = (gh_tree == tree_hash)
+        app, platform_quote, onchain, gateway, audit = _parse_bundle(bundle_data)
+    except BundleParseError as e:
+        facts.errors.append(f"bundle parse: {e}")
+        return facts
 
-                if not facts.github_tree_match:
-                    facts.error = f"GitHub tree hash {gh_tree[:16]} does not match bundle {tree_hash[:16]}"
-            elif resp.status == 404:
-                facts.error = f"GitHub does not have commit {commit_sha[:8]} in {owner}/{repo}"
-            else:
-                facts.error = f"GitHub API returned {resp.status}"
-    except Exception as e:
-        facts.error = f"GitHub fetch failed: {e}"
+    facts.schema_version = str(bundle_data.get("schema_version", facts.schema_version))
+    facts.app_id = str(bundle_data.get("webhost_app_id", "") or "")
+    facts.attestation_kind = "daemon-vouched"  # shared-daemon model; per-app CVM is RFC 0019
+
+    # channel (gateway) facts
+    facts.channel.domain = gateway.get("domain", "") or ""
+    facts.channel.app_id = gateway.get("app_id", "") or ""
+    facts.channel.zt_cert_ref = gateway.get("zt_cert_ref", "") or ""
+
+    # source facts
+    facts.source = _extract_source_facts(app)
+    if facts.source.error:
+        facts.errors.append(f"source: {facts.source.error}")
+
+    # RFC 0029 operator-debug door — a fact, not a verdict
+    facts.operator_debug = _extract_operator_debug(app)
+
+    # quote leg
+    facts.quote = _verify_quote_signature(platform_quote)
+    if facts.quote.verification_error:
+        facts.errors.append(f"quote: {facts.quote.verification_error}")
+
+    # binding leg (RFC 0025 report-data preimage)
+    binding_quote = app.get("binding_quote") if isinstance(app.get("binding_quote"), dict) else {}
+    app_pubkey = binding_quote.get("pubkey", "") or ""
+    facts.binding = _verify_binding_preimage(
+        project=app.get("project", "") or "",
+        tree_hash=facts.source.tree_hash,
+        app_pubkey=app_pubkey,
+        app_id=facts.app_id,
+        platform_quote=platform_quote,
+    )
+    facts.binding.app_pubkey = app_pubkey
+    facts.binding.signature_chain_root = _signature_chain_root(binding_quote)
+    if facts.binding.error:
+        facts.errors.append(f"binding: {facts.binding.error}")
+
+    # onchain leg — facts; chain_id 0 is not an error
+    facts.onchain = _extract_onchain_facts(onchain)
+    if facts.onchain.error:
+        facts.errors.append(f"onchain: {facts.onchain.error}")
+
+    # gateway/channel leg — zt_cert_ref must be cited (verification of it is #93's class of work)
+    if not facts.channel.zt_cert_ref:
+        facts.errors.append("gateway: no zt_cert_ref — channel attestation not present")
+
+    # audit sanity — a bundle with no promote event has no binding trail
+    if not any(isinstance(e, dict) and e.get("action") == "promote" for e in audit):
+        facts.errors.append("audit: no promote event recorded")
+
+    if base_url:
+        facts.channel.domain = facts.channel.domain or urlparse(base_url).netloc
 
     return facts
 
+
+# --- public verify() --------------------------------------------------------
 
 async def verify(
     endpoint: str,
@@ -468,171 +453,49 @@ async def verify(
     chain_config: dict | None = None,
 ) -> Facts:
     """
-    Verify a TEE attestation bundle and return Facts.
+    Fetch an RFC 0020 evidence bundle from `endpoint` and verify it.
 
     Args:
-        endpoint: Verification endpoint URL or bundle URL
-                  (e.g., "https://cvm/_api/verification/project" or just the base URL)
-        session: Optional HTTP session (created if not provided)
-        chain_config: Optional on-chain verification config
+        endpoint: Full verification URL (/_api/verification/<project>).
+        session: Optional aiohttp session (created if not provided).
+        chain_config: Reserved for the base-prod allowlist RPC (#90); unused
+            until that lands.
 
     Returns:
-        Facts: Structured facts about the attestation
-
-    Raises:
-        BundleFetchError: If bundle cannot be fetched
-        BundleParseError: If bundle structure is invalid
+        Facts. Raises BundleFetchError on transport failure, BundleParseError
+        on a structurally invalid endpoint URL — but never raises a verdict.
     """
-    facts = Facts()
-
-    # Create session if not provided
-    own_session = False
-    if session is None:
+    own_session = session is None
+    if own_session:
         session = aiohttp.ClientSession()
-        own_session = True
-
     try:
-        # Normalize URL and construct verification endpoint
         base_url = endpoint.rstrip("/")
-
-        # If endpoint looks like a base URL, extract project name or list projects
-        # For now, assume endpoint is the full verification URL
         if "/_api/verification/" not in base_url:
-            # This might be a base URL; we'd need to discover projects
-            # For now, error
-            facts.errors.append("Endpoint must be a full verification URL (/_api/verification/<project>)")
-            return facts
-
-        # Fetch the bundle
+            raise BundleParseError(
+                "Endpoint must be a full verification URL (/_api/verification/<project>)"
+            )
         async with session.get(base_url, headers={"Accept": "application/json"}) as resp:
             if resp.status != 200:
                 raise BundleFetchError(f"HTTP {resp.status}: {await resp.text()}")
             bundle_data = await resp.json()
-
-        # Parse the bundle
-        project, quote_data, audit_log = _parse_bundle(bundle_data)
-
-        # Extract channel/domain facts
-        from urllib.parse import urlparse
-        parsed = urlparse(base_url)
-        facts.channel.domain = parsed.netloc
-
-        # Extract app_id (from quote or project metadata)
-        if quote_data and isinstance(quote_data, dict):
-            sig_chain = quote_data.get("signature_chain", [])
-            if sig_chain and isinstance(sig_chain, list) and len(sig_chain) > 0:
-                facts.app_id = sig_chain[0].get("authority", "")
-
-        # Extract source facts
-        facts.source.repo = project.get("source", "")
-        facts.source.ref = project.get("ref", "")
-        facts.source.commit_sha = project.get("commit_sha", "")
-        facts.source.tree_hash = project.get("tree_hash", "")
-
-        # Determine attestation_kind (default to daemon-vouched for shared daemon)
-        # RFC 0025: app-cvm would have a different quote structure
-        facts.attestation_kind = "daemon-vouched"
-
-        # RFC 0029: surface the declared operator-debug door as a fact (no verdict).
-        app_block = bundle_data.get("app", {}) or {}
-        od = app_block.get("operator_debug") or {}
-        facts.operator_debug.enabled = bool(od.get("enabled", False))
-        facts.operator_debug.last_session_at = od.get("last_session_at", "") or ""
-
-        # Verify quote
-        facts.quote = _verify_quote_signature(quote_data)
-        if facts.quote.verification_error:
-            facts.errors.append(f"quote verification: {facts.quote.verification_error}")
-
-        # Verify binding preimage
-        facts.binding = _verify_binding_preimage(project, quote_data)
-        if facts.binding.error:
-            facts.errors.append(f"binding verification: {facts.binding.error}")
-
-        # Verify on-chain approval
-        facts.onchain = await _verify_onchain_approval(session, facts.app_id, chain_config)
-        if facts.onchain.error:
-            facts.errors.append(f"on-chain verification: {facts.onchain.error}")
-
-        # Verify source tree
-        facts.source = await _verify_source_tree(session, project)
-        if facts.source.error:
-            facts.errors.append(f"source verification: {facts.source.error}")
-
-        # Collect any errors from audit log (optional check)
-        if audit_log:
-            # Check for promote event
-            promote_events = [e for e in audit_log if e.get("action") == "promote"]
-            if not promote_events:
-                facts.errors.append("No promote event found in audit log")
-
-    except BundleFetchError:
-        raise
-    except BundleParseError:
-        raise
-    except Exception as e:
-        facts.errors.append(f"Unexpected error: {e}")
-        log.exception("Unexpected error during verification")
+        return _verify_bundle(bundle_data, base_url=base_url)
     finally:
         if own_session:
             await session.close()
 
-    return facts
-
 
 async def verify_from_bundle(bundle_data: dict, chain_config: dict | None = None) -> Facts:
     """
-    Verify from a pre-fetched bundle (skips HTTP fetch).
-
-    Useful when the consumer already has the bundle and just needs
-    to extract facts.
+    Verify a pre-fetched RFC 0020 bundle dict (no HTTP). Useful when the
+    consumer already has the bundle — e.g. it was handed to an agent
+    out-of-band — and just needs the Facts extracted.
 
     Args:
-        bundle_data: Verification bundle JSON
-        chain_config: Optional on-chain verification config
+        bundle_data: Verification bundle JSON.
+        chain_config: Reserved for the base-prod allowlist RPC (#90); unused.
 
     Returns:
-        Facts: Structured facts about the attestation
+        Facts. A structurally invalid bundle surfaces in Facts.errors[] rather
+        than raising — the library never throws a verdict.
     """
-    facts = Facts()
-
-    try:
-        project, quote_data, audit_log = _parse_bundle(bundle_data)
-
-        # Extract basic facts
-        facts.source.repo = project.get("source", "")
-        facts.source.ref = project.get("ref", "")
-        facts.source.commit_sha = project.get("commit_sha", "")
-        facts.source.tree_hash = project.get("tree_hash", "")
-
-        # Extract app_id
-        if quote_data and isinstance(quote_data, dict):
-            sig_chain = quote_data.get("signature_chain", [])
-            if sig_chain and isinstance(sig_chain, list) and len(sig_chain) > 0:
-                facts.app_id = sig_chain[0].get("authority", "")
-            facts.binding.app_pubkey = quote_data.get("pubkey", "")
-
-        facts.attestation_kind = "daemon-vouched"
-
-        # RFC 0029: surface the declared operator-debug door as a fact (no verdict).
-        app_block = bundle_data.get("app", {}) or {}
-        od = app_block.get("operator_debug") or {}
-        facts.operator_debug.enabled = bool(od.get("enabled", False))
-        facts.operator_debug.last_session_at = od.get("last_session_at", "") or ""
-
-        # Verify quote
-        facts.quote = _verify_quote_signature(quote_data)
-        if facts.quote.verification_error:
-            facts.errors.append(facts.quote.verification_error)
-
-        # Verify binding
-        facts.binding = _verify_binding_preimage(project, quote_data)
-        if facts.binding.error:
-            facts.errors.append(facts.binding.error)
-
-        # Note: on-chain and source verification require HTTP, skipped here
-
-    except BundleParseError as e:
-        facts.errors.append(f"Bundle parse error: {e}")
-
-    return facts
+    return _verify_bundle(bundle_data, base_url="")
