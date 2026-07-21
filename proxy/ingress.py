@@ -902,17 +902,14 @@ class Ingress:
                 ),
             )
 
-            # Get audit log (retained for backward compatibility, in main bundle for now)
-            audit = []
+            # Attach the per-project audit log to the bundle (part of the served shape).
             try:
                 audit_log = self.audit_manager.get_audit_log(name)
-                audit = audit_log.to_json()
+                bundle.audit = audit_log.to_json()
             except Exception as e:
                 log.warning("Failed to get audit log: %s", e)
 
-            result = bundle.to_dict()
-            result["audit"] = audit  # Retain audit for existing consumers
-            return web.json_response(result)
+            return web.json_response(bundle.to_dict())
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
 

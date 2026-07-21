@@ -9,6 +9,12 @@ NO verdict and shows no green/red — the accept-or-reject policy lives entirely
 in the consumer (see verify/policies.py for two reference policies). Every
 problem lands in Facts.errors[]; verify() never throws a verdict.
 
+The bundle schema is defined ONCE in :mod:`verify.bundle`; this module parses
+it via :meth:`EvidenceBundle.from_dict` and reads typed attributes, so a field
+renamed or dropped on one side of the wire surfaces here rather than silently
+emptying out. The round-trip test (``test_bundle_roundtrip``) locks that
+contract.
+
 The library is honest about what it can and cannot verify:
 - The TDX quote is parsed but DCAP/QVL signature verification requires external
   tooling (Intel PCS / Phala verifier, tracked separately as #93); quote_valid
@@ -32,6 +38,14 @@ from typing import Literal
 from urllib.parse import urlparse
 
 import aiohttp
+
+from .bundle import (
+    SCHEMA_VERSION,
+    EvidenceBundle,
+    OnchainInfo,
+    OperatorDebugInfo,
+    SourceInfo,
+)
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +108,7 @@ class SourceFacts:
     ref: str = ""
     commit_sha: str = ""
     tree_hash: str = ""
+    tree_hash_kind: str = "git"
     github_tree_match: bool = False
     github_tree_sha: str = ""
     error: str = ""
@@ -114,11 +129,18 @@ class Facts:
     This is the output of verify() — a structured collection of facts about
     what's running. No verdict, no accept/reject. The consumer decides policy
     based on these facts (see verify/policies.py).
+
+    Every field the producer sets on the :class:`~verify.bundle.EvidenceBundle`
+    has a home here; :func:`verify_from_bundle` populates them. If a future
+    schema bump adds a producer field with no consumer home, the round-trip
+    test fails rather than dropping it silently.
     """
-    schema_version: str = "1.0"
+    schema_version: str = SCHEMA_VERSION
     channel: ChannelFacts = field(default_factory=ChannelFacts)
     app_id: str = ""
     attestation_kind: Literal["daemon-vouched", "app-cvm", "unknown"] = "unknown"
+    project: str = ""
+    image_digest: str = ""
     operator_debug: OperatorDebugFacts = field(default_factory=OperatorDebugFacts)
     quote: QuoteFacts = field(default_factory=QuoteFacts)
     binding: BindingFacts = field(default_factory=BindingFacts)
@@ -138,6 +160,8 @@ class Facts:
             },
             "app_id": self.app_id,
             "attestation_kind": self.attestation_kind,
+            "project": self.project,
+            "image_digest": self.image_digest,
             "operator_debug": {
                 "enabled": self.operator_debug.enabled,
                 "last_session_at": self.operator_debug.last_session_at,
@@ -175,6 +199,7 @@ class Facts:
                 "ref": self.source.ref,
                 "commit_sha": self.source.commit_sha,
                 "tree_hash": self.source.tree_hash,
+                "tree_hash_kind": self.source.tree_hash_kind,
                 "github_tree_match": self.source.github_tree_match,
                 "github_tree_sha": self.source.github_tree_sha,
                 "error": self.source.error,
@@ -204,33 +229,21 @@ class BundleFetchError(Exception):
 
 # --- bundle parsing ---------------------------------------------------------
 
-def _parse_bundle(bundle_data: dict) -> tuple[dict, dict, dict, dict, list]:
+def _parse_bundle(bundle_data: dict) -> EvidenceBundle:
     """
-    Parse an RFC 0020 evidence bundle into its constituent parts.
+    Parse an RFC 0020 evidence bundle via the single shared schema definition.
 
-    Returns (app, platform_quote, onchain, gateway, audit). Raises
-    BundleParseError on any structural problem — never silently returns empty
-    parts, because that is exactly how a verification leg could stop checking
-    without anyone noticing.
+    Returns an :class:`EvidenceBundle`. Raises BundleParseError on any
+    structural problem — never silently returns an empty bundle, because that
+    is exactly how a verification leg could stop checking without anyone
+    noticing.
     """
     if not isinstance(bundle_data, dict):
         raise BundleParseError("Bundle must be a JSON object")
-    app = bundle_data.get("app", {})
-    platform_quote = bundle_data.get("platform_quote") or {}
-    onchain = bundle_data.get("onchain") or {}
-    gateway = bundle_data.get("gateway") or {}
-    audit = bundle_data.get("audit") or []
-    if not isinstance(app, dict):
-        raise BundleParseError("app must be a JSON object")
-    if not isinstance(platform_quote, dict):
-        raise BundleParseError("platform_quote must be a JSON object")
-    if not isinstance(onchain, dict):
-        raise BundleParseError("onchain must be a JSON object")
-    if not isinstance(gateway, dict):
-        raise BundleParseError("gateway must be a JSON object")
-    if not isinstance(audit, list):
-        raise BundleParseError("audit must be a JSON array")
-    return app, platform_quote, onchain, gateway, audit
+    try:
+        return EvidenceBundle.from_dict(bundle_data)
+    except (TypeError, ValueError) as e:
+        raise BundleParseError(f"Bundle structure invalid: {e}") from e
 
 
 # --- RFC 0025 report-data binding preimage ----------------------------------
@@ -317,7 +330,7 @@ def _verify_binding_preimage(
     return facts
 
 
-def _extract_onchain_facts(onchain: dict) -> OnchainFacts:
+def _extract_onchain_facts(onchain: OnchainInfo) -> OnchainFacts:
     """
     Surface on-chain approval as facts. chain_id 0 (non-anchored, e.g.
     pha-prod) is an expected state — approved=False with NO error. The real
@@ -325,12 +338,12 @@ def _extract_onchain_facts(onchain: dict) -> OnchainFacts:
     approved stays False even on chain_id 8453 (honest, not masked).
     """
     facts = OnchainFacts()
-    chain_id = onchain.get("chain_id", 0)
+    chain_id = onchain.chain_id
     facts.chain_id = str(chain_id)
-    facts.kms_contract = onchain.get("kms_contract", "") or ""
-    facts.dstackapp_address = onchain.get("dstackapp", "") or ""
-    facts.allowed_compose_hash = onchain.get("allowed_compose_hash", "") or ""
-    facts.allowed_os_image = onchain.get("allowed_os_image", "") or ""
+    facts.kms_contract = onchain.kms_contract
+    facts.dstackapp_address = onchain.dstackapp
+    facts.allowed_compose_hash = onchain.allowed_compose_hash
+    facts.allowed_os_image = onchain.allowed_os_image
     if chain_id == 8453:
         facts.chain_name = "base-prod"
     elif chain_id == 0:
@@ -343,28 +356,19 @@ def _extract_onchain_facts(onchain: dict) -> OnchainFacts:
     return facts
 
 
-def _extract_source_facts(app: dict) -> SourceFacts:
+def _extract_source_facts(source: SourceInfo) -> SourceFacts:
     facts = SourceFacts()
-    src = app.get("source")
-    if not isinstance(src, dict):
-        facts.error = "app.source must be a JSON object"
-        return facts
-    facts.repo = src.get("repo", "") or ""
-    facts.ref = src.get("ref", "") or ""
-    facts.commit_sha = src.get("commit_sha", "") or ""
-    facts.tree_hash = src.get("tree_hash", "") or ""
+    facts.repo = source.repo
+    facts.ref = source.ref
+    facts.commit_sha = source.commit_sha
+    facts.tree_hash = source.tree_hash
+    facts.tree_hash_kind = source.tree_hash_kind
     return facts
 
 
-def _extract_operator_debug(app: dict) -> OperatorDebugFacts:
+def _extract_operator_debug(od: OperatorDebugInfo) -> OperatorDebugFacts:
     """RFC 0029: surface the declared operator-debug door as a fact, no verdict."""
-    facts = OperatorDebugFacts()
-    od = app.get("operator_debug")
-    if not isinstance(od, dict):
-        return facts
-    facts.enabled = bool(od.get("enabled", False))
-    facts.last_session_at = od.get("last_session_at", "") or ""
-    return facts
+    return OperatorDebugFacts(enabled=od.enabled, last_session_at=od.last_session_at)
 
 
 def _signature_chain_root(binding_quote: dict) -> str:
@@ -381,45 +385,54 @@ def _signature_chain_root(binding_quote: dict) -> str:
 
 
 def _verify_bundle(bundle_data: dict, base_url: str = "") -> Facts:
-    """Shared verification core for verify() and verify_from_bundle()."""
+    """Shared verification core for verify() and verify_from_bundle().
+
+    Every producer field on the EvidenceBundle is mapped to a Facts home here;
+    reading typed attributes (not string keys) means a renamed dataclass field
+    is a compile-time-checked change, not a silent empty string.
+    """
     facts = Facts()
     try:
-        app, platform_quote, onchain, gateway, audit = _parse_bundle(bundle_data)
+        bundle = _parse_bundle(bundle_data)
     except BundleParseError as e:
         facts.errors.append(f"bundle parse: {e}")
         return facts
 
-    facts.schema_version = str(bundle_data.get("schema_version", facts.schema_version))
-    facts.app_id = str(bundle_data.get("webhost_app_id", "") or "")
+    facts.schema_version = bundle.schema_version
+    facts.app_id = bundle.webhost_app_id
     facts.attestation_kind = "daemon-vouched"  # shared-daemon model; per-app CVM is RFC 0019
 
     # channel (gateway) facts
-    facts.channel.domain = gateway.get("domain", "") or ""
-    facts.channel.app_id = gateway.get("app_id", "") or ""
-    facts.channel.zt_cert_ref = gateway.get("zt_cert_ref", "") or ""
+    facts.channel.domain = bundle.gateway.domain
+    facts.channel.app_id = bundle.gateway.app_id
+    facts.channel.zt_cert_ref = bundle.gateway.zt_cert_ref
+
+    # app-level facts (project / image_digest were previously dropped — drift fix)
+    facts.project = bundle.app.project
+    facts.image_digest = bundle.app.image_digest
 
     # source facts
-    facts.source = _extract_source_facts(app)
+    facts.source = _extract_source_facts(bundle.app.source)
     if facts.source.error:
         facts.errors.append(f"source: {facts.source.error}")
 
     # RFC 0029 operator-debug door — a fact, not a verdict
-    facts.operator_debug = _extract_operator_debug(app)
+    facts.operator_debug = _extract_operator_debug(bundle.app.operator_debug)
 
     # quote leg
-    facts.quote = _verify_quote_signature(platform_quote)
+    facts.quote = _verify_quote_signature(bundle.platform_quote)
     if facts.quote.verification_error:
         facts.errors.append(f"quote: {facts.quote.verification_error}")
 
     # binding leg (RFC 0025 report-data preimage)
-    binding_quote = app.get("binding_quote") if isinstance(app.get("binding_quote"), dict) else {}
+    binding_quote = bundle.app.binding_quote
     app_pubkey = binding_quote.get("pubkey", "") or ""
     facts.binding = _verify_binding_preimage(
-        project=app.get("project", "") or "",
+        project=bundle.app.project,
         tree_hash=facts.source.tree_hash,
         app_pubkey=app_pubkey,
         app_id=facts.app_id,
-        platform_quote=platform_quote,
+        platform_quote=bundle.platform_quote,
     )
     facts.binding.app_pubkey = app_pubkey
     facts.binding.signature_chain_root = _signature_chain_root(binding_quote)
@@ -427,7 +440,7 @@ def _verify_bundle(bundle_data: dict, base_url: str = "") -> Facts:
         facts.errors.append(f"binding: {facts.binding.error}")
 
     # onchain leg — facts; chain_id 0 is not an error
-    facts.onchain = _extract_onchain_facts(onchain)
+    facts.onchain = _extract_onchain_facts(bundle.onchain)
     if facts.onchain.error:
         facts.errors.append(f"onchain: {facts.onchain.error}")
 
@@ -436,7 +449,7 @@ def _verify_bundle(bundle_data: dict, base_url: str = "") -> Facts:
         facts.errors.append("gateway: no zt_cert_ref — channel attestation not present")
 
     # audit sanity — a bundle with no promote event has no binding trail
-    if not any(isinstance(e, dict) and e.get("action") == "promote" for e in audit):
+    if not any(isinstance(e, dict) and e.get("action") == "promote" for e in bundle.audit):
         facts.errors.append("audit: no promote event recorded")
 
     if base_url:

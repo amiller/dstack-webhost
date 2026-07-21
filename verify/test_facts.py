@@ -16,6 +16,15 @@ import pytest
 from verify import Facts, verify_from_bundle, BundleParseError
 from verify.facts import _compute_report_data_preimage, _parse_bundle
 from verify.policies import allowlist_policy, strict_policy
+from verify import (
+    SCHEMA_VERSION,
+    AppInfo,
+    EvidenceBundle,
+    GatewayInfo,
+    OnchainInfo,
+    OperatorDebugInfo,
+    SourceInfo,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GOOD = FIXTURES / "bundle-prod-oauth3.json"
@@ -200,6 +209,128 @@ def test_facts_to_dict_is_json_serializable_and_round_trips():
     print("test_facts_to_dict_is_json_serializable_and_round_trips: PASS")
 
 
+# --- producer <-> consumer round-trip (issue #92) ---------------------------
+
+def _full_producer_bundle() -> EvidenceBundle:
+    """Build a bundle via the producer path with every field set to a distinctive value.
+
+    Mirrors what ``proxy/ingress.py`` does: populate the shared ``EvidenceBundle``
+    dataclasses, then serialize. Any field the producer can set is set here."""
+    app_pubkey = "02abcdef"  # valid hex (the binding preimage does bytes.fromhex on it)
+    project = "rfc-roundtrip"
+    webhost_app_id = "<webhost-app-id>"
+    tree_hash = "deadbeef" * 8
+    report_data = _compute_report_data_preimage(
+        app_id=webhost_app_id, name=project, tree_hash=tree_hash, app_pubkey=app_pubkey,
+    )
+
+    bundle = EvidenceBundle()
+    bundle.schema_version = SCHEMA_VERSION
+    bundle.platform_quote = {"quote": "<raw-platform-quote>", "report_data": report_data}
+    bundle.webhost_app_id = webhost_app_id
+    bundle.onchain = OnchainInfo(
+        chain_id=0,  # non-anchored (pha-prod), matches the served fixture
+        kms_contract="0xKMS",
+        dstackapp="0xDAPP",
+        allowed_compose_hash="0xCOMPOSE",
+        allowed_os_image="0xOSIMAGE",
+    )
+    bundle.gateway = GatewayInfo(
+        domain="gateway.example",
+        app_id="<gateway-app-id>",
+        zt_cert_ref="<zt-cert-ref>",
+    )
+    bundle.app = AppInfo(
+        project=project,
+        source=SourceInfo(
+            repo="https://github.com/acme/repo",
+            ref="main",
+            commit_sha="c0mm1t5ha",
+            tree_hash=tree_hash,
+            tree_hash_kind="git",
+        ),
+        image_digest="sha256:imagedigest",
+        binding_quote={"pubkey": app_pubkey, "signature_chain": ["<sig-chain-root>"]},
+        operator_debug=OperatorDebugInfo(enabled=True, last_session_at=""),
+    )
+    bundle.audit = [{"action": "promote", "timestamp": 1234567890}]
+    return bundle
+
+
+def test_bundle_roundtrip():
+    """Every field the producer sets is populated on the consumer side.
+
+    This is the drift gate: build a bundle through the producer path, serialize
+    it (what the daemon serves), parse it via ``verify_from_bundle``, and assert
+    each producer field lands on a consumer ``Facts`` field. If a future schema
+    bump adds a producer field with no consumer home, this test fails instead of
+    dropping it silently.
+    """
+    wire = _full_producer_bundle().to_dict()  # producer serialization
+    facts = asyncio.run(verify_from_bundle(wire))
+
+    # schema_version is pinned and shared (a bump must be deliberate)
+    assert facts.schema_version == SCHEMA_VERSION == wire["schema_version"]
+    assert facts.attestation_kind == "daemon-vouched"
+
+    # platform_quote -> QuoteFacts (+ binding.report_data)
+    assert facts.quote.quote_raw == "<raw-platform-quote>"
+    assert facts.quote.report_data == wire["platform_quote"]["report_data"]
+
+    # webhost_app_id
+    assert facts.app_id == "<webhost-app-id>"
+
+    # onchain (every producer field echoed; chain_id str-encoded on the consumer)
+    assert facts.onchain.chain_id == "0"
+    assert facts.onchain.kms_contract == "0xKMS"
+    assert facts.onchain.dstackapp_address == "0xDAPP"
+    assert facts.onchain.allowed_compose_hash == "0xCOMPOSE"
+    assert facts.onchain.allowed_os_image == "0xOSIMAGE"
+
+    # gateway -> ChannelFacts
+    assert facts.channel.domain == "gateway.example"
+    assert facts.channel.app_id == "<gateway-app-id>"
+    assert facts.channel.zt_cert_ref == "<zt-cert-ref>"
+
+    # app.project + app.image_digest (previously dropped — drift fix)
+    assert facts.project == "rfc-roundtrip"
+    assert facts.image_digest == "sha256:imagedigest"
+
+    # app.source -> SourceFacts (incl. tree_hash_kind, previously dropped)
+    assert facts.source.repo == "https://github.com/acme/repo"
+    assert facts.source.ref == "main"
+    assert facts.source.commit_sha == "c0mm1t5ha"
+    assert facts.source.tree_hash == "deadbeef" * 8
+    assert facts.source.tree_hash_kind == "git"
+
+    # app.binding_quote -> BindingFacts (preimage verifies against the report_data)
+    assert facts.binding.app_pubkey == "02abcdef"
+    assert facts.binding.signature_chain_root == "<sig-chain-root>"
+    assert facts.binding.preimage_verified is True
+
+    # app.operator_debug -> OperatorDebugFacts (RFC 0029)
+    assert facts.operator_debug.enabled is True
+    assert facts.operator_debug.last_session_at == ""
+
+    print("test_bundle_roundtrip: PASS (every producer field populated on consumer side)")
+
+
+def test_bundle_to_dict_is_the_served_shape():
+    """EvidenceBundle.to_dict() matches the shape the daemon serves (the committed
+    fixture in test_daemon.py). Guards acceptance bullet 4: the daemon's
+    ``/_api/verification/<project>`` response shape must not change."""
+    wire = _full_producer_bundle().to_dict()
+    expected_keys = {"schema_version", "platform_quote", "webhost_app_id",
+                     "onchain", "gateway", "app", "audit"}
+    assert expected_keys == set(wire.keys()), expected_keys ^ set(wire.keys())
+    assert set(wire["app"]["source"]) == {"repo", "ref", "commit_sha", "tree_hash", "tree_hash_kind"}
+    assert set(wire["onchain"]) == {"chain_id", "kms_contract", "dstackapp",
+                                     "allowed_compose_hash", "allowed_os_image"}
+    assert set(wire["gateway"]) == {"domain", "app_id", "zt_cert_ref"}
+    assert wire["onchain"]["chain_id"] == 0
+    print("test_bundle_to_dict_is_the_served_shape: PASS (response shape unchanged)")
+
+
 if __name__ == "__main__":
     test_tampered_tree_hash_surfaces_mismatch_and_verify_returns()
     test_non_anchored_ecosystem_surfaces_chain_id_zero_no_crash()
@@ -210,4 +341,6 @@ if __name__ == "__main__":
     test_report_data_preimage_is_sensitive_to_tree_hash()
     test_parse_invalid_bundle_raises_and_verify_surfaces_it()
     test_facts_to_dict_is_json_serializable_and_round_trips()
+    test_bundle_roundtrip()
+    test_bundle_to_dict_is_the_served_shape()
     print("\n=== ALL FACTS TESTS PASSED ===")

@@ -14,20 +14,38 @@ Usage:
             pass
 """
 
+from .bundle import (
+    SCHEMA_VERSION,
+    AppInfo,
+    EvidenceBundle,
+    GatewayInfo,
+    OnchainInfo,
+    OperatorDebugInfo,
+    SourceInfo,
+)
 from .facts import (
-    Facts,
-    ChannelFacts,
     BindingFacts,
-    QuoteFacts,
-    OnchainFacts,
-    SourceFacts,
-    BundleParseError,
     BundleFetchError,
+    BundleParseError,
+    ChannelFacts,
+    Facts,
+    OnchainFacts,
+    QuoteFacts,
+    SourceFacts,
     verify,
     verify_from_bundle,
 )
 
 __all__ = [
+    # Bundle wire schema (single definition, shared with proxy/)
+    "SCHEMA_VERSION",
+    "EvidenceBundle",
+    "OnchainInfo",
+    "GatewayInfo",
+    "SourceInfo",
+    "OperatorDebugInfo",
+    "AppInfo",
+    # Verify facts
     "Facts",
     "ChannelFacts",
     "BindingFacts",
