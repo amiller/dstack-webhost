@@ -45,10 +45,12 @@ def test_good_fixture_parses_via_parse_bundle():
     from verify.facts import _parse_bundle
 
     bundle = json.loads(GOOD.read_bytes())
-    project, quote, audit = _parse_bundle(bundle)  # must not raise
+    app, platform_quote, onchain, gateway, audit = _parse_bundle(bundle)  # must not raise
     # Prove we actually loaded the real bundle, not an empty fallback.
     assert isinstance(audit, list) and len(audit) > 0
-    assert bundle["app"]["source"]["tree_hash"]
+    assert app["source"]["tree_hash"]
+    assert platform_quote["quote"]
+    assert onchain["chain_id"] == 0
     print("test_good_fixture_parses_via_parse_bundle: PASS")
 
 
