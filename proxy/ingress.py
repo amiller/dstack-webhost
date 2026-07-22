@@ -633,6 +633,8 @@ class Ingress:
                 return await self._api_promote(name)
             if method == "GET" and rest == "audit":
                 return await self._api_audit(name)
+            if method == "GET" and rest == "logs":
+                return await self._api_logs(name, request)
 
         if path.startswith("attest/"):
             name = path.split("/")[1]
@@ -784,6 +786,29 @@ class Ingress:
             return web.json_response(audit.to_json())
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
+
+    async def _api_logs(self, name: str, request: web.Request) -> web.Response:
+        """Read a project's container stdout/stderr (owner-authed, read-only).
+
+        Debugging a container that only reports symptoms from the outside (a VPN
+        that connects but passes no traffic, a crash-looping boot) previously had
+        no remote path here: docker exec is denied and there was no logs route, so
+        the only recourse was a full daemon redeploy with added instrumentation.
+        This exposes the logs the daemon can already read (docker_client.logs)."""
+        try:
+            project = self.store.load(name)
+        except FileNotFoundError:
+            return web.json_response({"error": "project not found"}, status=404)
+        try:
+            tail = min(int(request.query.get("tail", "200")), 2000)
+        except ValueError:
+            tail = 200
+        cid = await self.rtm.get_container_id(project)
+        if not cid:
+            return web.json_response(
+                {"error": "no container for project (not running?)"}, status=404)
+        text = await self.docker.logs(cid, tail=tail)
+        return web.Response(text=text, content_type="text/plain")
 
     async def _api_all_audit(self) -> web.Response:
         """Get audit entries for all known projects."""

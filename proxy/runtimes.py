@@ -708,6 +708,21 @@ class RuntimeManager:
 
         return result
 
+    async def get_container_id(self, project) -> str | None:
+        """Resolve a project's live container id for logs/inspect. Prefers the
+        in-memory map (populated on deploy/recover); falls back to resolving by
+        the deterministic container name so it still works right after a daemon
+        restart before recover_all has run."""
+        cid = self.image_cids.get(project.name)
+        if cid:
+            return cid
+        if project.runtime == "image" or project.isolation == "container":
+            prefix = "tee-image" if project.runtime == "image" else "tee-isolated"
+            return await self.docker.container_exists(f"{prefix}-{project.name}-{project.mode}")
+        if project.runtime in ("dockerfile",):
+            return project.container_id or None
+        return None
+
     async def recover_all(self):
         runtimes_needed = set()
         image_projects = []
