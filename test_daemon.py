@@ -319,6 +319,52 @@ def test_playwright_static():
         browser.close()
 
 
+def test_landing_cards():
+    """Landing card flags image deploys with no source up front (#88).
+
+    An image-runtime attested app with no recorded git source has no source chain
+    to walk, so its card must say so (image deploy — digest-pinned, no source) and
+    relabel the link off "verify" instead of implying a walkable trust chain. A card
+    WITH a source repo + commit keeps the "verify" wording unchanged.
+    """
+    print("\n--- Test: landing card distinguishes no-source image deploys (#88) ---")
+    img = api_post("/projects", json={
+        "name": "card-img-nosrc", "runtime": "image", "image": "nginx:alpine",
+        "image_port": 80, "mode": "attested",
+    })
+    assert img.status_code == 201, f"deploy image failed: {img.text}"
+    assert img.json()["source"] == "", "image deploy should have empty source"
+    repo = create_test_repo("card-git-src", {"index.html": b"<h1>has source</h1>"})
+    src = api_post("/projects", json={
+        "name": "card-git-src", "source": repo, "runtime": "static", "mode": "attested",
+    })
+    assert src.status_code == 201, f"deploy source failed: {src.text}"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"{INGRESS}/")
+        no_src = page.locator("#apps .card", has_text="card-img-nosrc")
+        with_src = page.locator("#apps .card", has_text="card-git-src")
+        no_src.wait_for(timeout=15000)
+        with_src.wait_for(timeout=15000)
+        no_txt = no_src.inner_text()
+        assert "digest-pinned, no source" in no_txt, f"no-source label missing: {no_txt!r}"
+        assert no_src.get_by_text("attestation").count() == 1, "attestation link missing"
+        assert no_src.get_by_text("verify").count() == 0, "no-source card should not offer verify"
+        assert with_src.get_by_text("verify").count() == 1, "source card should keep verify"
+        shot = os.environ.get("LANDING_CARD_SCREENSHOT")
+        if shot:
+            os.makedirs(os.path.dirname(shot), exist_ok=True)
+            page.screenshot(path=shot, full_page=True)
+            print(f"  screenshot -> {shot}")
+        browser.close()
+
+    api_delete("/projects/card-img-nosrc")
+    api_delete("/projects/card-git-src")
+    print("  Landing cards render correctly ✓")
+
+
 def test_deploy_deno():
     print("\n--- Test: deploy deno from git with project.json ---")
     repo = create_test_repo("test-deno", {
@@ -1432,6 +1478,7 @@ def main():
         test_list_projects()
         test_env_redaction()
         test_root_listing_layers()
+        test_landing_cards()
         test_rfc0020_bundle()
         test_rfc0020_tamper()
         test_rfc0020_non_anchored()
