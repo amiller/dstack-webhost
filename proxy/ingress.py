@@ -49,6 +49,15 @@ def _sanitize_getkey(data):
         return {k: v for k, v in data.items() if k != "key"}
 
 
+def _redact_env(data: dict) -> dict:
+    """Replace every env value with '<redacted>'. API responses — admin or public —
+    must never echo plaintext secrets back to the client or into logs; GET, status,
+    deploy, redeploy, promote and aggregate all share this one rule."""
+    if data.get("env"):
+        data["env"] = dict.fromkeys(data["env"], "<redacted>")
+    return data
+
+
 DSTACK_SOCK = None  # set by main.py
 API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
 
@@ -578,7 +587,7 @@ class Ingress:
                     elif path.endswith("/audit"):
                         resp = await self._api_audit(public_name)
                     else:
-                        resp = await self._api_status(public_name, public=True)
+                        resp = await self._api_status(public_name)
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
@@ -673,7 +682,7 @@ class Ingress:
 
     async def _api_list(self) -> web.Response:
         projects = self.store.list()
-        return web.json_response([asdict(p) for p in projects])
+        return web.json_response([_redact_env(asdict(p)) for p in projects])
 
     async def _api_routes(self) -> web.Response:
         """Get the current routing table."""
@@ -735,7 +744,7 @@ class Ingress:
                 manifest = await request.json()
                 project = await deploy(
                     self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
-            return web.json_response(asdict(project), status=201)
+            return web.json_response(_redact_env(asdict(project)), status=201)
         except ValueError as e:
             # Bad manifest / port conflict etc. — the message is safe to return.
             return web.json_response({"error": str(e)}, status=400)
@@ -744,13 +753,9 @@ class Ingress:
             log.error("deploy failed: %s", traceback.format_exc())
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _api_status(self, name: str, public: bool = False) -> web.Response:
+    async def _api_status(self, name: str) -> web.Response:
         project = self.store.load(name)
-        data = asdict(project)
-        if public and data.get("env"):
-            # RFC 0015 verifier endpoints are unauthenticated; never expose env values.
-            data["env"] = {k: "<redacted>" for k in data["env"]}
-        return web.json_response(data)
+        return web.json_response(_redact_env(asdict(project)))
 
     async def _api_teardown(self, name: str) -> web.Response:
         await teardown(self.store, self.docker, self.audit_manager, self.tracker,
@@ -777,7 +782,7 @@ class Ingress:
             }
         project = await deploy(
             self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
-        result = asdict(project)
+        result = _redact_env(asdict(project))
         if project.runtime == "image":
             result["changed"] = project.image_digest != old_digest
         else:
@@ -787,7 +792,7 @@ class Ingress:
     async def _api_promote(self, name: str) -> web.Response:
         try:
             project = await promote(self.store, self.audit_manager, self.rtm, name)
-            return web.json_response(asdict(project))
+            return web.json_response(_redact_env(asdict(project)))
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
 
@@ -942,7 +947,7 @@ class Ingress:
 
         # Build JSON data for the template
         verification_data = {
-            "project": asdict(project),
+            "project": _redact_env(asdict(project)),
             "quote": quote,
             "audit": audit,
         }
@@ -1180,7 +1185,7 @@ class Ingress:
         """
         projects = []
         for project in self.store.list():
-            data = asdict(project)
+            data = _redact_env(asdict(project))
             # Add liveness info
             liveness = self.rtm.get_project_liveness(project)
             data["running"] = liveness["running"]

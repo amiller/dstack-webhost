@@ -1,0 +1,67 @@
+############################################################
+# ISSUE #67 — Tier-1 transcript (env redaction on promote + every endpoint)
+# GET /_api/version pinned to PR commit b719787c
+############################################################
+
+=== GET /_api/version  (PIN) ===
+{"version": "dev", "commit": "b719787c"}
+
+=== POST /_api/projects  (deploy with PLAINTEXT secrets in env) ===
+{"name": "redact-demo", "runtime": "static", "entry": "index.html", "port": 8080, "mode": "dev", "public": false, "env": {"GITHUB_CLIENT_SECRET": "<redacted>", "GOOGLE_CLIENT_SECRET": "<redacted>"}, "container_id": "", "deployed_at": "2026-08-05T18:57:00.439016+00:00", "image_digest": "", "source": "/tmp/tmp.xvSw7ElUFs/repo.git", "ref": "", "commit_sha": "b5ff4755134cdb43deae56e9a98935b4528a9018", "tree_hash": "18407aa5975b1e3e976ba817a31c1abe7f32955e", "listen": {"port": 8080, "protocol": "http"}, "image": "", "image_port": 0, "volumes": [], "isolation": "shared", "env_passthrough": [], "oci_runtime": "", "cap_add": [], "devices": [], "operator_debug": false, "app_id": "", "app_pubkey": "", "binding_quote": "", "report_data": "", "attestation_kind": ""}
+
+=== GET /_api/projects/redact-demo  (admin status) ===
+{"name": "redact-demo", "runtime": "static", "entry": "index.html", "port": 8080, "mode": "dev", "public": false, "env": {"GITHUB_CLIENT_SECRET": "<redacted>", "GOOGLE_CLIENT_SECRET": "<redacted>"}, "container_id": "", "deployed_at": "2026-08-05T18:57:00.439016+00:00", "image_digest": "", "source": "/tmp/tmp.xvSw7ElUFs/repo.git", "ref": "", "commit_sha": "b5ff4755134cdb43deae56e9a98935b4528a9018", "tree_hash": "18407aa5975b1e3e976ba817a31c1abe7f32955e", "listen": {"port": 8080, "protocol": "http"}, "image": "", "image_port": 0, "volumes": [], "isolation": "shared", "env_passthrough": [], "oci_runtime": "", "cap_add": [], "devices": [], "operator_debug": false, "app_id": "", "app_pubkey": "", "binding_quote": "", "report_data": "", "attestation_kind": ""}
+
+=== GET /_api/projects  (list) — redact-demo entry only ===
+{
+  "name": "redact-demo",
+  "runtime": "static",
+  "entry": "index.html",
+  "port": 8080,
+  "mode": "dev",
+  "public": false,
+  "env": {
+    "GITHUB_CLIENT_SECRET": "<redacted>",
+    "GOOGLE_CLIENT_SECRET": "<redacted>"
+  },
+  "container_id": "",
+  "deployed_at": "2026-08-05T18:57:00.439016+00:00",
+  "image_digest": "",
+  "source": "/tmp/tmp.xvSw7ElUFs/repo.git",
+  "ref": "",
+  "commit_sha": "b5ff4755134cdb43deae56e9a98935b4528a9018",
+  "tree_hash": "18407aa5975b1e3e976ba817a31c1abe7f32955e",
+  "listen": {
+    "port": 8080,
+    "protocol": "http"
+  },
+  "image": "",
+  "image_port": 0,
+  "volumes": [],
+  "isolation": "shared",
+  "env_passthrough": [],
+  "oci_runtime": "",
+  "cap_add": [],
+  "devices": [],
+  "operator_debug": false,
+  "app_id": "",
+  "app_pubkey": "",
+  "binding_quote": "",
+  "report_data": "",
+  "attestation_kind": ""
+}
+
+=== POST /_api/projects/redact-demo/promote  (THE REPORTED LEAK) ===
+{"name": "redact-demo", "runtime": "static", "entry": "index.html", "port": 8080, "mode": "attested", "public": false, "env": {"GITHUB_CLIENT_SECRET": "<redacted>", "GOOGLE_CLIENT_SECRET": "<redacted>"}, "container_id": "", "deployed_at": "2026-08-05T18:57:00.439016+00:00", "image_digest": "", "source": "/tmp/tmp.xvSw7ElUFs/repo.git", "ref": "", "commit_sha": "b5ff4755134cdb43deae56e9a98935b4528a9018", "tree_hash": "18407aa5975b1e3e976ba817a31c1abe7f32955e", "listen": {"port": 8080, "protocol": "http"}, "image": "", "image_port": 0, "volumes": [], "isolation": "shared", "env_passthrough": [], "oci_runtime": "", "cap_add": [], "devices": [], "operator_debug": false, "app_id": "", "app_pubkey": "", "binding_quote": "", "report_data": "", "attestation_kind": ""}
+
+=== GET /_api/verification/redact-demo  (PUBLIC verifier page — must not embed plaintext env) ===
+embedded project.env = null
+
+=== GET /_api/status  (aggregate status) — redact-demo env ===
+{"GITHUB_CLIENT_SECRET": "<redacted>", "GOOGLE_CLIENT_SECRET": "<redacted>"}
+
+=== NEGATIVE CONTROL: plaintext secret anywhere in any response? ===
+PASS — no plaintext secret in any project-returning response (list/status/promote/aggregate/verification)
+
+=== teardown demo ===
+{"ok": true}

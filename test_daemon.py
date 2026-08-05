@@ -878,6 +878,36 @@ def test_list_projects():
         assert p["tree_hash"]
 
 
+def test_env_redaction():
+    """Issue #67: every project-returning endpoint must redact env, not just the
+    public verifier surface. A leak that moved from promote to list/status is not
+    a fix."""
+    print("\n--- Test: env redaction on project responses (issue #67) ---")
+    repo = create_test_repo("test-redact", {"index.html": b"redact"})
+    secret_env = {"GITHUB_CLIENT_SECRET": "super-secret-value-xyz"}
+    resp = api_post("/projects", json={
+        "name": "test-redact", "source": repo, "runtime": "static",
+        "mode": "dev", "env": secret_env,
+    })
+    assert resp.status_code == 201, f"deploy failed: {resp.text}"
+    # deploy response must not echo the plaintext secret
+    assert resp.json()["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, resp.json()["env"]
+
+    # GET single (admin status) must redact
+    one = api_get("/projects/test-redact").json()
+    assert one["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, one["env"]
+
+    # GET list must redact
+    listed = [p for p in api_get("/projects").json() if p["name"] == "test-redact"][0]
+    assert listed["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, listed["env"]
+
+    # promote (the reported leak) must redact
+    resp = api_post("/projects/test-redact/promote")
+    assert resp.status_code == 200, f"promote failed: {resp.text}"
+    assert resp.json()["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, resp.json()["env"]
+    print("  deploy/status/list/promote all redact env \u2713")
+
+
 def test_root_listing_layers():
     """The public root listing drives the 3-layer console: anonymous sees only the
     attested surface plus a `hidden` count (the #43 pointer); an owner bearer sees
@@ -1355,7 +1385,7 @@ def test_browser_pool():
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -1400,6 +1430,7 @@ def main():
         test_redeploy()
         test_audit_log()
         test_list_projects()
+        test_env_redaction()
         test_root_listing_layers()
         test_rfc0020_bundle()
         test_rfc0020_tamper()
