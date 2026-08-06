@@ -87,15 +87,15 @@
   <h1>What the swarm can show you, walked and dated</h1>
   <div class="fresh">
     <span class="oldest">oldest evidence on this page: 0m ago</span>
-    <span class="assembled">html assembled 2026-08-05 07:33 CDT (assembly time is not evidence freshness)</span>
+    <span class="assembled">html assembled 2026-08-05 19:36 CDT (assembly time is not evidence freshness)</span>
   </div>
 <section class="block"><h2>Your asks</h2>
 <p class="cap">Open <code>operator-ask</code> issues across the repos — the things you asked to see, each with its current flow status. This section leads the report so an evaporated plan is visible, not forgotten.</p>
 <ul class="asks">
-<li><span class="s-pill s-ok">flow walked (3d 0h ago)</span> <b>webhost-apps#67</b> — <a href="https://github.com/amiller/webhost-apps/issues/67" target="_blank" rel="noopener">Migrate remaining case-study apps to the shared oauth3Connect helper (SDK consistency)</a></li>
-<li><span class="s-pill s-ok">flow walked (3d 12h ago)</span> <b>webhost-apps#66</b> — <a href="https://github.com/amiller/webhost-apps/issues/66" target="_blank" rel="noopener">share-kit: shared oauth3Connect() helper (connect + step-up recovery + honest errors); adopt in timeline-peek</a></li>
-<li><span class="s-pill s-ok">flow walked (24d 12h ago)</span> <b>webhost-apps#64</b> — <a href="https://github.com/amiller/webhost-apps/issues/64" target="_blank" rel="noopener">reddit-karma: render the account's real reddit data (karma endpoint unshipped → use /items)</a></li>
-<li><span class="s-pill s-ok">flow walked (8d 12h ago)</span> <b>webhost-apps#9</b> — <a href="https://github.com/amiller/webhost-apps/issues/9" target="_blank" rel="noopener">timeline-peek: phone dead-ends — owner mode is extension-only, add the wallet signIn path</a></li>
+<li><span class="s-pill s-ok">flow walked (3d 12h ago)</span> <b>webhost-apps#67</b> — <a href="https://github.com/amiller/webhost-apps/issues/67" target="_blank" rel="noopener">Migrate remaining case-study apps to the shared oauth3Connect helper (SDK consistency)</a></li>
+<li><span class="s-pill s-ok">flow walked (4d 0h ago)</span> <b>webhost-apps#66</b> — <a href="https://github.com/amiller/webhost-apps/issues/66" target="_blank" rel="noopener">share-kit: shared oauth3Connect() helper (connect + step-up recovery + honest errors); adopt in timeline-peek</a></li>
+<li><span class="s-pill s-ok">flow walked (25d 0h ago)</span> <b>webhost-apps#64</b> — <a href="https://github.com/amiller/webhost-apps/issues/64" target="_blank" rel="noopener">reddit-karma: render the account's real reddit data (karma endpoint unshipped → use /items)</a></li>
+<li><span class="s-pill s-ok">flow walked (9d 0h ago)</span> <b>webhost-apps#9</b> — <a href="https://github.com/amiller/webhost-apps/issues/9" target="_blank" rel="noopener">timeline-peek: phone dead-ends — owner mode is extension-only, add the wallet signIn path</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>webhost-apps#8</b> — <a href="https://github.com/amiller/webhost-apps/issues/8" target="_blank" rel="noopener">twitter-debug: posting requires DEBUG_SECRET — replace with a consent-gated OAuth3 write cap</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>oauth3-server#129</b> — <a href="https://github.com/teleport-computer/oauth3-server/issues/129" target="_blank" rel="noopener">connect approval should satisfy step-up (drop the redundant first-read challenge)</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>oauth3-server#81</b> — <a href="https://github.com/teleport-computer/oauth3-server/issues/81" target="_blank" rel="noopener">Rename the 'journeys' suite; reserve 'user journeys' for the mental-model exercise</a></li>
@@ -105,7 +105,28 @@
 <section class="block"><h2>What improved since yesterday</h2>
 <p class="cap">PRs merged in the last 24h, grouped by repo. Where the PR committed a <code>.evidence/issue-&lt;N&gt;/</code> gallery, it renders inline below; otherwise it is labelled "merged, no flow evidence" — the report curates merge-time proof, it never fabricates it.</p>
 <h3>webhost-apps</h3><ul class="improved">
+<li><b>#137</b> <a href="https://github.com/amiller/webhost-apps/pull/137" target="_blank" rel="noopener">twitter-debug: name the target twitter account when connecting (#69)</a>
+ <span class="s-pill s-none">merged, no flow evidence</span>
+</li>
 <li><b>#135</b> <a href="https://github.com/amiller/webhost-apps/pull/135" target="_blank" rel="noopener">feedling: test-mode — notify on ANY watch (#49)</a>
+ <span class="s-pill s-none">merged, no flow evidence</span>
+</li>
+</ul>
+<h3>oauth3-server</h3><ul class="improved">
+<li><b>#148</b> <a href="https://github.com/teleport-computer/oauth3-server/pull/148" target="_blank" rel="noopener">fix(#143): comment .env.example placeholders + fail-fast on missing SEAL_KEY at boot</a>
+ <span class="s-pill s-none">merged, no flow evidence</span>
+</li>
+<li><b>#147</b> <a href="https://github.com/teleport-computer/oauth3-server/pull/147" target="_blank" rel="noopener">audit(#120): collapse repeated entries + bounded retention policy</a>
+ <span class="s-pill s-none">merged, no flow evidence</span>
+</li>
+</ul>
+<h3>dstack-webhost</h3><ul class="improved">
+<li><b>#101</b> <a href="https://github.com/amiller/dstack-webhost/pull/101" target="_blank" rel="noopener">redact env in every project-returning API response (#67)</a>
+ <span class="s-pill s-none">merged, no flow evidence</span>
+</li>
+</ul>
+<h3>oauth3-extension</h3><ul class="improved">
+<li><b>#20</b> <a href="https://github.com/teleport-computer/oauth3-extension/pull/20" target="_blank" rel="noopener">feat(sync+connect): surface account-qualified jars + account picker (#14)</a>
  <span class="s-pill s-none">merged, no flow evidence</span>
 </li>
 </ul>
@@ -232,7 +253,12 @@
 <p class="cap" style="color:#57606a">North star (PRD): M1 single-tenant loop verified end-to-end 2026-06-24; M2 = browser worker (J5) + app-store approver (J7). Everything below is pulled live from GitHub, the lane results, and the paseo daemon — no manual claims.</p>
 <h3>Shipped in the last 7 days (merged PRs)</h3>
 <ul class="swarm-list">
+<li><code>2026-08-05</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/137" target="_blank">twitter-debug: name the target twitter account when connecting (#69)</a></li>
 <li><code>2026-08-05</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/135" target="_blank">feedling: test-mode — notify on ANY watch (#49)</a></li>
+<li><code>2026-08-05</code> <b>oauth3-server</b> — <a href="https://github.com/teleport-computer/oauth3-server/pull/148" target="_blank">fix(#143): comment .env.example placeholders + fail-fast on missing SEAL_KEY at boot</a></li>
+<li><code>2026-08-05</code> <b>oauth3-server</b> — <a href="https://github.com/teleport-computer/oauth3-server/pull/147" target="_blank">audit(#120): collapse repeated entries + bounded retention policy</a></li>
+<li><code>2026-08-05</code> <b>oauth3-extension</b> — <a href="https://github.com/teleport-computer/oauth3-extension/pull/20" target="_blank">feat(sync+connect): surface account-qualified jars + account picker (#14)</a></li>
+<li><code>2026-08-05</code> <b>dstack-webhost</b> — <a href="https://github.com/amiller/dstack-webhost/pull/101" target="_blank">redact env in every project-returning API response (#67)</a></li>
 <li><code>2026-08-02</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/133" target="_blank">registry: make reddit-karma evidence signal honest so the row PASSes (#41)</a></li>
 <li><code>2026-08-02</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/132" target="_blank">calendar-share: adopt ShareKit.oauth3Connect (helper gains caps) (#67)</a></li>
 <li><code>2026-08-01</code> <b>webhost-apps</b> — <a href="https://github.com/amiller/webhost-apps/pull/131" target="_blank">share-kit: make timeline-peek terminal reads honest (#66)</a></li>
@@ -241,12 +267,12 @@
 </ul>
 <h3>Lane health over time</h3>
 <table class="swarm-table"><tr><th>lane</th><th>runs logged</th><th>pass rate</th><th>latest</th></tr>
-<tr><td><b>browser-pool</b></td><td>294</td><td>294/294</td><td style="color:#00838a">08-05T12:33 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
-<tr><td><b>e2e-verifier</b></td><td>294</td><td>17/294</td><td style="color:#c2185b">08-05T12:33 — FAIL: e2e-flow engine exited 1</td></tr>
-<tr><td><b>login-with-everything</b></td><td>294</td><td>150/294</td><td style="color:#00838a">08-05T12:33 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
+<tr><td><b>browser-pool</b></td><td>295</td><td>295/295</td><td style="color:#00838a">08-06T00:36 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
+<tr><td><b>e2e-verifier</b></td><td>295</td><td>17/295</td><td style="color:#c2185b">08-06T00:36 — FAIL: e2e-flow engine exited 1</td></tr>
+<tr><td><b>login-with-everything</b></td><td>295</td><td>151/295</td><td style="color:#00838a">08-06T00:36 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
 </table>
 <p class="cap" style="color:#57606a">History collection started 2026-07-06; each 30-min refresh appends a snapshot.</p>
-<h3>Agent census</h3><p>1 running, 43 idle/stopped on the paseo daemon right now.</p>
+<h3>Agent census</h3><p>0 running, 53 idle/stopped on the paseo daemon right now.</p>
 <h3>Next — open <code>ready</code> work</h3>
 <p>No open ready-labeled issues — the queue is empty.</p>
 
@@ -270,7 +296,9 @@ section.work .none{ color:var(--faint,#6e6a62); font-style:italic; }
 section.work .cap{ color:var(--faint,#6e6a62); font-size:12px; margin:6px 0 0; }
 section.work a{ color:#1f6feb; }
 <section class="work"><h2 id="work">Work — the autonomous loop</h2><p class="cap">What the loop is doing: recent runs (issue → branch → verify → PR), PR merge + pass/fail state, and the ready/operator-ask queue. Sourced live from <code>gh</code> + <code>~/paseo-batch/out</code>; any section whose substance is &gt;24h old or absent turns RED.</p>
-<div class="sub stale"><span class="last-run" title="2026-07-27 21:40 UTC">last run 8d ago</span><h3>Recent runs — STALE</h3><table class="smoke-tbl"><thead><tr><th>issue</th><th>title</th><th>branch</th><th>verify</th><th>PR · merge</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/issues/60">#60</a></td><td>Paseo work dashboard — surface the autonomous loop&#x27;s runs/PRs/pass-fai</td><td><code>staging-60</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/99">#99</a> <span class="badge b-merged">merged</span></td></tr>
+<div class="sub "><span class="last-run" title="2026-08-05 21:03 UTC">last run 3h ago</span><h3>Recent runs</h3><table class="smoke-tbl"><thead><tr><th>issue</th><th>title</th><th>branch</th><th>verify</th><th>PR · merge</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/issues/88">#88</a></td><td>Landing: verify link dead-ends on image deploys — surface &quot;no source&quot; </td><td><code>staging-88</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/102">#102</a> <span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/67">#67</a></td><td>promote endpoint returns UNredacted env (secrets) — GET redacts, promo</td><td><code>staging-67</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/101">#101</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/60">#60</a></td><td>Paseo work dashboard — surface the autonomous loop&#x27;s runs/PRs/pass-fai</td><td><code>staging-60</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/99">#99</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/92">#92</a></td><td>td-0020-5: deduplicate Facts — proxy/evidence.py vs verify/facts.py</td><td><code>staging-92</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/98">#98</a> <span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/91">#91</a></td><td>td-0020-4: test the RFC 0020 validation matrix, incl. two-policies-one</td><td><code>staging-91</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/97">#97</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/93">#93</a></td><td>td-0020-2: real DCAP/QVL quote verification (quote_valid is hardcoded </td><td><code>staging-93</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/96">#96</a> <span class="badge b-open">open</span></td></tr>
@@ -279,24 +307,22 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/83">#83</a></td><td>Styled pod owner console — the 3 app layers (private / attested-w-over</td><td><code>staging-83</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/84">#84</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/80">#80</a></td><td>Scope broker GetKey to the requesting project (per-project socket + na</td><td><code>staging-80</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/81">#81</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/79">#79</a></td><td>Rebase PR #52 onto staging and resolve conflicts</td><td><code>staging-49</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/52">#52</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/76">#76</a></td><td>RFC 0028: record the two operator decisions — ephemeral-per-lease cont</td><td><code>staging-76</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/78">#78</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/72">#72</a></td><td>Viewer: owner-token login so the pod owner sees non-attested projects</td><td><code>staging-72</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/75">#75</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/70">#70</a></td><td>Tier-0 regression: source binding missing on fresh attested deploys (s</td><td><code>staging-70</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/71">#71</a> <span class="badge b-merged">merged</span></td></tr></tbody></table><p class="cap">Each row is one ready-queue iteration from the result.json lane logs; verify = test_daemon.py / unit result recorded by that run.</p></div>
-<div class="sub "><span class="last-run" title="2026-08-05 12:33 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/100">#100</a></td><td>feat: add watermelon three-layer owner console (#83)</td><td><code>staging-83</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/76">#76</a></td><td>RFC 0028: record the two operator decisions — ephemeral-per-lease cont</td><td><code>staging-76</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/78">#78</a> <span class="badge b-merged">merged</span></td></tr></tbody></table><p class="cap">Each row is one ready-queue iteration from the result.json lane logs; verify = test_daemon.py / unit result recorded by that run.</p></div>
+<div class="sub "><span class="last-run" title="2026-08-06 00:36 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/102">#102</a></td><td>feat(landing): flag no-source image deploys on the card (#88)</td><td><code>staging-88</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/100">#100</a></td><td>feat: add watermelon three-layer owner console (#83)</td><td><code>staging-83</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/98">#98</a></td><td>td-0020-5: deduplicate the Facts/bundle schema (#92)</td><td><code>staging-92</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/96">#96</a></td><td>td-0020-2: verify TDX quotes with dcap-qvl</td><td><code>staging-93</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/95">#95</a></td><td>td-0020-3: verify Base-prod on-chain app approval</td><td><code>staging-90</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/86">#86</a></td><td>RFC 0032: capability storage module (caps/) — staging-green, rep</td><td><code>rfc-0032-caps-module</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/28">#28</a></td><td>#9 (investigation): transparent broker response forwarding — NEE</td><td><code>fix-9-broker-info</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/101">#101</a></td><td>redact env in every project-returning API response (#67)</td><td><code>staging-67</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/99">#99</a></td><td>Paseo work dashboard — loop runs/PRs/queue folded into the Evide</td><td><code>staging-60</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/97">#97</a></td><td>td-0020-4: test the RFC 0020 validation matrix + two reference c</td><td><code>staging-91</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/94">#94</a></td><td>td-0020-1: capture real RFC 0020 bundle + tampered twin as fixtu</td><td><code>staging-89</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/82">#82</a></td><td>RFC 0031: Resource-aware scheduling for the swarm</td><td><code>rfc-0031-resource-aware</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/84">#84</a></td><td>feat(console): watermelon 3-layer owner console at the pod root </td><td><code>staging-83</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/81">#81</a></td><td>Scope broker GetKey to requesting project — fixes #7 (#80)</td><td><code>staging-80</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/68">#68</a></td><td>RFC 0028: browser render pool (isolated/fair/reset leases)</td><td><code>staging-65</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/52">#52</a></td><td>RFC 0025 Phase 1: per-app attestation binding quote (daemon-vouc</td><td><code>staging-49</code></td><td class="verify v-unknown">unknown</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
-<div class="sub "><span class="last-run" title="2026-08-05 12:33 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><ul class="asks"><li><span class="badge b-ask">operator-ask</span> <a href="https://github.com/amiller/dstack-webhost/issues/60">#60</a> — Paseo work dashboard — surface the autonomous loop&#x27;s runs/PRs/pass-fail (extend RFC 0016)</li></ul></div>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/68">#68</a></td><td>RFC 0028: browser render pool (isolated/fair/reset leases)</td><td><code>staging-65</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
+<div class="sub "><span class="last-run" title="2026-08-06 00:36 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><ul class="asks"><li><span class="badge b-ask">operator-ask</span> <a href="https://github.com/amiller/dstack-webhost/issues/60">#60</a> — Paseo work dashboard — surface the autonomous loop&#x27;s runs/PRs/pass-fail (extend RFC 0016)</li></ul></div>
 </section>
 </div>
 </section>
