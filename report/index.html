@@ -87,15 +87,15 @@
   <h1>What the swarm can show you, walked and dated</h1>
   <div class="fresh">
     <span class="oldest">oldest evidence on this page: 0m ago</span>
-    <span class="assembled">html assembled 2026-08-07 19:33 CDT (assembly time is not evidence freshness)</span>
+    <span class="assembled">html assembled 2026-08-08 07:34 CDT (assembly time is not evidence freshness)</span>
   </div>
 <section class="block"><h2>Your asks</h2>
 <p class="cap">Open <code>operator-ask</code> issues across the repos — the things you asked to see, each with its current flow status. This section leads the report so an evaporated plan is visible, not forgotten.</p>
 <ul class="asks">
-<li><span class="s-pill s-ok">flow walked (5d 12h ago)</span> <b>webhost-apps#67</b> — <a href="https://github.com/amiller/webhost-apps/issues/67" target="_blank" rel="noopener">Migrate remaining case-study apps to the shared oauth3Connect helper (SDK consistency)</a></li>
-<li><span class="s-pill s-ok">flow walked (6d 0h ago)</span> <b>webhost-apps#66</b> — <a href="https://github.com/amiller/webhost-apps/issues/66" target="_blank" rel="noopener">share-kit: shared oauth3Connect() helper (connect + step-up recovery + honest errors); adopt in timeline-peek</a></li>
-<li><span class="s-pill s-ok">flow walked (27d 0h ago)</span> <b>webhost-apps#64</b> — <a href="https://github.com/amiller/webhost-apps/issues/64" target="_blank" rel="noopener">reddit-karma: render the account's real reddit data (karma endpoint unshipped → use /items)</a></li>
-<li><span class="s-pill s-ok">flow walked (11d 0h ago)</span> <b>webhost-apps#9</b> — <a href="https://github.com/amiller/webhost-apps/issues/9" target="_blank" rel="noopener">timeline-peek: phone dead-ends — owner mode is extension-only, add the wallet signIn path</a></li>
+<li><span class="s-pill s-ok">flow walked (6d 0h ago)</span> <b>webhost-apps#67</b> — <a href="https://github.com/amiller/webhost-apps/issues/67" target="_blank" rel="noopener">Migrate remaining case-study apps to the shared oauth3Connect helper (SDK consistency)</a></li>
+<li><span class="s-pill s-ok">flow walked (6d 12h ago)</span> <b>webhost-apps#66</b> — <a href="https://github.com/amiller/webhost-apps/issues/66" target="_blank" rel="noopener">share-kit: shared oauth3Connect() helper (connect + step-up recovery + honest errors); adopt in timeline-peek</a></li>
+<li><span class="s-pill s-ok">flow walked (27d 12h ago)</span> <b>webhost-apps#64</b> — <a href="https://github.com/amiller/webhost-apps/issues/64" target="_blank" rel="noopener">reddit-karma: render the account's real reddit data (karma endpoint unshipped → use /items)</a></li>
+<li><span class="s-pill s-ok">flow walked (11d 12h ago)</span> <b>webhost-apps#9</b> — <a href="https://github.com/amiller/webhost-apps/issues/9" target="_blank" rel="noopener">timeline-peek: phone dead-ends — owner mode is extension-only, add the wallet signIn path</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>webhost-apps#8</b> — <a href="https://github.com/amiller/webhost-apps/issues/8" target="_blank" rel="noopener">twitter-debug: posting requires DEBUG_SECRET — replace with a consent-gated OAuth3 write cap</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>oauth3-server#129</b> — <a href="https://github.com/teleport-computer/oauth3-server/issues/129" target="_blank" rel="noopener">connect approval should satisfy step-up (drop the redundant first-read challenge)</a></li>
 <li><span class="s-pill s-none">flow not yet walked</span> <b>oauth3-server#81</b> — <a href="https://github.com/teleport-computer/oauth3-server/issues/81" target="_blank" rel="noopener">Rename the 'journeys' suite; reserve 'user journeys' for the mental-model exercise</a></li>
@@ -242,9 +242,9 @@
 </ul>
 <h3>Lane health over time</h3>
 <table class="swarm-table"><tr><th>lane</th><th>runs logged</th><th>pass rate</th><th>latest</th></tr>
-<tr><td><b>browser-pool</b></td><td>299</td><td>299/299</td><td style="color:#00838a">08-08T00:33 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
-<tr><td><b>e2e-verifier</b></td><td>299</td><td>17/299</td><td style="color:#c2185b">08-08T00:33 — FAIL: e2e-flow engine exited 1</td></tr>
-<tr><td><b>login-with-everything</b></td><td>299</td><td>155/299</td><td style="color:#00838a">08-08T00:33 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
+<tr><td><b>browser-pool</b></td><td>300</td><td>300/300</td><td style="color:#00838a">08-08T12:33 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
+<tr><td><b>e2e-verifier</b></td><td>300</td><td>17/300</td><td style="color:#c2185b">08-08T12:33 — FAIL: e2e-flow engine exited 1</td></tr>
+<tr><td><b>login-with-everything</b></td><td>300</td><td>156/300</td><td style="color:#00838a">08-08T12:33 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
 </table>
 <p class="cap" style="color:#57606a">History collection started 2026-07-06; each 30-min refresh appends a snapshot.</p>
 <h3>Agent census</h3><p>0 running, 54 idle/stopped on the paseo daemon right now.</p>
@@ -283,7 +283,7 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/80">#80</a></td><td>Scope broker GetKey to the requesting project (per-project socket + na</td><td><code>staging-80</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/81">#81</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/79">#79</a></td><td>Rebase PR #52 onto staging and resolve conflicts</td><td><code>staging-49</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/52">#52</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/76">#76</a></td><td>RFC 0028: record the two operator decisions — ephemeral-per-lease cont</td><td><code>staging-76</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/78">#78</a> <span class="badge b-merged">merged</span></td></tr></tbody></table><p class="cap">Each row is one ready-queue iteration from the result.json lane logs; verify = test_daemon.py / unit result recorded by that run.</p></div>
-<div class="sub "><span class="last-run" title="2026-08-08 00:33 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/102">#102</a></td><td>feat(landing): flag no-source image deploys on the card (#88)</td><td><code>staging-88</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
+<div class="sub "><span class="last-run" title="2026-08-08 12:33 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/102">#102</a></td><td>feat(landing): flag no-source image deploys on the card (#88)</td><td><code>staging-88</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/100">#100</a></td><td>feat: add watermelon three-layer owner console (#83)</td><td><code>staging-83</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/98">#98</a></td><td>td-0020-5: deduplicate the Facts/bundle schema (#92)</td><td><code>staging-92</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/96">#96</a></td><td>td-0020-2: verify TDX quotes with dcap-qvl</td><td><code>staging-93</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
@@ -297,7 +297,7 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/84">#84</a></td><td>feat(console): watermelon 3-layer owner console at the pod root </td><td><code>staging-83</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/81">#81</a></td><td>Scope broker GetKey to requesting project — fixes #7 (#80)</td><td><code>staging-80</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/68">#68</a></td><td>RFC 0028: browser render pool (isolated/fair/reset leases)</td><td><code>staging-65</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
-<div class="sub "><span class="last-run" title="2026-08-08 00:33 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><ul class="asks"><li><span class="badge b-ask">operator-ask</span> <a href="https://github.com/amiller/dstack-webhost/issues/60">#60</a> — Paseo work dashboard — surface the autonomous loop&#x27;s runs/PRs/pass-fail (extend RFC 0016)</li></ul></div>
+<div class="sub "><span class="last-run" title="2026-08-08 12:33 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><ul class="asks"><li><span class="badge b-ask">operator-ask</span> <a href="https://github.com/amiller/dstack-webhost/issues/60">#60</a> — Paseo work dashboard — surface the autonomous loop&#x27;s runs/PRs/pass-fail (extend RFC 0016)</li></ul></div>
 </section>
 </div>
 </section>
