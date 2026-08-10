@@ -345,6 +345,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         source=source, ref=ref, commit_sha=commit_sha, tree_hash=tree_hash,
         listen=listen_config, isolation=isolation,
         env_passthrough=manifest.get("env_passthrough") or repo_manifest.get("env_passthrough", []) or [],
+        dstack_env=manifest.get("dstack_env") or repo_manifest.get("dstack_env", {}) or {},
         oci_runtime=manifest.get("oci_runtime", ""),
         cap_add=cap_add, devices=devices, operator_debug=operator_debug,
     )

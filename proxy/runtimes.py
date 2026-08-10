@@ -1,9 +1,14 @@
 """Shared runtime containers — one per runtime type, routes all projects."""
 
 import json
+import hashlib
+import hmac
 import logging
 import os
+import re
 import secrets
+
+import aiohttp
 
 from .docker_client import DockerClient
 from .projects import ProjectStore
@@ -39,6 +44,49 @@ DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 BROKER_HOST_PATH = os.environ.get("BROKER_HOST_PATH", "")
 BROKER_MOUNT_IN_APP = "/run/broker"
 IMAGE_APP_RESTART_POLICY = {"Name": "on-failure", "MaximumRetryCount": 5}
+DSTACK_SOCKET = os.environ.get("DSTACK_SOCKET", "/var/run/dstack.sock")
+_DSTACK_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DSTACK_KEY_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _hkdf(ikm: bytes, info: bytes, length: int = 32) -> bytes:
+    prk = hmac.new(b"", ikm, hashlib.sha256).digest()
+    out = b""
+    previous = b""
+    for counter in range(1, 256):
+        previous = hmac.new(prk, previous + info + bytes([counter]), hashlib.sha256).digest()
+        out += previous
+        if len(out) >= length:
+            return out[:length]
+    raise ValueError("HKDF output too long")
+
+
+async def _resolve_dstack_env(project) -> dict:
+    """Derive project-scoped environment values from dstack GetKey."""
+    resolved = {}
+    if not project.dstack_env:
+        return resolved
+    if not os.path.exists(DSTACK_SOCKET):
+        raise RuntimeError(f"dstack socket unavailable for project {project.name}")
+    conn = aiohttp.UnixConnector(path=DSTACK_SOCKET)
+    async with aiohttp.ClientSession(connector=conn) as session:
+        for env_name, key_name in project.dstack_env.items():
+            if not _DSTACK_ENV_NAME.fullmatch(env_name) or not isinstance(key_name, str) or not _DSTACK_KEY_NAME.fullmatch(key_name):
+                raise ValueError(f"invalid dstack_env entry for project {project.name}")
+            path = f"/tee-daemon/projects/{project.name}/{key_name}"
+            async with session.post("http://localhost/GetKey", json={"path": path}) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"GetKey failed for {path}: {resp.status}")
+                data = await resp.json()
+            key_hex = str(data.get("key", "")).replace("0x", "")
+            try:
+                ikm = bytes.fromhex(key_hex)
+            except ValueError as exc:
+                raise RuntimeError(f"GetKey returned invalid key for {path}") from exc
+            if len(ikm) < 32:
+                raise RuntimeError(f"GetKey returned a short key for {path}")
+            resolved[env_name] = _hkdf(ikm[:32], f"tee-daemon/env/v1/{env_name}".encode()).hex()
+    return resolved
 
 
 def _project_uses_broker(project) -> bool:
@@ -519,6 +567,7 @@ class RuntimeManager:
             val = os.environ.get(key)
             if val is not None:
                 env[key] = val
+        env.update(await _resolve_dstack_env(project))
 
         # Inject broker socket path and token if project uses broker
         if uses_creds:
@@ -587,6 +636,8 @@ class RuntimeManager:
             val = os.environ.get(key)
             if val is not None:
                 env.append(f"{key}={val}")
+        for key, val in (await _resolve_dstack_env(project)).items():
+            env.append(f"{key}={val}")
 
         # Inject broker socket path and token if project uses broker
         if uses_creds:
