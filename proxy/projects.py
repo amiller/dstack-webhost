@@ -36,6 +36,7 @@ class Project:
     volumes: List[dict] = field(default_factory=list)
     isolation: str = "shared"
     env_passthrough: List[str] = field(default_factory=list)
+    dstack_env: dict = field(default_factory=dict)
     oci_runtime: str = ""  # per-project OCI runtime, e.g. "runsc" (gVisor); falls back to CONTAINER_RUNTIME
     # Elevated container capabilities — honored ONLY for mode=="attested" projects (see
     # deploy gate), so the grant is always on the verifiable attested surface. Used e.g.

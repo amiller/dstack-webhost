@@ -773,6 +773,7 @@ class Ingress:
             "isolation": project.isolation,
             "image": project.image, "image_port": project.image_port,
             "volumes": project.volumes, "env_passthrough": project.env_passthrough,
+            "dstack_env": project.dstack_env,
             "oci_runtime": project.oci_runtime,
         }
         if project.listen:
