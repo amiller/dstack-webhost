@@ -75,3 +75,21 @@ it (isolated, image-runtime, browser pool).
 
 Operator verification remains: provide the base-prod RPC/contract configuration and deploy the
 consumer-facing verifier path to staging for the required pinned `/_api/version` transcript.
+# Issue #106 plan — version identity baked at build, asserted at boot
+
+- [x] (a) `docker-compose.yaml` `build:` gains an `args:` block supplying `GIT_COMMIT`,
+      so `docker compose build` bakes `DAEMON_COMMIT` without depending on `ship-fix.sh`.
+- [x] (a+) `Dockerfile` asserts `GIT_COMMIT` is non-empty at build time — every build
+      path (compose, ad-hoc `docker build`, CI) now fails loudly instead of baking `""`.
+- [x] (b) `proxy/main.py` resolves the commit once at boot and **refuses to start**
+      when `DAEMON_COMMIT` is empty/unset and no `.git` is present (local-dev git read
+      stays, but only where `.git` exists; its absence is a hard error).
+- [x] (b) `proxy/ingress.py:_api_version` drops the request-time `git rev-parse`
+      fallback — identity is settled at boot or the process is already dead; a
+      request-time fallback could only ever mask a broken deploy.
+- [x] Tests: `test_daemon.py` pins `/​_api/version`'s commit to the running tree and
+      adds a boot-refusal test (misbuilt image exits non-zero with a clear message).
+- [ ] (c) Fresh staging deploy build→push→`phala deploy`→`GET /_api/version`: build
+      + local HTTP serve verified; push (read-only ghcr token) and `phala deploy`
+      (dead API key) are operator steps — exact commands in
+      `.evidence/issue-106/transcript.md` §5.

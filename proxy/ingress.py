@@ -525,16 +525,14 @@ class Ingress:
         }
 
     def _api_version(self) -> dict:
-        """Return daemon version and git commit. In a built image DAEMON_COMMIT is
-        baked at build time (no .git present); locally it falls to a git read."""
-        commit = os.environ.get("DAEMON_COMMIT")
-        if not commit:
-            import subprocess
-            commit = subprocess.check_output(
-                ["git", "rev-parse", "--short", "HEAD"],
-                cwd=os.path.dirname(os.path.dirname(__file__)),
-            ).decode().strip()
-        return {"version": os.environ.get("DAEMON_VERSION", "dev"), "commit": commit}
+        """Return daemon version and git commit. Identity is resolved and
+        validated once at boot (proxy.main._resolve_commit): baked from the
+        build arg in an image, read from git when running from a checkout.
+        No request-time fallback — it could only mask a broken deploy."""
+        return {
+            "version": os.environ.get("DAEMON_VERSION", "dev"),
+            "commit": os.environ["DAEMON_COMMIT"],
+        }
 
     def _public_attested_path(self, path: str) -> str | None:
         """RFC 0015: return project name if `path` is a public verifier endpoint."""

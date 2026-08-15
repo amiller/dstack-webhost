@@ -9,6 +9,9 @@ COPY proxy/ /app/proxy/
 COPY verify/__init__.py verify/bundle.py /app/verify/
 WORKDIR /app
 ARG GIT_COMMIT
+# A missing identity must fail HERE, at build time, on every build path (compose,
+# ad-hoc docker build, CI) — not hours later as a 500 on /_api/version (issue #106).
+RUN test -n "$GIT_COMMIT" || { echo >&2 "ERROR: GIT_COMMIT build arg is empty — bake the commit being built: docker build --build-arg GIT_COMMIT=<short-sha> . (or docker-compose.yaml build.args)"; exit 1; }
 ENV DAEMON_COMMIT=$GIT_COMMIT
 EXPOSE 8080
 ENTRYPOINT ["python", "-m", "proxy.main"]
