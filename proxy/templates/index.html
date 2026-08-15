@@ -348,15 +348,21 @@
     const attested = p.mode === 'attested';
     const shortSha = p.commit_sha ? esc(p.commit_sha.slice(0, 7)) : '—';
     const repo = p.source && /github\.com/.test(p.source);
+    // Empty source only happens for image deploys with no recorded git source
+    // (git/static deploys require one). Such apps have no source chain to walk,
+    // so the card says so up front instead of implying a "verify" walk (#88).
+    const noSource = !p.source;
     const srcLink = repo
       ? '<a href="' + esc(p.source) + (p.commit_sha ? '/tree/' + esc(p.commit_sha) : '') + '" target="_blank">' +
         esc(p.source.replace(/^https?:\/\/github\.com\//, '')) + ' @ ' + shortSha + '</a>'
-      : (p.source ? '<span class="mono">' + esc(p.source) + '</span>' : '<span class="muted">local</span>');
+      : (p.source ? '<span class="mono">' + esc(p.source) + '</span>'
+        : '<span class="muted">image deploy — digest-pinned, no source</span>');
     const treeLink = (p.tree_hash && attested)
       ? '<a class="mono" href="' + BASE + '/_api/verification/' + esc(name) + '?format=html" target="_blank" title="Rendered RFC 0020 evidence bundle">' + esc(p.tree_hash.slice(0, 12)) + '…</a>'
       : '<span class="muted">—</span>';
+    const verifyText = noSource ? 'attestation' : 'verify';
     const verifyLink = attested
-      ? '<a href="' + verifyBase + '?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '" target="_blank">verify ↗</a>'
+      ? '<a href="' + verifyBase + '?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '" target="_blank">' + verifyText + ' ↗</a>'
       : '';
     return '<article class="card ' + key + '">' +
       '<div class="card-head"><h3>' + esc(name) + '</h3>' +
