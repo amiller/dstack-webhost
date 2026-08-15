@@ -1,0 +1,72 @@
+# Tier 1 transcript — issue #2 (runsc DNS fix)
+# Local daemon at PR commit; this box's docker = runc (no runsc installed).
+# runsc gating itself is unit-tested in proxy/test_docker_client.py.
+
+$ curl -H auth http://localhost:18099/_api/version
+{"version": "dev", "commit": "bcea725f"}
+
+-- deploy dns-probe (isolation:container, fetches https://example.com) --
+$ curl -X POST -F manifest=... -F files=@app.tar.gz http://localhost:18099/_api/projects
+{"name": "dns-probe", "runtime": "deno", "entry": "server.ts", "port": 3000, "mode": "dev", "public": false, "env": {}, "container_id": "", "deployed_at": "2026-08-15T18:58:59.350533+00:00", "image_digest": "sha256:d45feaa71e36c7f7ded5343ac21386af5e948526fda4d07e1ece94861c1d61b0", "source": "tarball
+-- deploy dns-probe-shared (same handler source, isolation:shared) --
+{"name": "dns-probe-shared", "runtime": "deno", "entry": "server.ts", "port": 3000, "mode": "dev", "public": false, "env": {}, "container_id": "", "deployed_at": "2026-08-15T18:59:12.742869+00:00", "image_digest": "sha256:d45feaa71e36c7f7ded5343ac21386af5e948526fda4d07e1ece94861c1d61b0", "source": "
+
+$ curl http://localhost:18099/dns-probe/        (isolation:container)
+{"status":200,"ok":true}
+   HTTP 200
+$ curl http://localhost:18099/dns-probe-shared/  (isolation:shared)
+{"status":200,"ok":true}
+   HTTP 200
+
+$ docker inspect tee-isolated-dns-probe-dev --format '{{json .HostConfig.Dns}} / networks'
+null
+tee-proj-dns-probe-dev 
+
+   (Dns=null expected here: daemon default runtime is runc on this box;
+    under runsc create_container now sets Dns=[8.8.8.8 1.1.1.1] — unit-tested)
+
+=======================================================================
+BEFORE — why a live runsc 500 could not be captured fresh (2026-08-15)
+=======================================================================
+1) The operator's own runsc BEFORE transcripts are in issue #2's comments
+   (hermes-staging CVM, 2026-06-25, oauth3 reddit demo):
+     gVisor:  GET /oauth3/api/reddit/items -> 502
+              "dns error: failed to lookup address information: Temporary
+               failure in name resolution"
+     same code, oci_runtime runc -> reddit answers 401 (DNS + egress fine)
+   and the issue body (aishley /near, /near-attest -> plain 500 under runsc,
+   fixed by re-deploying isolation:shared).
+2) The shared webhost-staging daemon (TEE_DAEMON_URL) is currently pinned
+   OFF runsc — its own substrate endpoint says so — which is itself the
+   daemon-level workaround this fix exists to remove:
+     GET /_api/version    -> {"version": "dev", "commit": "39c54cc8"}
+     GET /_api/substrate  -> {"container_runtime": "runc", "effective_runtime": "runc", ...}
+     deploy dns-probe isolation:container there -> HTTP 200 {"status":200,"ok":true}
+     (then torn down — the runc side of the differential, live)
+3) This box's docker has no runsc runtime installed (docker info: runc only)
+   and no sudo to register one, so the runsc branch is covered by unit tests:
+     $ python -m pytest proxy/test_docker_client.py -q
+     2 passed   (runsc create carries Dns=[8.8.8.8,1.1.1.1];
+                 runc/shared create leaves Dns unset = embedded resolver)
+
+=======================================================================
+MECHANISM — the exact path the fix switches runsc tenants to (this box)
+=======================================================================
+$ docker network create tee-proj-mechcheck-dev
+$ docker run --rm --network tee-proj-mechcheck-dev --dns 8.8.8.8 --dns 1.1.1.1 \
+    denoland/deno:latest deno eval 'fetch("https://example.com/")...'
+  {"status":200,"ok":true}          <- explicit routable resolver works through
+                                       the bridge NAT from a tee-proj-* net
+  control (same bridge, docker's embedded 127.0.0.11 resolver): also 200
+  -> under runc both paths work; under gVisor only the explicit one can
+     (the Sentry netstack never applies the 127.0.0.11 DNAT).
+
+=======================================================================
+REMAINING (overseer step, not runnable on this box)
+=======================================================================
+The AFTER-on-runsc leg — deploy dns-probe on a runsc-backed daemon running
+this commit and record the 200 — needs the daemon redeployed on a CVM
+(ghcr push creds + docker-compose.webhost-staging.yaml are not on this box,
+per specs/box-inventory.md "Not here"). Acceptance bullet 1's runsc half is
+expected to close with that redeploy; bullets verified here: shared no-reg
+200, tee-proj-* bridge intact, runsc create shaping unit-tested.
