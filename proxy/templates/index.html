@@ -426,14 +426,13 @@
     renderLayers(projects, authed, hidden);
 
     const names = Object.keys(projects);
-    const attested = names.filter(n => projects[n].mode === 'attested');
-    const withSource = attested.find(n => projects[n].source && /github\.com/.test(projects[n].source));
-    const pick = withSource || attested[0];
+    const featured = 'isolation-probe';
+    const pick = projects[featured] && projects[featured].mode === 'attested' ? featured : null;
     if (!pick) {
-      document.getElementById('hero-title').textContent = 'Nothing to prove yet';
+      document.getElementById('hero-title').textContent = 'Isolation probe is not deployed';
       document.getElementById('hero-sub').textContent = '';
       document.getElementById('hero').innerHTML =
-        '<p class="muted">No attested apps on this instance yet — everything deployed here runs in dev mode and makes no attestation claim.</p>';
+        '<p class="muted">The canonical isolation-probe example is not deployed in attested mode, so there is no verified flow to show.</p>';
       return;
     }
     let version = {};

@@ -50,6 +50,11 @@
   </section>
 
   <section class="card-list">
+    <h2>Worked example: isolation probe</h2>
+    <p>The <a href="/isolation-probe/">isolation probe</a> is the canonical relying-party walkthrough: it exposes its own <code>/proc</code> namespace evidence, compares it with the substrate's claimed OCI runtime, and links to the source, commit, tree hash, and verifier bundle.</p>
+  </section>
+
+  <section class="card-list">
     <h2>Why audits stay small</h2>
     <p>Every project on a tee-daemon CVM rides the same daemon, the same shared runtime, and the same verifier surface. An auditor learns that substrate once, then reuses the understanding across every project they review on it.</p>
     <p>A specific project's audit reduces to: given this known substrate, does this small handler hold the invariant it claims? The platform's payoff is keeping each per-project audit small.</p>

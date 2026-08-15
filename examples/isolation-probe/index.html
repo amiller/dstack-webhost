@@ -47,7 +47,7 @@
 
 <p>Two relevant runtimes: <a href="https://github.com/nestybox/sysbox"><code>sysbox-runc</code></a> hardens the existing kernel boundary (user-namespace remap, virtualised <code>/proc</code> and <code>/sys</code>, scoped capabilities). <a href="https://gvisor.dev/"><code>gVisor</code></a> goes further: a userspace kernel mediates syscalls so most kernel CVEs are unreachable. gVisor is stronger, but on Phala dstack TDX CVMs nested KVM isn't exposed, so gVisor would have to ship in the dstack base image (a coordinated change). <code>sysbox-runc</code> is registered as a Docker runtime on stock dstack today, so it's the isolation layer that's deployable now without changing the base image.</p>
 
-<p><a href="https://github.com/amiller/dstack-webhost/tree/main/apps/isolation-probe">Source for this probe.</a></p>
+<p><a href="https://github.com/amiller/dstack-webhost/tree/main/examples/isolation-probe">Source for this probe.</a></p>
 
 <script>
 (async () => {
