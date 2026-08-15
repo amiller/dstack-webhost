@@ -786,7 +786,7 @@ class Ingress:
 
     async def _api_promote(self, name: str) -> web.Response:
         try:
-            project = await promote(self.store, self.audit_manager, self.rtm, name)
+            project = await promote(self.store, self.audit_manager, self.rtm, name, DSTACK_SOCK)
             return web.json_response(asdict(project))
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
@@ -897,7 +897,13 @@ class Ingress:
                 ),
                 image_digest=project.image_digest or "",
                 binding_quote=binding_quote,
+                binding=project.binding or {},
             )
+
+            # RFC 0027: surface the per-app binding kind. Phase 1 produces only
+            # daemon-vouched bindings (report-data-quote on the shared daemon).
+            if project.binding:
+                bundle.attestation_kind = "daemon-vouched"
 
             # Get audit log (retained for backward compatibility, in main bundle for now)
             audit = []

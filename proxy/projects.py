@@ -44,6 +44,7 @@ class Project:
     devices: List[str] = field(default_factory=list)
     egress: bool = False           # route this project's outbound through the shared VPN egress network
     egress_provider: bool = False  # this project PROVIDES the egress (the VPN); joins tee-egress as alias "egress-vpn"
+    binding: dict = field(default_factory=dict)  # RFC 0027 per-app binding block (built at promote)
 
     def __post_init__(self):
         if self.env is None:

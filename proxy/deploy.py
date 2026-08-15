@@ -12,11 +12,14 @@ import tarfile
 import time
 from datetime import datetime, timezone
 
+import aiohttp
+
 from .docker_client import DockerClient
 from .projects import Project, ProjectStore, ListenConfig
 from .tracker import ContainerTracker
 from .audit import AuditLog, AuditEntry
 from .runtimes import RuntimeManager, RUNTIME_CONFIG, VOLUME_NAME, VOLUME_MOUNT
+from . import secp, evidence
 
 log = logging.getLogger(__name__)
 
@@ -350,8 +353,67 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
     log.info("Torn down %s", name)
 
 
+async def _dstack_post(sock: str, method: str, body: dict) -> dict:
+    conn = aiohttp.UnixConnector(path=sock)
+    async with aiohttp.ClientSession(connector=conn) as session:
+        async with session.post(f"http://localhost/{method}", json=body) as resp:
+            data = await resp.json()
+            if resp.status != 200:
+                raise RuntimeError(f"dstack {method} failed ({resp.status}): {data}")
+            return data
+
+
+async def build_app_binding(sock: str, name: str, tree_hash: str,
+                            commit_sha: str, image_digest: str) -> dict:
+    """RFC 0027 (b): produce a hardware-rooted per-app binding at promote time.
+
+    Derives app_pubkey (GetKey), binds it plus the exact tree_hash into a fresh
+    TDX quote's report_data (GetQuote), and lands the promotion in RTMR3's measured
+    log (EmitEvent). Any RPC failure propagates — a swallowed error here would be a
+    silent false "verified".
+    """
+    app_id = os.environ.get("WEBHOST_APP_ID", "")
+    if not app_id:
+        raise RuntimeError("WEBHOST_APP_ID unset; cannot build RFC 0027 app binding")
+
+    key_path = f"/tee-daemon/projects/{name}"
+    getkey = await _dstack_post(sock, "GetKey", {"path": key_path})
+    if "key" not in getkey:
+        raise RuntimeError(f"GetKey returned no key for {key_path}")
+    # Derive the compressed pubkey; never persist the private key.
+    app_pubkey = secp.compressed_pubkey(bytes.fromhex(getkey["key"].replace("0x", ""))[:32]).hex()
+
+    report_data = evidence.compute_app_report_data(app_id, name, tree_hash, app_pubkey).hex()
+    binding_quote = await _dstack_post(sock, "GetQuote", {"report_data": report_data})
+
+    payload = json.dumps({"name": name, "tree_hash": tree_hash,
+                          "commit": commit_sha, "image_digest": image_digest},
+                         sort_keys=True).encode()
+    await _dstack_post(sock, "EmitEvent",
+                       {"event": "tee-daemon/promote", "payload": payload.hex()})
+
+    return {
+        "kind": "report-data-quote",
+        "binding_quote": binding_quote,
+        "report_data": "0x" + report_data,
+        "preimage": {
+            "domain": evidence.APP_ATTEST_DOMAIN.decode(),
+            "app_id": app_id,
+            "name": name,
+            "tree_hash": tree_hash,
+            "app_pubkey": app_pubkey,
+        },
+        "app_pubkey": app_pubkey,
+        "promote_event": {
+            "rtmr": 3,
+            "event": "tee-daemon/promote",
+            "digest": hashlib.sha384(payload).hexdigest(),
+        },
+    }
+
+
 async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
-                  name: str) -> Project:
+                  name: str, dstack_sock: str | None = None) -> Project:
     """Promote a project from dev mode to attested mode."""
     project = store.load(name)
 
@@ -361,6 +423,14 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
     # Change mode to attested and save
     project.mode = "attested"
     store.save(project)
+
+    # RFC 0027 (b): hardware-rooted per-app binding quote. Only when dstack is
+    # present (inside the CVM); outside a TEE there is no quote to produce — the
+    # same condition the verification/attest endpoints already gate on.
+    if dstack_sock:
+        project.binding = await build_app_binding(
+            dstack_sock, name, project.tree_hash, project.commit_sha, project.image_digest)
+        store.save(project)
 
     # Record promotion in audit log with source hash (now attested)
     audit = audit_manager.get_audit_log(name)
