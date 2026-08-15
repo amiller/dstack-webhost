@@ -49,25 +49,40 @@ BUILD_STEPS = {
 }
 
 
-async def git_clone(source: str, ref: str, dest: str) -> tuple[str, str]:
+async def git_clone(source: str, ref: str, dest: str,
+                    commit_sha: str = "") -> tuple[str, str]:
     """Clone source@ref to dest. Returns (commit_sha, git_tree_sha).
 
     The git_tree_sha is the SHA-1 of the commit's tree object — the same
     value GitHub exposes via /repos/<owner>/<repo>/git/commits/<sha>. A
     relying party can verify it without cloning, by querying the GitHub API.
+
+    With commit_sha set (RFC 0017 pinned import), the full history is cloned
+    and checked out at exactly that commit; a sha that no longer exists raises.
     """
     if os.path.exists(dest):
         shutil.rmtree(dest)
     url = source if source.startswith(("https://", "http://", "/")) else f"https://{source}"
-    cmd = ["git", "clone", "--depth", "1"]
-    if ref:
-        cmd += ["--branch", ref]
+    cmd = ["git", "clone"]
+    if not commit_sha:
+        cmd += ["--depth", "1"]
+        if ref:
+            cmd += ["--branch", ref]
     cmd += [url, dest]
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
         raise ValueError(f"git clone failed: {stderr.decode().strip()}")
+    if commit_sha:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", dest, "checkout", "--detach", commit_sha,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise ValueError(
+                f"pinned commit {commit_sha} not found in {source}: "
+                f"{stderr.decode().strip()}")
     proc2 = await asyncio.create_subprocess_exec(
         "git", "-C", dest, "rev-parse", "HEAD",
         stdout=asyncio.subprocess.PIPE)
@@ -261,7 +276,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         raise ValueError(f"Invalid project name: {name!r}")
 
     if manifest.get("runtime") == "image":
-        return await _deploy_image(store, audit_manager, rtm, manifest)
+        return await _deploy_image(store, docker, audit_manager, rtm, manifest)
 
     files_dir = store.files_dir(name)
     git_tree_sha = ""
@@ -271,7 +286,25 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     else:
         if not source:
             raise ValueError("Missing source (provide git source or upload tarball via multipart)")
-        commit_sha, git_tree_sha = await git_clone(source, ref, files_dir)
+        pin_sha = manifest.get("commit_sha", "")
+        pin_tree = manifest.get("tree_hash", "")
+        if pin_sha:
+            # RFC 0017 pinned import: clone and verify in a staging dir; the
+            # live files_dir is only replaced once the tree matches the pin,
+            # so a tampered bundle never clobbers a deployed project.
+            stage = files_dir + ".pin"
+            commit_sha, git_tree_sha = await git_clone(
+                source, ref, stage, commit_sha=pin_sha)
+            if pin_tree and git_tree_sha != pin_tree:
+                shutil.rmtree(stage)
+                raise ValueError(
+                    f"tree_hash mismatch for {name}: pinned {pin_tree}, "
+                    f"source at {pin_sha[:12]} hashes to {git_tree_sha}")
+            if os.path.exists(files_dir):
+                shutil.rmtree(files_dir)
+            shutil.move(stage, files_dir)
+        else:
+            commit_sha, git_tree_sha = await git_clone(source, ref, files_dir)
 
     repo_manifest = detect_manifest(files_dir)
 
@@ -375,8 +408,9 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     return project
 
 
-async def _deploy_image(store: ProjectStore, audit_manager,
-                        rtm: RuntimeManager, manifest: dict) -> Project:
+async def _deploy_image(store: ProjectStore, docker: DockerClient,
+                        audit_manager, rtm: RuntimeManager,
+                        manifest: dict) -> Project:
     name = manifest["name"]
     image = manifest.get("image", "")
     image_port = int(manifest.get("image_port", 0))
@@ -384,6 +418,19 @@ async def _deploy_image(store: ProjectStore, audit_manager,
         raise ValueError("runtime=image requires 'image' field")
     if not image_port:
         raise ValueError("runtime=image requires 'image_port' field")
+
+    # RFC 0017 pinned import: the recorded image_digest is the pin. Verify it
+    # against what the registry actually serves before anything is created — a
+    # moved tag is an error, never silently served.
+    pin_digest = manifest.get("image_digest", "")
+    if pin_digest:
+        if not await docker.image_digest(image):
+            await docker.pull(image)
+        got = await docker.image_digest(image)
+        if got != pin_digest:
+            raise ValueError(
+                f"image_digest mismatch for {name}: pinned {pin_digest}, "
+                f"registry has {got or 'unknown'}")
 
     mode = manifest.get("mode", "dev")
     if mode not in ("dev", "attested"):
@@ -548,3 +595,35 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
              name, project.commit_sha[:12], project.tree_hash[:12],
              project.attestation_kind or "none")
     return project
+
+
+async def import_bundle(store: ProjectStore, docker: DockerClient, audit_manager,
+                        tracker: ContainerTracker, rtm: RuntimeManager,
+                        bundle: dict) -> dict:
+    """RFC 0017 §2: redeploy every exported manifest *pinned*.
+
+    Git projects clone at their recorded commit_sha and must reproduce the
+    recorded tree_hash; image projects must match their recorded image_digest.
+    A pin that cannot be reproduced errors and skips that project — there is
+    no re-clone-latest fallback. A project that already exists is redeployed
+    with its live env merged in (an export bundle carries no secrets; secret
+    continuity is RFC 0018's job).
+    """
+    if not isinstance(bundle, dict) or not isinstance(bundle.get("projects"), list):
+        raise ValueError("bundle must be an object with a 'projects' list")
+    result = {"imported": [], "skipped": []}
+    for entry in bundle["projects"]:
+        name = str(entry.get("name", ""))
+        manifest = dict(entry)
+        try:
+            manifest["env"] = dict(store.load(name).env or {})
+        except FileNotFoundError:
+            pass
+        try:
+            await deploy(store, docker, audit_manager, tracker, rtm, manifest)
+        except ValueError as e:
+            log.warning("import skipped %s: %s", name, e)
+            result["skipped"].append({"project": name, "error": str(e)})
+            continue
+        result["imported"].append(name)
+    return result

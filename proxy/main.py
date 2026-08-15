@@ -52,7 +52,7 @@ async def start():
     audit_manager = AuditLogManager(AUDIT_DIR)
     docker = DockerClient(DOCKER_SOCK)
     store = ProjectStore(DATA_DIR)
-    rtm = RuntimeManager(docker, store, tracker)
+    rtm = RuntimeManager(docker, store, tracker, audit_manager)
     tunnel_store = TunnelStore(TUNNEL_DIR)
     token_store = TokenStore(TOKEN_DIR)
 
@@ -153,14 +153,15 @@ async def start():
     # Ingress + API on TCP port(s)
     ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store, token_store, broker_store, browser_pool)
 
-    # Check for port conflicts. The default ingress port (INGRESS_PORT) is
-    # path-based-routing-only — multiple projects may "request" it, but they
+    # Check for port conflicts. The default ingress port (INGRESS_PORT) and the
+    # reserved path-based port (8080 — see deploy() and update_port_map()) are
+    # path-based-routing-only: multiple projects may "request" them, but they
     # all coexist on /<name>/ rather than via port-based routing.
     port_conflicts = []
     projects = store.list()
     port_to_project = {}
     for p in projects:
-        if p.listen and p.listen.port and p.listen.port != INGRESS_PORT:
+        if p.listen and p.listen.port and p.listen.port not in (INGRESS_PORT, 8080):
             port = p.listen.port
             if port in port_to_project:
                 port_conflicts.append(f"Port {port} requested by {p.name} and {port_to_project[port]}")
@@ -178,7 +179,8 @@ async def start():
     # Collect all HTTP ports to bind: default ingress port + custom HTTP project ports
     ports_to_bind = set([INGRESS_PORT])
     for p in projects:
-        if p.listen and p.listen.port and p.listen.protocol == "http" and p.listen.port != INGRESS_PORT:
+        if p.listen and p.listen.port and p.listen.protocol == "http" \
+                and p.listen.port not in (INGRESS_PORT, 8080):
             ports_to_bind.add(p.listen.port)
 
     # Create one app and bind to all HTTP ports
