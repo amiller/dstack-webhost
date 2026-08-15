@@ -363,6 +363,14 @@ async def _dstack_post(sock: str, method: str, body: dict) -> dict:
             return data
 
 
+def _app_id_from_eventlog(event_log: str) -> str:
+    """The CVM's app-id, as measured into RTMR3 (event 'app-id', imr 3)."""
+    for e in json.loads(event_log or "[]"):
+        if e.get("imr") == 3 and e.get("event") == "app-id":
+            return e.get("event_payload", "")
+    return ""
+
+
 async def build_app_binding(sock: str, name: str, tree_hash: str,
                             commit_sha: str, image_digest: str) -> dict:
     """RFC 0027 (b): produce a hardware-rooted per-app binding at promote time.
@@ -372,9 +380,12 @@ async def build_app_binding(sock: str, name: str, tree_hash: str,
     log (EmitEvent). Any RPC failure propagates — a swallowed error here would be a
     silent false "verified".
     """
-    app_id = os.environ.get("WEBHOST_APP_ID", "")
+    # app_id is the CVM's own measured identity — read it from the quote event log,
+    # not the WEBHOST_APP_ID env (which is unreliable; empty on staging).
+    probe = await _dstack_post(sock, "GetQuote", {"report_data": "00" * 64})
+    app_id = _app_id_from_eventlog(probe.get("event_log", ""))
     if not app_id:
-        raise RuntimeError("WEBHOST_APP_ID unset; cannot build RFC 0027 app binding")
+        raise RuntimeError("no app-id in the dstack quote event log; cannot build RFC 0027 binding")
 
     key_path = f"/tee-daemon/projects/{name}"
     getkey = await _dstack_post(sock, "GetKey", {"path": key_path})
