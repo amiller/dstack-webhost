@@ -39,6 +39,7 @@ class Project:
     image_digest: str = ""
     source: str = ""
     ref: str = ""
+    description: str = ""  # one-line blurb from the repo-committed manifest; shown on the landing card (#43)
     commit_sha: str = ""
     tree_hash: str = ""
     listen: Optional[ListenConfig] = None
