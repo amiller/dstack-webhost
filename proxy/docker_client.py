@@ -6,6 +6,15 @@ import aiohttp
 
 log = logging.getLogger(__name__)
 
+# Docker's embedded resolver (127.0.0.11, forced on user-defined bridge
+# networks) is dead under gVisor: the Sentry netstack never applies the host
+# iptables DNAT that makes it reachable under runc. gVisor containers get
+# explicit routable resolvers instead — the queried hostname is already
+# disclosed by SNI, and loopback stubs (e.g. systemd-resolved 127.0.0.53)
+# are dead the same way, so the host's only usable upstream (8.8.8.8) plus
+# one public fallback.
+GVISOR_DNS = ["8.8.8.8", "1.1.1.1"]
+
 
 class DockerClient:
     def __init__(self, socket_path: str):
@@ -37,6 +46,8 @@ class DockerClient:
         host_config: dict = {"Binds": binds}
         if runtime:
             host_config["Runtime"] = runtime
+        if runtime == "runsc":
+            host_config["Dns"] = GVISOR_DNS
         if restart_policy:
             host_config["RestartPolicy"] = restart_policy
         if cap_add:
