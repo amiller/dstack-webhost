@@ -13,6 +13,8 @@ import time
 import requests
 from playwright.sync_api import sync_playwright
 
+from proxy.docker_client import GVISOR_DNS
+
 DAEMON_PORT = 18080
 TEST_TOKEN = "test-secret-token-12345"
 API = f"http://localhost:{DAEMON_PORT}/_api"
@@ -635,6 +637,65 @@ export default (_req: Request, ctx: {env: Record<string,string>}) => {
     assert r.json() == {"foo": "isolated-deno-passthrough"}, r.text
     print("  Handler saw FOO from daemon env via ctx.env ✓")
     api_delete("/projects/test-iso-passthru")
+
+
+def test_dns_probe():
+    """Issue #2: outbound DNS for isolation:container tenants. The same
+    fetch-handler source must serve 200 under isolation:container AND
+    isolation:shared, and the isolated tenant keeps its per-project tee-proj-*
+    bridge. (The runsc gating itself — gVisor creates get explicit GVISOR_DNS —
+    is unit-tested in proxy/test_docker_client.py; this box has no runsc.)"""
+    print("\n--- Test: isolation:container outbound fetch (dns probe) ---")
+    handler = b"""
+export default async () => {
+  try {
+    const r = await fetch("https://example.com/");
+    const body = await r.text();
+    return new Response(JSON.stringify({status: r.status, ok: body.includes("Example Domain")}),
+      {headers: {"content-type": "application/json"}});
+  } catch (e) {
+    return new Response(JSON.stringify({error: String(e)}), {status: 500});
+  }
+};
+"""
+    for name, iso in (("dns-probe-iso", "container"), ("dns-probe-shared", "shared")):
+        manifest = {"runtime": "deno", "listen": {"port": 8080, "protocol": "http"}}
+        if iso != "shared":
+            manifest["isolation"] = iso
+        repo = create_test_repo(name, {
+            "project.json": json.dumps(manifest).encode(),
+            "server.ts": handler,
+        })
+        resp = api_post("/projects", json={"name": name, "source": repo})
+        assert resp.status_code == 201, f"Deploy {name} failed: {resp.text}"
+
+        r = None
+        for _ in range(30):
+            r = requests.get(f"{INGRESS}/{name}/")
+            if r.status_code == 200:
+                break
+            time.sleep(0.5)
+        assert r is not None and r.status_code == 200, \
+            f"{name} outbound fetch failed: {r.text if r is not None else 'no response'}"
+        assert r.json() == {"status": 200, "ok": True}, r.text
+        print(f"  {name} (isolation:{iso}) fetched https://example.com -> 200 ✓")
+
+    nets = subprocess.run(
+        ["docker", "inspect", "tee-isolated-dns-probe-iso-dev", "--format",
+         "{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}"],
+        capture_output=True, text=True, check=True).stdout.strip().split()
+    assert "tee-proj-dns-probe-iso-dev" in nets, nets
+    dns_raw = subprocess.run(
+        ["docker", "inspect", "tee-isolated-dns-probe-iso-dev", "--format",
+         "{{json .HostConfig.Dns}}"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    dns = json.loads(dns_raw)
+    assert dns is None or dns == GVISOR_DNS, \
+        f"unexpected Dns on isolated tenant: {dns}"
+    print(f"  isolated tenant on {nets}; Dns={dns} (explicit only under runsc) ✓")
+
+    api_delete("/projects/dns-probe-iso")
+    api_delete("/projects/dns-probe-shared")
 
 
 def test_per_project_network_isolation():
@@ -1466,6 +1527,7 @@ def main():
         test_isolated_per_project_data_volume()
         test_env_passthrough()
         test_isolated_deno_env_passthrough()
+        test_dns_probe()
         test_image_redeploy()
         test_substrate_endpoint()
         test_autodetect()
