@@ -11,6 +11,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import aiohttp
 import pytest
 
 from verify import Facts, verify_from_bundle, BundleParseError
@@ -331,6 +332,99 @@ def test_bundle_to_dict_is_the_served_shape():
     print("test_bundle_to_dict_is_the_served_shape: PASS (response shape unchanged)")
 
 
+class _RpcResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    async def json(self):
+        return self.payload
+
+
+class _RpcSession:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+
+    def post(self, *args, **kwargs):
+        response = next(self.responses)
+        if isinstance(response, Exception):
+            raise response
+        return _RpcResponse(response)
+
+
+def _chain_config():
+    return {
+        "rpc_url": "https://base.example/rpc",
+        "contract_address": "0x" + "aa" * 20,
+        "compose_hash": "0x" + "11" * 32,
+    }
+
+
+def test_onchain_approval():
+    from verify.facts import _verify_onchain_approval
+
+    session = _RpcSession([
+        {"result": "0x2105"},
+        {"result": "0x" + "0" * 63 + "1"},
+    ])
+    facts = asyncio.run(_verify_onchain_approval(session, "0x" + "22" * 20, _chain_config()))
+    assert facts.chain_id == "8453"
+    assert facts.approved is True
+    assert facts.error == ""
+    assert facts.repro["method"].startswith("isAppAllowed(")
+
+
+def test_onchain_not_approved():
+    from verify.facts import _verify_onchain_approval
+
+    session = _RpcSession([{"result": "0x2105"}, {"result": "0x" + "0" * 64}])
+    facts = asyncio.run(_verify_onchain_approval(session, "0x" + "22" * 20, _chain_config()))
+    assert facts.chain_id == "8453"
+    assert facts.approved is False
+    assert facts.error == ""
+
+
+def test_onchain_non_anchored():
+    from verify.facts import _verify_onchain_approval
+
+    facts = asyncio.run(_verify_onchain_approval(None, "pha-prod-app"))
+    assert facts.chain_id == "0"
+    assert facts.approved is False
+    assert facts.error == ""
+
+
+def test_onchain_rpc_unreachable():
+    from verify.facts import _verify_onchain_approval
+
+    session = _RpcSession([aiohttp.ClientError("timeout")])
+    facts = asyncio.run(_verify_onchain_approval(session, "0x" + "22" * 20, _chain_config()))
+    assert facts.chain_id == "0"
+    assert "Base-prod RPC check failed" in facts.error
+
+
+def test_onchain_rpc_failure_flows_into_facts_errors():
+    """Acceptance (#90): an unreachable base-prod RPC lands in
+    OnchainFacts.error AND Facts.errors[] through the full verify core, which
+    still returns Facts instead of raising."""
+    from verify.facts import _verify_bundle
+
+    session = _RpcSession([aiohttp.ClientError("timeout")])
+    bundle = _load(GOOD)
+    bundle["webhost_app_id"] = "0x" + "22" * 20  # fixture is non-anchored; give the check an app_id
+    facts = asyncio.run(_verify_bundle(bundle, session=session, chain_config=_chain_config()))
+    assert facts.onchain.chain_id == "0"
+    assert "Base-prod RPC check failed" in facts.onchain.error
+    assert any(e.startswith("onchain:") for e in facts.errors)
+
+
 if __name__ == "__main__":
     test_tampered_tree_hash_surfaces_mismatch_and_verify_returns()
     test_non_anchored_ecosystem_surfaces_chain_id_zero_no_crash()
@@ -343,4 +437,9 @@ if __name__ == "__main__":
     test_facts_to_dict_is_json_serializable_and_round_trips()
     test_bundle_roundtrip()
     test_bundle_to_dict_is_the_served_shape()
+    test_onchain_approval()
+    test_onchain_not_approved()
+    test_onchain_non_anchored()
+    test_onchain_rpc_unreachable()
+    test_onchain_rpc_failure_flows_into_facts_errors()
     print("\n=== ALL FACTS TESTS PASSED ===")

@@ -61,3 +61,17 @@ it (isolated, image-runtime, browser pool).
 - The AFTER-on-runsc 200 requires redeploying the daemon on the CVM (ghcr creds +
   `docker-compose.webhost-staging.yaml` are not on this box — box-inventory "Not here") →
   named as the overseer step in PR + issue comment.
+
+---
+
+# Issue #90 plan
+
+- [x] Encode and call the configured Base-prod `DstackApp.isAppAllowed(AppBootInfo)` RPC method.
+- [x] Report numeric chain ID 8453 and the actual allowlist result as facts.
+- [x] Preserve non-anchored deployments as `chain_id=0`, `approved=false` without an error.
+- [x] Surface RPC failures in `OnchainFacts.error` and `Facts.errors[]`.
+- [x] Include the contract, method, and arguments as an independent repro pointer.
+- [x] Test approved, rejected, non-anchored, and unreachable RPC paths.
+
+Operator verification remains: provide the base-prod RPC/contract configuration and deploy the
+consumer-facing verifier path to staging for the required pinned `/_api/version` transcript.
