@@ -9,7 +9,9 @@ verdict; accept/reject lives in the consumer (see verify/policies.py).
 
 import asyncio
 import json
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import aiohttp
 import pytest
@@ -93,7 +95,8 @@ def test_two_policies_disagree_on_same_facts():
     # Policy (a): allowlist the bundle's own tree_hash -> ACCEPTS
     accepts = allowlist_policy(facts, {facts.source.tree_hash})
     # Policy (b): strict — needs quote_valid && onchain_approved && gateway &&
-    # chain_id==8453. On the staging fixture ALL of those are False/empty/0.
+    # chain_id==8453. On the staging fixture the onchain/gateway/chain_id legs
+    # are False/empty/0, so strict rejects regardless of the quote leg.
     rejects = strict_policy(facts, expected_chain_id=8453)
 
     assert accepts is True, "allowlist policy should accept its own tree_hash"
@@ -425,6 +428,44 @@ def test_onchain_rpc_failure_flows_into_facts_errors():
     assert any(e.startswith("onchain:") for e in facts.errors)
 
 
+def test_qvl_report_is_parsed_and_missing_tool_is_specific():
+    from verify.facts import _verify_quote_signature
+
+    qvl_report = json.dumps({
+        "status": "UpToDate",
+        "report": {"TD10": {
+            "mr_td": "aa" * 48,
+            "rt_mr0": "bb" * 48,
+            "rt_mr1": "cc" * 48,
+            "rt_mr2": "dd" * 48,
+            "rt_mr3": "ee" * 48,
+            "report_data": "ff" * 64,
+        }},
+    })
+    completed = subprocess.CompletedProcess(
+        args=["dcap-qvl"], returncode=0, stdout=qvl_report, stderr=""
+    )
+    with patch("verify.facts.subprocess.run", return_value=completed):
+        facts = _verify_quote_signature({"quote": "00"})
+    assert facts.quote_valid is True
+    assert facts.mrtd == "aa" * 48
+    assert facts.rtmr["rtmr3"] == "ee" * 48
+    assert facts.report_data == "ff" * 64
+
+    with patch("verify.facts.subprocess.run", side_effect=FileNotFoundError):
+        facts = _verify_quote_signature({"quote": "00"})
+    assert facts.quote_valid is False
+    assert facts.verification_error == "dcap-qvl is not installed or not on PATH"
+
+
+def test_garbage_quote_returns_fact_error():
+    from verify.facts import _verify_quote_signature
+
+    facts = _verify_quote_signature({"quote": "not-a-quote"})
+    assert facts.quote_valid is False
+    assert "not valid hexadecimal" in facts.verification_error
+
+
 if __name__ == "__main__":
     test_tampered_tree_hash_surfaces_mismatch_and_verify_returns()
     test_non_anchored_ecosystem_surfaces_chain_id_zero_no_crash()
@@ -442,4 +483,6 @@ if __name__ == "__main__":
     test_onchain_non_anchored()
     test_onchain_rpc_unreachable()
     test_onchain_rpc_failure_flows_into_facts_errors()
+    test_qvl_report_is_parsed_and_missing_tool_is_specific()
+    test_garbage_quote_returns_fact_error()
     print("\n=== ALL FACTS TESTS PASSED ===")
