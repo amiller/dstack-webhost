@@ -14,6 +14,17 @@ class ListenConfig:
     protocol: str = "http"
 
 
+# RFC 0017 export projection: the pin + redeploy manifest for one project.
+# Deliberately an allowlist — raw env secrets never enter an export bundle
+# (secret continuity is the credential broker's job, RFC 0018).
+EXPORT_FIELDS = (
+    "source", "ref", "commit_sha", "tree_hash", "image", "image_digest",
+    "image_port", "runtime", "entry", "port", "mode", "volumes",
+    "isolation", "listen", "public", "env_passthrough", "oci_runtime",
+    "cap_add", "devices", "operator_debug",
+)
+
+
 @dataclass
 class Project:
     name: str
@@ -53,6 +64,11 @@ class Project:
     binding_quote: str = ""  # TDX quote binding app_id/name/tree_hash/app_pubkey (hex)
     report_data: str = ""  # SHA-512 of preimage (64 bytes, hex)
     attestation_kind: str = ""  # "daemon-vouched" or "app-cvm"
+
+    def export_dict(self) -> dict:
+        """RFC 0017 pin projection — every EXPORT_FIELDS key, never env."""
+        d = asdict(self)
+        return {"name": self.name, **{f: d[f] for f in EXPORT_FIELDS}}
 
     def __post_init__(self):
         if self.env is None:

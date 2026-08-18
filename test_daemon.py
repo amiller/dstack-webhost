@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -99,9 +100,10 @@ def push_update(name: str, files: dict[str, bytes]):
     subprocess.run(["git", "-C", work_dir, "push"], capture_output=True, check=True)
 
 
-def start_daemon():
+def start_daemon(reuse_tmpdir: bool = False):
     global daemon_proc, tmpdir
-    tmpdir = tempfile.mkdtemp(prefix="tee-daemon-test-")
+    if not reuse_tmpdir:
+        tmpdir = tempfile.mkdtemp(prefix="tee-daemon-test-")
     env = {
         **os.environ,
         "INGRESS_PORT": str(DAEMON_PORT),
@@ -136,7 +138,7 @@ def start_daemon():
         cwd=os.path.dirname(__file__),
         env=env, stdout=sys.stdout, stderr=sys.stderr,
     )
-    for _ in range(30):
+    for _ in range(120):
         time.sleep(0.5)
         try:
             requests.get(f"{INGRESS}/", timeout=1)
@@ -1490,9 +1492,89 @@ def test_browser_pool():
     print("  acquire timeout under contention -> 503 ✓")
 
 
+def test_rfc0017_export_import():
+    print("\n--- Test: RFC 0017 export bundle + pinned import ---")
+    repo = create_test_repo("test-exp", {
+        "index.html": b"<html><body><h1>export me</h1></body></html>",
+    })
+    resp = api_post("/projects", json={
+        "name": "test-exp", "source": repo, "runtime": "static",
+        "env": {"SECRET": "hunter2-export-secret"},
+    })
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    pinned = resp.json()
+
+    resp = api_get("/export")
+    assert resp.status_code == 200, f"export failed: {resp.status_code} {resp.text}"
+    assert "hunter2-export-secret" not in resp.text, "env secret leaked into export bundle"
+    bundle = resp.json()
+    entry = next(p for p in bundle["projects"] if p["name"] == "test-exp")
+    for f in ("source", "ref", "commit_sha", "tree_hash", "image", "image_digest",
+              "runtime", "entry", "port", "mode", "volumes"):
+        assert f in entry, f"export entry missing {f}"
+    assert "env" not in entry, "env must not be exported (RFC 0018 owns secrets)"
+    assert entry["commit_sha"] == pinned["commit_sha"]
+    assert entry["tree_hash"] == pinned["tree_hash"]
+    print(f"  Export: {len(bundle['projects'])} projects, pins present, env absent \u2713")
+
+    # Tampered pin: one flipped hex char must ERROR + skip, naming the project.
+    bad_tree = ("0" if entry["tree_hash"][0] != "0" else "1") + entry["tree_hash"][1:]
+    resp = api_post("/import", json={"projects": [{**entry, "tree_hash": bad_tree}]})
+    assert resp.status_code == 200, resp.text
+    result = resp.json()
+    assert "test-exp" not in result["imported"], result
+    skip = next(s for s in result["skipped"] if s["project"] == "test-exp")
+    assert "tree_hash mismatch" in skip["error"], skip
+    assert api_get("/projects/test-exp").status_code == 200, "failed import damaged live project"
+    print(f"  Tampered tree_hash: ERROR+skip, project intact \u2713")
+
+    # Pinned import must not chase the moving ref: push a new commit, import the
+    # old pin, project comes back at the recorded commit_sha.
+    push_update("test-exp", {"index.html": b"<html><body><h1>moved on</h1></body></html>"})
+    resp = api_post("/import", json={"projects": [entry]})
+    assert resp.status_code == 200, resp.text
+    assert "test-exp" in resp.json()["imported"], resp.json()
+    after = api_get("/projects/test-exp").json()
+    assert after["commit_sha"] == pinned["commit_sha"], "import re-cloned at latest"
+    assert after["tree_hash"] == pinned["tree_hash"]
+    resp = requests.get(f"{INGRESS}/test-exp/")
+    assert "export me" in resp.text, "import served content outside the pin"
+    print("  Clean import: redeployed at pinned commit, not latest \u2713")
+
+
+def test_rfc0017_bootstrap():
+    print("\n--- Test: RFC 0017 empty registry + bundle at boot restores fleet ---")
+    bundle = api_get("/export").json()
+    assert bundle["projects"], "expected a non-empty fleet to export"
+    stop_daemon()
+    data_dir = os.path.join(tmpdir, "projects")
+    for e in os.listdir(data_dir):
+        if os.path.isfile(os.path.join(data_dir, e, "project.json")):
+            shutil.rmtree(os.path.join(data_dir, e))
+    with open(os.path.join(data_dir, "import-bundle.json"), "w") as f:
+        json.dump(bundle, f)
+    start_daemon(reuse_tmpdir=True)
+    restored = {p["name"]: p for p in api_get("/projects").json()}
+    for p in bundle["projects"]:
+        restorable = (p.get("runtime") == "image"
+                      or p.get("source", "").startswith(("https://", "http://", "/")))
+        if not restorable:
+            # tarball-origin projects carry a placeholder source — RFC 0017:
+            # they cannot be reconstituted, so the skip must be visible, not silent.
+            assert p["name"] not in restored, f"{p['name']} restored without a cloneable source?"
+            continue
+        assert p["name"] in restored, f"{p['name']} not restored from bundle"
+        if p["commit_sha"]:
+            assert restored[p["name"]]["commit_sha"] == p["commit_sha"], \
+                f"{p['name']} restored off-pin"
+    resp = requests.get(f"{INGRESS}/test-static/")
+    assert "Updated" in resp.text, "restored fleet not serving"
+    print(f"  Bootstrap: {len(bundle['projects'])} projects restored at their pins \u2713")
+
+
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -1548,6 +1630,8 @@ def main():
         test_rfc0020_source_pull()
         test_tier0_source_binding_survives_promote()
         test_browser_pool()
+        test_rfc0017_export_import()
+        test_rfc0017_bootstrap()
         test_teardown()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:

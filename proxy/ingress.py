@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from dataclasses import asdict
+from datetime import datetime, timezone
 
 import aiohttp
 from aiohttp import web
@@ -18,7 +19,7 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
-from .deploy import deploy, teardown, promote
+from .deploy import deploy, teardown, promote, import_bundle
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
@@ -632,6 +633,13 @@ class Ingress:
         if path == "routes" and method == "GET":
             return await self._api_routes()
 
+        # RFC 0017: fleet export/import (authed)
+        if path == "export" and method == "GET":
+            return await self._api_export()
+
+        if path == "import" and method == "POST":
+            return await self._api_import(request)
+
         if path == "audit" and method == "GET":
             return await self._api_all_audit()
 
@@ -752,6 +760,37 @@ class Ingress:
             import traceback
             log.error("deploy failed: %s", traceback.format_exc())
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_export(self) -> web.Response:
+        """RFC 0017 §1: pin bundle for every project + audit refs. Raw env
+        secrets are excluded by the export projection (RFC 0018 owns them)."""
+        projects = self.store.list()
+        audit = {}
+        for p in projects:
+            entries = self.audit_manager.get_audit_log(p.name).to_json()
+            audit[p.name] = {"entries": len(entries),
+                             "url": f"/_api/projects/{p.name}/audit"}
+        return web.json_response({
+            "version": 1,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "projects": [p.export_dict() for p in projects],
+            "audit": audit,
+        })
+
+    async def _api_import(self, request: web.Request) -> web.Response:
+        """RFC 0017 §2: redeploy each bundle entry pinned; a pin that cannot be
+        reproduced errors and skips that project (never re-clones at latest)."""
+        try:
+            bundle = await request.json()
+        except json.JSONDecodeError as e:
+            return web.json_response({"error": f"bundle is not valid JSON: {e}"}, status=400)
+        try:
+            result = await import_bundle(
+                self.store, self.docker, self.audit_manager,
+                self.tracker, self.rtm, bundle)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        return web.json_response(result)
 
     async def _api_status(self, name: str) -> web.Response:
         project = self.store.load(name)

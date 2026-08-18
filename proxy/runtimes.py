@@ -344,10 +344,12 @@ RUNTIME_CONFIG = {
 
 
 class RuntimeManager:
-    def __init__(self, docker: DockerClient, store: ProjectStore, tracker: ContainerTracker):
+    def __init__(self, docker: DockerClient, store: ProjectStore,
+                 tracker: ContainerTracker, audit_manager):
         self.docker = docker
         self.store = store
         self.tracker = tracker
+        self.audit_manager = audit_manager  # RFC 0017: import-bundle bootstrap records deploys
         self.runtime_ips: dict[tuple[str, str], str] = {}  # (runtime_key, mode) -> ip
         self.runtime_cids: dict[tuple[str, str], str] = {}  # (runtime_key, mode) -> cid
         self.image_routes: dict[str, tuple[str, int]] = {}  # project name -> (ip, image_port)
@@ -754,6 +756,7 @@ class RuntimeManager:
         return result
 
     async def recover_all(self):
+        await self._bootstrap_from_import_bundle()
         runtimes_needed = set()
         image_projects = []
         isolated_projects = []
@@ -770,3 +773,24 @@ class RuntimeManager:
             await self.start_image(p)
         for p in isolated_projects:
             await self.start_isolated(p)
+
+    async def _bootstrap_from_import_bundle(self):
+        """RFC 0017 §4: an empty registry with an import bundle present means a
+        fresh CVM being restored — redeploy the fleet (pinned) before runtimes
+        start. A non-empty registry ignores the bundle."""
+        if self.store.list():
+            return
+        path = os.environ.get(
+            "DAEMON_IMPORT_BUNDLE",
+            os.path.join(self.store.base_dir, "import-bundle.json"))
+        if not os.path.isfile(path):
+            return
+        with open(path) as f:
+            bundle = json.load(f)
+        log.info("Empty registry + import bundle at %s — restoring fleet", path)
+        from .deploy import import_bundle  # deferred: deploy imports this module
+        result = await import_bundle(self.store, self.docker, self.audit_manager,
+                                     self.tracker, self, bundle)
+        log.info("Bootstrapped from %s: imported=%s skipped=%s", path,
+                 result["imported"],
+                 [s["project"] for s in result["skipped"]])
