@@ -829,9 +829,19 @@ def test_substrate_endpoint():
     expected = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
     assert info["container_runtime"] == expected, info
     assert info["effective_runtime"] == (expected or "runc"), info
+    local_runtimes = json.loads(subprocess.run(
+        ["docker", "info", "--format", "{{json .Runtimes}}"],
+        capture_output=True, text=True, check=True).stdout)
+    assert info["available_runtimes"] == sorted(local_runtimes), info
+    assert info["network_isolation"] in ("host", "sandbox", "netns"), info
+    if not expected:
+        assert info["network_isolation"] == "netns", info
     assert "shared" in info["isolation_modes"] and "container" in info["isolation_modes"]
     assert len(info["deno_entry_shim_sha256"]) == 64
-    print(f"  effective_runtime={info['effective_runtime']} shim_sha={info['deno_entry_shim_sha256'][:12]} ✓")
+    print(f"  effective_runtime={info['effective_runtime']} "
+          f"network_isolation={info['network_isolation']} "
+          f"available={','.join(info['available_runtimes'])} "
+          f"shim_sha={info['deno_entry_shim_sha256'][:12]} ✓")
 
 
 def test_per_project_isolation():

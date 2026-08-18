@@ -13,7 +13,7 @@ from .docker_proxy import DockerProxy
 from .dstack_proxy import DstackProxyManager
 from .docker_client import DockerClient
 from .projects import ProjectStore
-from .runtimes import RuntimeManager
+from .runtimes import RuntimeManager, verify_configured_runtime
 from .tunnel import TunnelStore
 from .tokens import TokenStore
 from .broker import BrokerStore, BrokerProxy
@@ -51,6 +51,7 @@ async def start():
     tracker = ContainerTracker()
     audit_manager = AuditLogManager(AUDIT_DIR)
     docker = DockerClient(DOCKER_SOCK)
+    await verify_configured_runtime(docker)
     store = ProjectStore(DATA_DIR)
     rtm = RuntimeManager(docker, store, tracker, audit_manager)
     tunnel_store = TunnelStore(TUNNEL_DIR)

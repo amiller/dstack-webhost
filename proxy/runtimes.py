@@ -121,6 +121,20 @@ def _shared_broker_binds() -> list[str]:
 # Empty string keeps Docker's default (runc).
 CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
 
+
+async def verify_configured_runtime(docker: DockerClient):
+    """Refuse to start when DAEMON_CONTAINER_RUNTIME names a runtime Docker
+    does not have — otherwise tenants silently land in a weaker sandbox than
+    /_api/substrate advertises."""
+    rt = CONTAINER_RUNTIME
+    if not rt:
+        return
+    available = (await docker.info()).get("Runtimes") or {}
+    if rt not in available:
+        raise RuntimeError(
+            f"DAEMON_CONTAINER_RUNTIME={rt!r} is not registered with Docker "
+            f"(available: {', '.join(sorted(available))}); refusing to start")
+
 _ENTRY_SHIM_DENO = r"""
 const [ENTRY, FILES, DATA, ENV_JSON] = Deno.args;
 const env = JSON.parse(ENV_JSON || "{}");
