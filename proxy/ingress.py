@@ -50,6 +50,43 @@ def _sanitize_getkey(data):
 DSTACK_SOCK = None  # set by main.py
 API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
 
+# Headers this proxy never forwards upstream.
+HOP_HEADERS = ("host", "transfer-encoding", "accept-encoding")
+
+# Headers that claim who the client is. A tenant reading one is trusting whoever set it.
+FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "x-forwarded-proto", "x-forwarded-host")
+
+# Peers whose forwarded headers we believe, by address. Empty means "believe nobody".
+#
+# WHY THIS IS A LIST AND NOT `request.remote`. RFC 0004 says to set X-Forwarded-For from the
+# peer address. That is wrong on this stack and would be worse than doing nothing. The custom
+# domain path puts dstack-ingress (haproxy) in front of this daemon in `mode tcp`: haproxy
+# terminates TLS and forwards a raw stream, so `request.remote` here is haproxy's container
+# IP -- the SAME value for every client on earth. Injecting that as X-Forwarded-For
+# manufactures a constant that looks like a client IP, passes a "the header is present" test,
+# and silently breaks any rate limiting built on it.
+#
+# A real client IP can only come from a proxy that saw the connection and said so. Until
+# haproxy runs `mode http` with `http-request set-header X-Real-IP %[src]`, no such proxy
+# exists here and the honest answer to "who is the client" is that this daemon does not know.
+# It forwards nothing rather than invent it.
+#
+# What this DOES fix now: the ingress passes a client's own X-Forwarded-For through verbatim
+# (verified against the live pod -- `-H "X-Forwarded-For: 1.2.3.4"` reached the tenant
+# unchanged), so a tenant reading it reads a value the caller picked. Stripped unless the peer
+# is named here.
+TRUSTED_PROXIES = frozenset(
+    p.strip() for p in os.environ.get("TRUSTED_PROXY_IPS", "").split(",") if p.strip()
+)
+
+
+def forward_headers(request: web.Request, extra_drop: tuple = ()) -> dict:
+    """Client headers to pass upstream, minus anything this peer may not assert."""
+    drop = HOP_HEADERS + extra_drop
+    if request.remote not in TRUSTED_PROXIES:
+        drop += FORWARDED_HEADERS
+    return {k: v for k, v in request.headers.items() if k.lower() not in drop}
+
 MIME_TYPES = {
     ".html": "text/html", ".css": "text/css", ".js": "application/javascript",
     ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg",
@@ -245,8 +282,7 @@ class Ingress:
     async def _proxy(self, request: web.Request, ip: str, port: int,
                      path: str) -> web.Response:
         body = await request.read()
-        headers = {k: v for k, v in request.headers.items()
-                   if k.lower() not in ("host", "transfer-encoding", "accept-encoding")}
+        headers = forward_headers(request)
         url = f"http://{ip}:{port}{path}"
         async with aiohttp.ClientSession() as session:
             async with session.request(request.method, url,
@@ -393,8 +429,7 @@ class Ingress:
 
         # Handle regular HTTP request - make request to backend URL
         body = await request.read()
-        headers = {k: v for k, v in request.headers.items()
-                   if k.lower() not in ("host", "transfer-encoding", "accept-encoding")}
+        headers = forward_headers(request)
         url = f"{tunnel.backend}{subpath}"
         async with aiohttp.ClientSession() as session:
             async with session.request(request.method, url,
@@ -411,8 +446,7 @@ class Ingress:
             import aiohttp
 
             # Extract WebSocket headers
-            ws_headers = {k: v for k, v in request.headers.items()
-                          if k.lower() not in ("host", "connection", "upgrade", "transfer-encoding")}
+            ws_headers = forward_headers(request, extra_drop=("connection", "upgrade"))
 
             # Construct full backend URL with path
             full_url = f"{backend_url}{path}"
