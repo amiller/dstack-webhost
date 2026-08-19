@@ -103,3 +103,18 @@ vs staging is unchanged from the original PR. At rebased commit ad12059e:
   (box-local, not committed).
 
 §5 operator steps are unchanged.
+
+## 7. SHA correction: verification re-anchored at the pushed head 856f3638 (rework, 2026-08-18)
+
+§6 ran at `ad12059e`, which was never pushed: appending §6 amended the commit, so
+the branch landed as `856f3638` (single commit on origin/staging-106). `ad12059e`
+still exists in the local repo and `git diff ad12059e 856f3638` is exactly §6 —
+no code difference. The §6 suite run therefore covered this tree minus this
+evidence file. Re-anchored at the pushed head:
+
+- `GIT_COMMIT=856f3638 docker compose build` → succeeds.
+- bare `docker compose build` → exit 1 at the Dockerfile guard, §1's message verbatim.
+- image run on :18081, real HTTP: `curl http://localhost:18081/_api/version` →
+  `{"version": "dev", "commit": "856f3638"}` (HTTP 200).
+- `docker run --rm -e DAEMON_COMMIT= ...` → the §3 boot refusal, verbatim.
+
