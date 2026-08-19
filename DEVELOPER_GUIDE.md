@@ -149,6 +149,38 @@ Authenticated (`Authorization: Bearer $TOKEN`):
 | `POST /_api/projects/<name>/redeploy` | Re-pull from source. |
 | `DELETE /_api/projects/<name>` | Tear down. |
 
+## Signing users in
+
+If the pod runs the `oauth3` app, your project gets user sign-in without implementing any of it.
+The oauth3 app serves its own client, and every project on a pod is path-routed under one origin,
+so the import is same-origin and needs no build step:
+
+```html
+<script type="module">
+  import { auth } from "/oauth3/sdk.js";
+  const o3 = auth({ node: location.origin + "/oauth3" });
+
+  const me = await o3.me();              // { signedIn, subject?, providers, links }
+  if (!me.signedIn) await o3.signIn();    // -> the pod's login page, and back
+</script>
+```
+
+`signIn()` hands off to the pod's own login page, so you inherit every door it has configured
+(passkey, GitHub, Google, openkey, did:key) without writing any of them. `/oauth3/sdk-ui.js`
+additionally exports `signInButton(el, {auth})` if you want a drop-in control.
+
+**One sign-in covers the whole pod.** The session lives under the shared `oauth3_session` key, so
+a user who signed in on any other project here arrives already signed in. The same property has a
+sharp edge worth knowing: one origin means `localStorage` is shared, so a token your project keeps
+there is readable by every other project on the pod. Do not treat it as private to you.
+
+Two limits to plan around:
+
+- **Sign-in is open to any project; data access is not.** Reading a user's data through an oauth3
+  plugin (`connect()`) requires your app to be curated into the oauth3 app's listing first.
+- **`/oauth3/sdk.js` is fetched at runtime**, so it is not covered by your project's measured tree
+  hash. If your project is `attested`, vendor the SDK into your own tree instead.
+
 ## Where to look in the daemon
 
 `proxy/ingress.py` has the request routing and auth gate. `proxy/runtimes.py` has the language-runtime container management and the Deno router that loads your handler. `proxy/deploy.py` has the git-clone path and the source-hash recording. The whole thing is small enough to read end-to-end.
