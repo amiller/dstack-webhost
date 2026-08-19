@@ -50,14 +50,61 @@ Screenshots (non-empty, `test -s`):
 - `03-undescribed-card.png` — the undescribed card: renders exactly as today — no
   description element, no placeholder.
 
-## What I could NOT verify (operator-run)
-The issue's Flow says "deploy two projects to webhost-staging". Deploying *projects*
-to the running staging CVM works from this box, but the running daemon there predates
-this branch, so descriptions would not render until the daemon image is rebuilt and
-the CVM redeployed — `ship-fix.sh staging` needs
-`~/projects/hermes-agent/docker-compose.webhost-staging.yaml` + ghcr push creds +
-`.env.webhost-staging`, which are not on this box (`specs/box-inventory.md`: "Not
-here"). Same remaining operator step as #88 (PR #102): after the staging redeploy, a
-staging-URL screenshot of a described + undescribed card closes the loop. Everything
-short of that (code, API surfaces, real-browser render, regression test) is verified
-here.
+## Staging walk (2026-08-19, closes the Flow's webhost-staging half)
+
+The daemon branch was deployed to webhost-staging through the capdel-brokered path
+(`~/bin/ship staging-43` → build → ghcr push → `phala deploy` → compose digest+
+`DAEMON_COMMIT` pinned), authenticated transcript:
+
+```
+    staging-43 -> 28c363e9
+    pushed: ghcr.io/amiller/tee-socket-proxy@sha256:3edc3ccb0b0898af457e79bb112caca362ca3a441e583c81472306ad745c4292
+==> 4/4 upgrade webhost-staging CVM
+GET https://78ffc78c…-8080.dstack-pha-prod7.phala.network/_api/version
+{"version": "dev", "commit": "28c363e9"}
+OK: webhost-staging is running 28c363e9
+```
+
+Two projects deployed via `POST /_api/projects` (multipart tarball = repo-committed
+tree; `mode: attested` so both render on the public landing):
+
+- `card-with-desc` — tarball carries `project.json` with the same description as the
+  local test; deploy response + `/_api/projects` returned
+  `"description": "A tiny static app used to prove the description line."`
+- `card-no-desc` — tarball with only `index.html`; all surfaces `"description": ""`
+
+Walked in the envoy/neko real browser (not CDP — LESSONS) at
+`https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/`,
+asserting `location.href` before trusting the page (one silent navigate failure was
+caught exactly this way and retried). DOM assertions, evaluated in-page after the
+cards rendered:
+
+```json
+{"described_present":true,"undescribed_present":true,
+ "described_text":"A tiny static app used to prove the description line.",
+ "desc_directly_under_head":true,"described_desc_count":1,
+ "undescribed_desc_count":0,"undescribed_head_next_is_meta":true,"total_cards":11}
+```
+
+— the described card shows exactly the manifest line, one element, directly under the
+name; the undescribed card renders **zero** `.desc` elements with the card head
+followed directly by the meta rows (identical to pre-change structure).
+
+Screenshots (non-empty, `test -s`; viewport geometry verified at capture time — both
+cards and the desc line inside the frame):
+- `04-staging-landing.png` — the staging landing's attested layer with both test cards.
+- `05-staging-cards.png` — `card-no-desc` (left) and `card-with-desc` (right) side by
+  side: the description line appears under one name and not the other; everything
+  else about the two cards is identical.
+
+Both test projects were deleted after capture (`DELETE /_api/projects/<name>` → 200);
+`/_api/projects` confirms they are gone and the daemon still reports `28c363e9`.
+
+## What I could NOT verify
+Nothing staging-side remains. Two operational notes for the operator:
+- The redeploy above went through `ship-fix.sh`, which does not pass
+  `--pre-launch-script` — #117's two-runtime gVisor prelaunch (runsc + runsc-hostnet,
+  installed on webhost-staging earlier tonight) is not re-applied by this path. Re-apply
+  it before the `DAEMON_CONTAINER_RUNTIME=runsc-hostnet` follow-up named in #117.
+- The description feature is in the deployed daemon now; real apps' manifests can add
+  `description` lines and they will render on `/` without further daemon changes.
