@@ -3,10 +3,15 @@
 #   phala deploy --cvm-name <name> -c docker-compose.yaml -e .env
 #
 # Local dev:
-#   docker compose up
+#   GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up --build
+#   (GIT_COMMIT is asserted non-empty by the Dockerfile; an unset value fails the
+#   build rather than baking an image that cannot say what it is — issue #106)
 services:
   tee-daemon:
-    build: .
+    build:
+      context: .
+      args:
+        - GIT_COMMIT=${GIT_COMMIT:-}
     ports:
       - "8080:8080"
     volumes:

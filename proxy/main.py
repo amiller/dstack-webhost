@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import signal
+import subprocess
 
 from aiohttp import web
 
@@ -40,7 +41,35 @@ CREDS_DIR = os.environ.get("DAEMON_CREDS_DIR", "/var/lib/tee-daemon/creds")
 INGRESS_PORT = int(os.environ.get("INGRESS_PORT", "8080"))
 
 
+def _resolve_commit() -> str:
+    """Version identity, resolved once at boot (issue #106).
+
+    In a built image DAEMON_COMMIT is baked from the Dockerfile's GIT_COMMIT
+    build arg (which the Dockerfile asserts non-empty). Unset means local dev
+    from a checkout, where git supplies it — but only if .git is actually
+    present. Refusing to run beats reporting a wrong/empty commit: /_api/version
+    anchors Tier-1 evidence, and a placeholder would silently poison every
+    claim that cites it.
+    """
+    commit = os.environ.get("DAEMON_COMMIT", "").strip()
+    if commit:
+        return commit
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if not os.path.exists(os.path.join(root, ".git")):
+        raise RuntimeError(
+            "DAEMON_COMMIT is empty and no .git is present: this image was "
+            "built without the GIT_COMMIT build arg (docker-compose.yaml "
+            "build.args, or docker build --build-arg GIT_COMMIT=<short-sha>). "
+            "Refusing to start rather than report an unknown commit on "
+            "/_api/version (issue #106).")
+    return subprocess.check_output(
+        ["git", "-C", root, "rev-parse", "--short", "HEAD"]).decode().strip()
+
+
 async def start():
+    # Boot-order matters: identity first, so a misbuilt image dies HERE, loudly,
+    # before any socket/container/port work makes it look alive.
+    os.environ["DAEMON_COMMIT"] = _resolve_commit()
     os.makedirs(PROXY_DIR, exist_ok=True)
     os.makedirs(BROKER_SOCKET_DIR, exist_ok=True)
 

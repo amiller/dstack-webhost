@@ -186,7 +186,31 @@ def test_version():
     assert "commit" in data, f"commit field missing: {data}"
     assert isinstance(data["version"], str)
     assert isinstance(data["commit"], str)
+    # Identity must be TRUE, not merely present: the daemon runs from this
+    # checkout (no DAEMON_COMMIT baked), so its git read must match ours.
+    expected = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    assert data["commit"] == expected, \
+        f"commit mismatch: /_api/version says {data['commit']!r}, tree is {expected!r}"
     print(f"  Version: {data['version']} commit: {data['commit']} ✓")
+
+
+def test_boot_refuses_without_commit():
+    print("\n--- Test: daemon refuses to boot without a commit identity ---")
+    # A misbuilt image has no DAEMON_COMMIT and no .git; boot must fail loudly
+    # there, not 500 on /_api/version at some later audit request (issue #106).
+    bare = tempfile.mkdtemp(prefix="tee-daemon-nogit-")
+    repo = os.path.dirname(os.path.abspath(__file__))
+    for pkg in ("proxy", "verify"):
+        os.symlink(os.path.join(repo, pkg), os.path.join(bare, pkg))
+    env = {k: v for k, v in os.environ.items() if k != "DAEMON_COMMIT"}
+    p = subprocess.run([sys.executable, "-m", "proxy.main"], cwd=bare, env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert p.returncode != 0, "daemon must refuse to start without DAEMON_COMMIT"
+    assert "DAEMON_COMMIT" in p.stderr, f"unclear refusal message: {p.stderr[-500:]}"
+    refusing = [l for l in p.stderr.splitlines() if "DAEMON_COMMIT" in l][-1].strip()
+    print(f"  Refused at boot: {refusing} ✓")
 
 
 def test_deploy_static():
@@ -1591,6 +1615,7 @@ def main():
         test_dstack_proxy_manager_per_project()
         test_auth()
         test_version()
+        test_boot_refuses_without_commit()
         test_deploy_static()
         test_caps_require_attested()
         test_operator_debug()
