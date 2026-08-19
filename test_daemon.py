@@ -393,6 +393,64 @@ def test_landing_cards():
     print("  Landing cards render correctly ✓")
 
 
+def test_landing_descriptions():
+    """Landing card shows the repo-manifest description as one line (#43).
+
+    A project whose repo-committed project.json carries a "description" gets it
+    rendered under the app name; a project without one renders exactly as before —
+    no empty element, no placeholder. The field also flows to /_api/projects and
+    the root JSON listing.
+    """
+    print("\n--- Test: landing card renders manifest descriptions (#43) ---")
+    desc_text = "A tiny static app used to prove the description line."
+    repo = create_test_repo("card-with-desc", {
+        "index.html": b"<h1>described</h1>",
+        "project.json": json.dumps({"description": desc_text}).encode(),
+    })
+    with_desc = api_post("/projects", json={
+        "name": "card-with-desc", "source": repo, "runtime": "static", "mode": "attested",
+    })
+    assert with_desc.status_code == 201, f"deploy described failed: {with_desc.text}"
+    assert with_desc.json()["description"] == desc_text, "deploy response missing description"
+    plain_repo = create_test_repo("card-no-desc", {"index.html": b"<h1>undescribed</h1>"})
+    no_desc = api_post("/projects", json={
+        "name": "card-no-desc", "source": plain_repo, "runtime": "static", "mode": "attested",
+    })
+    assert no_desc.status_code == 201, f"deploy undescribed failed: {no_desc.text}"
+    assert no_desc.json()["description"] == "", "undescribed deploy should have empty description"
+
+    listing = {p["name"]: p for p in api_get("/projects").json()}
+    assert listing["card-with-desc"]["description"] == desc_text, "/_api/projects missing description"
+    assert listing["card-no-desc"]["description"] == "", "/_api/projects description should be empty"
+    root = requests.get(f"{INGRESS}/", headers={"Accept": "application/json"}).json()
+    assert root["projects"]["card-with-desc"]["description"] == desc_text, "root listing missing description"
+    assert root["projects"]["card-no-desc"]["description"] == "", "root listing description should be empty"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"{INGRESS}/")
+        described = page.locator("#apps .card", has_text="card-with-desc")
+        undescribed = page.locator("#apps .card", has_text="card-no-desc")
+        described.wait_for(timeout=15000)
+        undescribed.wait_for(timeout=15000)
+        assert described.locator(".desc").inner_text() == desc_text, "description line missing"
+        assert described.locator(".card-head + .desc").count() == 1, "description should sit directly under the name"
+        assert undescribed.locator(".desc").count() == 0, "no-description card must render no desc element"
+        shot = os.environ.get("LANDING_DESC_SHOT_DIR")
+        if shot:
+            os.makedirs(shot, exist_ok=True)
+            page.screenshot(path=os.path.join(shot, "01-landing.png"), full_page=True)
+            described.screenshot(path=os.path.join(shot, "02-described-card.png"))
+            undescribed.screenshot(path=os.path.join(shot, "03-undescribed-card.png"))
+            print(f"  screenshots -> {shot}")
+        browser.close()
+
+    api_delete("/projects/card-with-desc")
+    api_delete("/projects/card-no-desc")
+    print("  Landing descriptions render correctly ✓")
+
+
 def test_deploy_deno():
     print("\n--- Test: deploy deno from git with project.json ---")
     repo = create_test_repo("test-deno", {
@@ -1648,6 +1706,7 @@ def main():
         test_env_redaction()
         test_root_listing_layers()
         test_landing_cards()
+        test_landing_descriptions()
         test_rfc0020_bundle()
         test_rfc0020_tamper()
         test_rfc0020_non_anchored()

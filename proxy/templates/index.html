@@ -121,6 +121,7 @@
   .card.override::after { background: linear-gradient(90deg, var(--teal), var(--pink)); }
   .card-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
   .card-head h3 { margin: 0; font-size: 1.02rem; font-weight: 800; word-break: break-all; }
+  .card .desc { margin: .4rem 0 0; color: var(--ink-2); font-size: .88em; }
   .chip { flex: none; font-size: .64rem; font-weight: 800; text-transform: uppercase;
           letter-spacing: .06em; padding: .2rem .42rem; color: #fff; border-radius: 2px; cursor: help; }
   .chip.prod     { background: var(--teal); }
@@ -364,9 +365,12 @@
     const verifyLink = attested
       ? '<a href="' + verifyBase + '?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '" target="_blank">' + verifyText + ' ↗</a>'
       : '';
+    // Manifest blurb (#43): rendered only when present — no description, no element.
+    const desc = p.description ? '<p class="desc">' + esc(p.description) + '</p>' : '';
     return '<article class="card ' + key + '">' +
       '<div class="card-head"><h3>' + esc(name) + '</h3>' +
         '<span class="chip ' + info.chip + '" title="' + esc(info.note) + '">' + esc(attested ? 'attested' : 'dev') + '</span></div>' +
+      desc +
       '<dl class="meta">' +
         '<div><dt>mode</dt><dd>' + esc(p.mode) + '</dd></div>' +
         '<div><dt>source</dt><dd>' + srcLink + '</dd></div>' +

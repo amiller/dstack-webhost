@@ -134,6 +134,7 @@ class Ingress:
                 "runtime": p.runtime, "mode": p.mode, "public": p.public,
                 "source": p.source, "commit_sha": p.commit_sha,
                 "tree_hash": p.tree_hash,
+                "description": p.description,
                 # RFC 0029 layering signal: a measured operator-debug door.
                 # Gated to attested at deploy time, so this only ever appears
                 # on the public-attested surface — its existence is part of the
