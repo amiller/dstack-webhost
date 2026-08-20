@@ -20,17 +20,24 @@ class AuditEntry:
     image: str = ""
     image_digest: str = ""
     detail: str = ""
+    prev_hash: str = ""
+    entry_hash: str = ""
 
 
 class AuditLogManager:
     """Per-project audit log manager with disk persistence."""
 
-    def __init__(self, audit_dir: str):
+    def __init__(self, audit_dir: str, dstack_socket: str | None = None):
         self.audit_dir = audit_dir
+        self.dstack_socket = dstack_socket
+        self.replayed = False
         os.makedirs(audit_dir, exist_ok=True)
 
     def _audit_file(self, project_name: str) -> str:
         return os.path.join(self.audit_dir, f"{project_name}.jsonl")
+
+    def _head_file(self, project_name: str) -> str:
+        return os.path.join(self.audit_dir, f"{project_name}.head")
 
     def _load_entries(self, project_name: str) -> list[AuditEntry]:
         """Load audit entries from disk for a project."""
@@ -40,17 +47,49 @@ class AuditLogManager:
             with open(audit_file, "r") as f:
                 for line in f:
                     if line.strip():
-                        try:
-                            entries.append(AuditEntry(**json.loads(line)))
-                        except Exception as e:
-                            log.warning("Failed to parse audit entry: %s", e)
+                        entry = AuditEntry(**json.loads(line))
+                        expected = self._entry_hash(entry)
+                        if entry.prev_hash != (entries[-1].entry_hash if entries else ""):
+                            raise ValueError(f"Audit chain broken for {project_name}")
+                        if entry.entry_hash != expected:
+                            raise ValueError(f"Audit entry tampered for {project_name}")
+                        entries.append(entry)
+        head_file = self._head_file(project_name)
+        if os.path.exists(head_file):
+            with open(head_file) as f:
+                head = f.read().strip()
+            if head != (entries[-1].entry_hash if entries else ""):
+                raise ValueError(f"Audit ledger truncated for {project_name}")
         return entries
 
-    def _save_entry(self, project_name: str, entry: AuditEntry):
+    @staticmethod
+    def _entry_hash(entry: AuditEntry) -> str:
+        data = asdict(entry)
+        data["entry_hash"] = ""
+        return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def _save_entry(self, project_name: str, entry: AuditEntry) -> AuditEntry:
         """Append an audit entry to disk."""
+        entries = self._load_entries(project_name)
+        entry.prev_hash = entries[-1].entry_hash if entries else ""
+        entry.entry_hash = self._entry_hash(entry)
         audit_file = self._audit_file(project_name)
         with open(audit_file, "a") as f:
             f.write(json.dumps(asdict(entry)) + "\n")
+        with open(self._head_file(project_name), "w") as f:
+            f.write(entry.entry_hash + "\n")
+        return entry
+
+    def set_dstack_socket(self, dstack_socket: str | None):
+        self.dstack_socket = dstack_socket
+
+    async def replay_anchors(self):
+        if not self.dstack_socket:
+            return
+        for project in sorted(name[:-6] for name in os.listdir(self.audit_dir) if name.endswith(".jsonl")):
+            for entry in self._load_entries(project):
+                await AuditLog(project, self)._extend_rtmr(entry)
+        self.replayed = True
 
     def get_audit_log(self, project_name: str) -> "AuditLog":
         """Get an AuditLog instance for a specific project."""
@@ -61,6 +100,9 @@ class AuditLogManager:
         audit_file = self._audit_file(project_name)
         if os.path.exists(audit_file):
             os.remove(audit_file)
+        head_file = self._head_file(project_name)
+        if os.path.exists(head_file):
+            os.remove(head_file)
 
 
 class AuditLog:
@@ -74,7 +116,7 @@ class AuditLog:
 
     async def record(self, entry: AuditEntry):
         """Record an audit entry and extend RTMR if configured."""
-        self.manager._save_entry(self.project_name, entry)
+        entry = self.manager._save_entry(self.project_name, entry)
         log.info("AUDIT %s project=%s container=%s image=%s",
                  entry.action, self.project_name,
                  entry.container_id[:12] if entry.container_id else "-",
@@ -83,23 +125,53 @@ class AuditLog:
 
     async def _extend_rtmr(self, entry: AuditEntry):
         """Extend RTMR with audit entry for attestation."""
-        if not self.dstack_socket:
+        dstack_socket = self.dstack_socket or self.manager.dstack_socket
+        if not dstack_socket:
             return
         payload = json.dumps(asdict(entry), sort_keys=True)
         payload_hex = payload.encode().hex()
         body = {"event": f"tee-proxy:{entry.action}", "payload": payload_hex}
-        try:
-            conn = aiohttp.UnixConnector(path=self.dstack_socket)
-            async with aiohttp.ClientSession(connector=conn) as session:
-                async with session.post("http://localhost/EmitEvent", json=body) as resp:
-                    if resp.status == 200:
-                        log.info("RTMR extended: %s", entry.action)
-                    else:
-                        log.warning("EmitEvent returned %s", resp.status)
-        except Exception as e:
-            log.warning("Failed to extend RTMR: %s", e)
+        conn = aiohttp.UnixConnector(path=dstack_socket)
+        async with aiohttp.ClientSession(connector=conn) as session:
+            async with session.post("http://localhost/EmitEvent", json=body) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"EmitEvent returned {resp.status}")
+                log.info("RTMR extended: %s", entry.action)
 
     def to_json(self) -> list[dict]:
         """Export audit log as JSON."""
         entries = self.manager._load_entries(self.project_name)
         return [asdict(e) for e in entries]
+
+    def history(self, project: object) -> dict:
+        versions = []
+        for entry in self.manager._load_entries(self.project_name):
+            if entry.action not in ("deploy", "promote", "unpromote"):
+                continue
+            detail = json.loads(entry.detail) if entry.detail else {}
+            versions.append({
+                "sequence": len(versions),
+                "timestamp": entry.timestamp,
+                "action": entry.action,
+                "mode": detail.get("to_mode", detail.get("mode", project.mode)),
+                "source": detail.get("source", ""),
+                "ref": detail.get("ref", ""),
+                "commit_sha": detail.get("commit", ""),
+                "tree_hash": detail.get("tree_hash", ""),
+                "image": detail.get("image", entry.image),
+                "image_digest": detail.get("image_digest", entry.image_digest),
+                "current": (
+                    detail.get("commit", "") == project.commit_sha
+                    and detail.get("tree_hash", "") == project.tree_hash
+                    and detail.get("image_digest", entry.image_digest) == project.image_digest
+                    and detail.get("to_mode", detail.get("mode", project.mode)) == project.mode
+                ),
+                "entry_hash": entry.entry_hash,
+            })
+        return {
+            "project": self.project_name,
+            "tamper_evident": True,
+            "anchor_status": "rtmr" if self.manager.dstack_socket else "unavailable",
+            "attestation_replayed": self.manager.replayed,
+            "versions": versions,
+        }

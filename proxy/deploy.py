@@ -489,6 +489,7 @@ async def _deploy_image(store: ProjectStore, docker: DockerClient,
         detail=json.dumps({"name": name, "image": image, "image_port": image_port,
                            "image_digest": digest, "commit": manifest.get("commit_sha", ""),
                            "tree_hash": manifest.get("tree_hash", ""),
+                           "mode": mode,
                            "cap_add": cap_add, "devices": devices,
                            "operator_debug": operator_debug})))
 
@@ -597,6 +598,39 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
     log.info("Promoted %s to attested mode (commit: %s, tree_hash: %s, kind: %s)",
              name, project.commit_sha[:12], project.tree_hash[:12],
              project.attestation_kind or "none")
+    return project
+
+
+async def unpromote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
+                    name: str) -> Project:
+    """Return an attested project to dev mode and record the trust transition."""
+    project = store.load(name)
+    if project.mode != "attested":
+        raise ValueError(f"Project {name} is already in dev mode")
+
+    project.mode = "dev"
+    store.save(project)
+
+    audit = audit_manager.get_audit_log(name)
+    await audit.record(AuditEntry(
+        timestamp=time.time(),
+        action="unpromote",
+        detail=json.dumps({
+            "name": name,
+            "from_mode": "attested",
+            "to_mode": "dev",
+            "source": project.source,
+            "ref": project.ref,
+            "commit": project.commit_sha,
+            "tree_hash": project.tree_hash,
+            "image_digest": project.image_digest,
+        }),
+        image=project.image_digest,
+        image_digest=project.image_digest,
+    ))
+
+    if project.runtime not in ("static", "dockerfile"):
+        await rtm.refresh(project.runtime)
     return project
 
 

@@ -19,7 +19,7 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
-from .deploy import deploy, teardown, promote, import_bundle
+from .deploy import deploy, teardown, promote, unpromote, import_bundle
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
@@ -544,6 +544,8 @@ class Ingress:
             return parts[1]
         if len(parts) == 3 and parts[0] == "projects" and parts[1] and parts[2] == "audit":
             return parts[1]
+        if len(parts) == 3 and parts[0] == "projects" and parts[1] and parts[2] == "history":
+            return parts[1]
         return None
 
     async def _handle_api(self, request: web.Request, path: str) -> web.Response:
@@ -586,6 +588,8 @@ class Ingress:
                         resp = await self._api_verification(request, public_name)
                     elif path.endswith("/audit"):
                         resp = await self._api_audit(public_name)
+                    elif path.endswith("/history"):
+                        resp = await self._api_history(public_name)
                     else:
                         resp = await self._api_status(public_name)
                     resp.headers["Access-Control-Allow-Origin"] = "*"
@@ -660,8 +664,12 @@ class Ingress:
                 return await self._api_redeploy(name)
             if method == "POST" and rest == "promote":
                 return await self._api_promote(name)
+            if method == "POST" and rest == "unpromote":
+                return await self._api_unpromote(name)
             if method == "GET" and rest == "audit":
                 return await self._api_audit(name)
+            if method == "GET" and rest == "history":
+                return await self._api_history(name)
 
         if path.startswith("attest/"):
             name = path.split("/")[1]
@@ -835,6 +843,13 @@ class Ingress:
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
 
+    async def _api_unpromote(self, name: str) -> web.Response:
+        try:
+            project = await unpromote(self.store, self.audit_manager, self.rtm, name)
+            return web.json_response(_redact_env(asdict(project)))
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
     async def _api_audit(self, name: str) -> web.Response:
         """Get audit log for a specific project."""
         try:
@@ -843,6 +858,14 @@ class Ingress:
                 return web.json_response({"error": "project not attested"}, status=400)
             audit = self.audit_manager.get_audit_log(name)
             return web.json_response(audit.to_json())
+        except FileNotFoundError:
+            return web.json_response({"error": "project not found"}, status=404)
+
+    async def _api_history(self, name: str) -> web.Response:
+        try:
+            project = self.store.load(name)
+            audit = self.audit_manager.get_audit_log(name)
+            return web.json_response(audit.history(project))
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
 
