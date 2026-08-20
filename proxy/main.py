@@ -78,7 +78,7 @@ async def start():
     deploy_mod.DSTACK_SOCK = dstack_sock
 
     tracker = ContainerTracker()
-    audit_manager = AuditLogManager(AUDIT_DIR)
+    audit_manager = AuditLogManager(AUDIT_DIR, dstack_sock)
     docker = DockerClient(DOCKER_SOCK)
     store = ProjectStore(DATA_DIR)
     rtm = RuntimeManager(docker, store, tracker, audit_manager)
@@ -148,6 +148,8 @@ async def start():
                      os.environ["BROKER_HOST_PATH"])
     else:
         log.warning("dstack socket not found — dstack proxy + broker disabled")
+
+    await audit_manager.replay_anchors()
 
     # Recovery: restore shared runtimes for existing projects
     await rtm.recover_all()
