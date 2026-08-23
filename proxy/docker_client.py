@@ -126,6 +126,15 @@ class DockerClient:
         if status >= 400 and b"already exists" not in data:
             raise RuntimeError(f"connect_network failed ({status}): {data!r}")
 
+    async def disconnect_network(self, container: str, network: str):
+        """Detach; the daemon joins every project network, and a network it is still on
+        cannot be removed. Not-found either way is the desired end state, not an error."""
+        status, data = await self._raw_request(
+            "POST", f"/networks/{network}/disconnect",
+            json={"Container": container, "Force": True})
+        if status >= 400 and status != 404 and b"not found" not in data.lower():
+            raise RuntimeError(f"disconnect_network failed ({status}): {data!r}")
+
     async def run_build(self, image: str, cmd: list[str], binds: list[str]) -> tuple[int, str]:
         body = {"Image": image, "Cmd": cmd, "HostConfig": {"Binds": binds}}
         status, data = await self._json_request("POST", "/containers/create", json=body)
@@ -145,6 +154,34 @@ class DockerClient:
             "POST", "/networks/create", json={"Name": name, "Driver": "bridge"})
         if status not in (201, 409):
             raise RuntimeError(f"create_network failed ({status}): {data}")
+
+    async def remove_network(self, name: str) -> bool:
+        """Remove a network. True if it went away, False if Docker still wants it.
+
+        404 counts as success — the goal is that it is gone. 403/409 mean containers
+        are still attached, which is a live tenant and not ours to disturb."""
+        status, data = await self._json_request("DELETE", f"/networks/{name}")
+        if status in (204, 404):
+            return True
+        if status in (403, 409):
+            return False
+        raise RuntimeError(f"remove_network failed ({status}): {data}")
+
+    async def list_networks(self, prefix: str) -> list[str]:
+        status, data = await self._json_request("GET", "/networks")
+        if status >= 400:
+            raise RuntimeError(f"list_networks failed ({status}): {data}")
+        return [n["Name"] for n in data if n.get("Name", "").startswith(prefix)]
+
+    async def network_is_empty(self, name: str) -> bool:
+        """No containers attached. /networks/<name> populates Containers; the list
+        endpoint does not, which is why this is a second call per candidate."""
+        status, data = await self._json_request("GET", f"/networks/{name}")
+        if status == 404:
+            return False
+        if status >= 400:
+            raise RuntimeError(f"inspect network failed ({status}): {data}")
+        return not (data.get("Containers") or {})
 
     async def ensure_volume(self, name: str):
         """Idempotent volume create — Docker returns 201 with existing data if it exists."""

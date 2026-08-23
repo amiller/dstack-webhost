@@ -64,6 +64,13 @@ async def start():
     await docker_proxy.recover_tracked()
     log.info("Recovered %d tracked containers", len(tracker.all_ids()))
 
+    # Hand back address space from projects that no longer exist. Networks outlive the
+    # containers that used them, so a daemon that has deployed more projects than the
+    # pool has subnets will fail to start any new tenant — with a create_network 404
+    # that names an address pool and not the reason. Skips anything still in use.
+    reclaimed = await rtm.reclaim_orphan_networks()
+    log.info("Startup network reclaim released %d subnet(s)", reclaimed)
+
     # Connect ourselves to runtime networks so we can proxy to runtime containers
     hostname = os.environ.get("HOSTNAME", "")
     if hostname:
