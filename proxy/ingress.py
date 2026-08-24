@@ -70,6 +70,19 @@ MIME_TYPES = {
 }
 
 
+def _network_isolation(runtime: str, available: dict) -> str:
+    """How tenant network syscalls are mediated: "host" (passthrough to the
+    container netns/host kernel stack), "sandbox" (gVisor netstack), "netns"
+    (kernel netns + Docker bridge, runc-family). Derived from Docker's own
+    runtime registration — a name like runsc-hostnet doesn't say it alone."""
+    entry = available.get(runtime) or {}
+    if any(a.startswith("--network=host") for a in entry.get("runtimeArgs") or []):
+        return "host"
+    if runtime.startswith("runsc"):
+        return "sandbox"
+    return "netns"
+
+
 class Ingress:
     def __init__(self, store: ProjectStore, docker: DockerClient,
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
@@ -513,13 +526,16 @@ class Ingress:
             return web.json_response({"error": "invalid token or scope"}, status=403)
         return None
 
-    def _substrate_info(self) -> dict:
+    async def _substrate_info(self) -> dict:
         rt = runtimes_mod.CONTAINER_RUNTIME
+        available = (await self.docker.info()).get("Runtimes") or {}
         shim_sha = hashlib.sha256(
             runtimes_mod._ENTRY_SHIM_DENO.encode()).hexdigest()
         return {
             "container_runtime": rt,
             "effective_runtime": rt or "runc",
+            "available_runtimes": sorted(available),
+            "network_isolation": _network_isolation(rt or "runc", available),
             "isolation_modes": ["shared", "container"],
             "deno_entry_shim_sha256": shim_sha,
             "networks": [runtimes_mod.NETWORK_DEV, runtimes_mod.NETWORK_ATTESTED],
@@ -568,7 +584,7 @@ class Ingress:
             return resp
 
         if method == "GET" and path == "substrate":
-            resp = web.json_response(self._substrate_info())
+            resp = web.json_response(await self._substrate_info())
             resp.headers["Access-Control-Allow-Origin"] = "*"
             return resp
 

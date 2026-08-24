@@ -80,6 +80,12 @@ class DockerClient:
     async def remove(self, cid: str, force: bool = True):
         await self._raw_request("DELETE", f"/containers/{cid}?force={'true' if force else 'false'}")
 
+    async def info(self) -> dict:
+        status, data = await self._json_request("GET", "/info")
+        if status >= 400:
+            raise RuntimeError(f"info failed ({status}): {data}")
+        return data
+
     async def inspect(self, cid: str) -> dict:
         status, data = await self._json_request("GET", f"/containers/{cid}/json")
         if status >= 400:
