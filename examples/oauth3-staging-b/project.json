@@ -1,0 +1,18 @@
+{
+  "name": "oauth3b",
+  "runtime": "deno",
+  "entry": "handler.ts",
+  "isolation": "container",
+  "mode": "attested",
+  "env": {
+    "POLL_INTERVAL_MIN": "30"
+  },
+  "env_passthrough": [
+    "OAUTH3_OWNER_SECRET",
+    "BROWSER_SPI_URL",
+    "BROWSER_SPI_SECRET"
+  ],
+  "dstack_env": {
+    "SEAL_KEY": "seal"
+  }
+}

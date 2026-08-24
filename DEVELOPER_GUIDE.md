@@ -133,7 +133,7 @@ Public (no auth required), only for **attested** projects:
 | | |
 |---|---|
 | `GET /` | Listing of attested projects. `Accept: text/html` returns the daemon's viewer page; `Accept: application/json` returns JSON. |
-| `GET /_api/substrate` | The substrate's runtime configuration: effective OCI runtime (e.g. `sysbox-runc`), supported isolation modes, deno entry-shim hash. Lets a relying party verify what's mediating tenant syscalls. |
+| `GET /_api/substrate` | The substrate's runtime configuration: effective OCI runtime (e.g. `sysbox-runc`), the runtimes Docker actually has (live `GET /info`), network-isolation posture (`host`/`sandbox`/`netns`), supported isolation modes, deno entry-shim hash. Lets a relying party verify what's mediating tenant syscalls — and see a configured/available mismatch rather than trust a name. |
 | `GET /_api/projects/<name>` | Project manifest. |
 | `GET /_api/projects/<name>/audit` | Audit log. |
 | `GET /_api/attest/<name>` | Raw dstack quote. |

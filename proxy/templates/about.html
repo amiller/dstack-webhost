@@ -31,7 +31,7 @@
   <div class="wrap">
     <h1>About tee-daemon</h1>
     <p>A personal Vercel for attestable web apps, served from inside this CVM.</p>
-    <p style="margin-top:0.5rem;font-size:0.9rem;opacity:0.85">This instance is operated by <strong>Andrew Miller</strong>. It's a personal deployment, not a service — the trust story is in the attestation, not the operator. The same daemon is open source, so you can run your own (see below).</p>
+    <p style="margin-top:0.5rem;font-size:0.9rem;opacity:0.85">This instance is operated by <strong>Andrew Miller</strong>. It's a personal deployment, not a service — the trust story is in the attestation, not the operator. On this CVM the measurement is operator-anchored (Phala's <code>pha</code> namespace, no on-chain KMS contract); the fully contract-anchored chain is the base-KMS deployment. The daemon is open source, so you can run your own (see below).</p>
   </div>
 </header>
 <main>
@@ -47,6 +47,11 @@
     <p><strong>Dev</strong> is for iteration. Push code, test, change it, throw it away. No audit log, no public verifier; trust is whatever you'd get on Vercel. Dev projects are private by default but can be made public for low-stakes sharing.</p>
     <p><strong>Attested</strong> is the trust claim. The daemon records the source hash, opens an audit log, binds the hash into the TEE quote, and exposes the verifier endpoints to anonymous callers. Attested projects are public by default—their whole point is verifiable sharing.</p>
     <p>A single CVM holds as many of each as you like. Dev projects stay private by default; promote to public-dev for sharing without attestation, or to attested when you need a verifiable claim.</p>
+  </section>
+
+  <section class="card-list">
+    <h2>Worked example: isolation probe</h2>
+    <p>The <a href="/isolation-probe/">isolation probe</a> is the canonical relying-party walkthrough: it exposes its own <code>/proc</code> namespace evidence, compares it with the substrate's claimed OCI runtime, and links to the source, commit, tree hash, and verifier bundle.</p>
   </section>
 
   <section class="card-list">

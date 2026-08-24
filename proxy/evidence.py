@@ -1,23 +1,33 @@
 """RFC 0020: Machine-Verifiable Attestation Evidence for App Consumers.
 
-This module defines the versioned evidence bundle schema and the verify()
-facts library.
+The versioned bundle wire-schema (``EvidenceBundle`` and the ``*Info``
+dataclasses) is defined ONCE in :mod:`verify.bundle` and shared with the
+consumer library, so producer and consumer cannot drift apart. This module
+holds the daemon-side helpers: ``fetch_bundle`` and a flat ``VerificationFacts``
+consumer used by the daemon's own test suite. The canonical, richer consumer
+result type is :class:`verify.Facts`.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-from dataclasses import dataclass, asdict, field
-from typing import Any, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Optional
 
 import aiohttp
 
-log = logging.getLogger(__name__)
+from verify.bundle import (
+    SCHEMA_VERSION,
+    AppInfo,
+    EvidenceBundle,
+    GatewayInfo,
+    OnchainInfo,
+    OperatorDebugInfo,
+    SourceInfo,
+)
 
-# Current schema version - increment when structure changes
-SCHEMA_VERSION = "1.0.0"
+log = logging.getLogger(__name__)
 
 # RFC 0027: domain separator for the per-app binding report_data preimage.
 APP_ATTEST_DOMAIN = b"tee-daemon/app-attest/v1"
@@ -26,97 +36,23 @@ REPORT_DATA_OFFSET = 568
 
 
 @dataclass
-class OnchainInfo:
-    """On-chain contract addresses and allowed values."""
-    chain_id: int = 0  # 0 for non-anchored (e.g., pha-prod7), real chain ID for base-prod
-    kms_contract: str = ""  # KMS contract address (empty for non-anchored)
-    dstackapp: str = ""  # DstackApp contract address (empty for non-anchored)
-    allowed_compose_hash: str = ""  # Expected compose hash from DstackApp
-    allowed_os_image: str = ""  # Expected OS image hash
-
-
-@dataclass
-class GatewayInfo:
-    """Gateway attestation reference."""
-    domain: str = ""
-    app_id: str = ""
-    zt_cert_ref: str = ""  # Reference to gateway's ZeroTrust cert quote
-
-
-@dataclass
-class SourceInfo:
-    """Source code information."""
-    repo: str = ""
-    ref: str = ""  # branch or tag
-    commit_sha: str = ""
-    tree_hash: str = ""  # Git tree SHA for git repos, sha256(tree) for tarballs
-    tree_hash_kind: str = "git"  # "git" or "sha256" - distinguishes git tree vs tarball hash
-
-
-@dataclass
-class AppInfo:
-    """App-specific information."""
-    project: str = ""
-    source: SourceInfo = field(default_factory=SourceInfo)
-    image_digest: str = ""
-    binding_quote: dict = field(default_factory=dict)  # KMS GetKey result (signature_chain rooting app_pubkey)
-    binding: dict = field(default_factory=dict)  # RFC 0027 report-data-quote binding block
-
-
-@dataclass
-class EvidenceBundle:
-    """RFC 0020 Evidence Bundle - versioned schema for attestation evidence.
-
-    Schema:
-    {
-        schema_version: str,
-        platform_quote: dict,  // TDX GetQuote response
-        webhost_app_id: str,  // Our app_id on the platform
-        onchain: OnchainInfo,
-        gateway: GatewayInfo,
-        app: AppInfo
-    }
-    """
-    schema_version: str = SCHEMA_VERSION
-    platform_quote: dict = field(default_factory=dict)
-    webhost_app_id: str = ""
-    attestation_kind: str = ""  # RFC 0027: "daemon-vouched" | "app-cvm" ("" = no per-app binding)
-    onchain: OnchainInfo = field(default_factory=OnchainInfo)
-    gateway: GatewayInfo = field(default_factory=GatewayInfo)
-    app: AppInfo = field(default_factory=AppInfo)
-
-    def to_dict(self) -> dict:
-        """Convert to JSON-serializable dict."""
-        return {
-            "schema_version": self.schema_version,
-            "platform_quote": self.platform_quote,
-            "webhost_app_id": self.webhost_app_id,
-            "attestation_kind": self.attestation_kind,
-            "onchain": asdict(self.onchain),
-            "gateway": asdict(self.gateway),
-            "app": {
-                **asdict(self.app),
-                "source": asdict(self.app.source),
-            },
-        }
-
-
-@dataclass
 class VerificationFacts:
-    """Result of verify() - structured facts with NO verdict.
+    """Flat result of the daemon-side verify() - structured facts with NO verdict.
 
-    Per RFC 0020: The library returns facts, not accept/reject. Policy lives
-    in the consumer. Errors go in errors[], never thrown.
+    Kept for the daemon's own test suite (``test_daemon.py``), which asserts on
+    its scalar fields (``quote_valid``, ``onchain_approved``, ``kms_root``,
+    ``gateway_attested``). The canonical, richer consumer result type is
+    :class:`verify.Facts`.
 
     Schema:
     {
-        quote_valid: bool,  // TDX quote verified via DCAP/QVL
-        kms_root: bool,  // Quote rooted in KMS
-        webhost_app_id: str,  // App ID from platform
-        onchain_approved: bool,  // DstackApp allowlist check (false for chain_id 0)
-        gateway_attested: bool,  // Gateway zt-cert verified
+        quote_valid: bool,  # TDX quote verified via DCAP/QVL
+        kms_root: bool,  # Quote rooted in KMS
+        webhost_app_id: str,  # App ID from platform
+        onchain_approved: bool,  # DstackApp allowlist check (false for chain_id 0)
+        gateway_attested: bool,  # Gateway zt-cert verified
         source: SourceInfo,
-        errors: list[str]  // All problems, never thrown
+        errors: list[str]  # All problems, never thrown
     }
     """
     quote_valid: bool = False
@@ -162,21 +98,7 @@ async def fetch_bundle(endpoint: str, name: str, session: aiohttp.ClientSession)
                 log.warning("Failed to fetch bundle from %s: status %s", url, resp.status)
                 return None
             data = await resp.json()
-            return EvidenceBundle(
-                schema_version=data.get("schema_version", SCHEMA_VERSION),
-                platform_quote=data.get("platform_quote", {}),
-                webhost_app_id=data.get("webhost_app_id", ""),
-                attestation_kind=data.get("attestation_kind", ""),
-                onchain=OnchainInfo(**data.get("onchain", {})),
-                gateway=GatewayInfo(**data.get("gateway", {})),
-                app=AppInfo(
-                    project=data.get("app", {}).get("project", ""),
-                    source=SourceInfo(**data.get("app", {}).get("source", {})),
-                    image_digest=data.get("app", {}).get("image_digest", ""),
-                    binding_quote=data.get("app", {}).get("binding_quote", {}),
-                    binding=data.get("app", {}).get("binding", {}),
-                ),
-            )
+            return EvidenceBundle.from_dict(data)
     except Exception as e:
         log.warning("Failed to fetch bundle: %s", e)
         return None

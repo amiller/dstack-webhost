@@ -14,6 +14,17 @@ class ListenConfig:
     protocol: str = "http"
 
 
+# RFC 0017 export projection: the pin + redeploy manifest for one project.
+# Deliberately an allowlist — raw env secrets never enter an export bundle
+# (secret continuity is the credential broker's job, RFC 0018).
+EXPORT_FIELDS = (
+    "source", "ref", "commit_sha", "tree_hash", "image", "image_digest",
+    "image_port", "runtime", "entry", "port", "mode", "volumes",
+    "isolation", "listen", "public", "env_passthrough", "oci_runtime",
+    "cap_add", "devices", "operator_debug",
+)
+
+
 @dataclass
 class Project:
     name: str
@@ -28,6 +39,7 @@ class Project:
     image_digest: str = ""
     source: str = ""
     ref: str = ""
+    description: str = ""  # one-line blurb from the repo-committed manifest; shown on the landing card (#43)
     commit_sha: str = ""
     tree_hash: str = ""
     listen: Optional[ListenConfig] = None
@@ -36,6 +48,7 @@ class Project:
     volumes: List[dict] = field(default_factory=list)
     isolation: str = "shared"
     env_passthrough: List[str] = field(default_factory=list)
+    dstack_env: dict = field(default_factory=dict)
     oci_runtime: str = ""  # per-project OCI runtime, e.g. "runsc" (gVisor); falls back to CONTAINER_RUNTIME
     # Elevated container capabilities — honored ONLY for mode=="attested" projects (see
     # deploy gate), so the grant is always on the verifiable attested surface. Used e.g.
@@ -44,7 +57,20 @@ class Project:
     devices: List[str] = field(default_factory=list)
     egress: bool = False           # route this project's outbound through the shared VPN egress network
     egress_provider: bool = False  # this project PROVIDES the egress (the VPN); joins tee-egress as alias "egress-vpn"
-    binding: dict = field(default_factory=dict)  # RFC 0027 per-app binding block (built at promote)
+    # RFC 0029: a declared, measured operator-debug door (full trust, audited). Honored
+    # ONLY for mode=="attested" (see deploy gate), so the door is always on the verifiable
+    # surface — its existence is part of the measurement, never a hidden side channel.
+    operator_debug: bool = False
+    # RFC 0027 per-app binding block, built at promote by deploy.build_app_binding: carries
+    # the quote, the report_data and the preimage that produced it. Supersedes the flat
+    # RFC 0025 fields (app_id/app_pubkey/binding_quote/report_data/attestation_kind), which
+    # were set at promote and never read back.
+    binding: dict = field(default_factory=dict)
+
+    def export_dict(self) -> dict:
+        """RFC 0017 pin projection — every EXPORT_FIELDS key, never env."""
+        d = asdict(self)
+        return {"name": self.name, **{f: d[f] for f in EXPORT_FIELDS}}
 
     def __post_init__(self):
         if self.env is None:

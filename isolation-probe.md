@@ -159,18 +159,22 @@ The takeaway is the same in all cases: the leak is in code that looks correct to
 
 A follow-up demo with one of the above (probably textbook RSA — Hamming-weight recovery is the cleanest concrete signal to land in a docs page) is on the list. The current vault is the warmup that establishes the class.
 
-## Known limitation: gVisor + Docker embedded DNS
+## gVisor + Docker embedded DNS
 
-When the substrate runs under `runsc`, tenants that need outbound DNS resolution can hit a real interaction bug between gVisor's sandbox network stack and Docker's embedded DNS resolver at `127.0.0.11`. Docker forces `nameserver 127.0.0.11` into `/etc/resolv.conf` for any container on a user-defined bridge network (which is most of them, including the per-project `tee-proj-<name>-<mode>` networks the substrate creates). gVisor's own netstack doesn't route to that address. Result: DNS lookups return "Connection refused" even though the host's actual resolver is reachable.
+When a tenant runs under plain `runsc`, outbound DNS resolution hits a real interaction bug between gVisor's sandbox netstack and Docker's embedded DNS resolver at `127.0.0.11`. Docker forces `nameserver 127.0.0.11` into `/etc/resolv.conf` for any container on a user-defined bridge network (which is most of them, including the per-project `tee-proj-<name>-<mode>` networks the substrate creates). gVisor's own netstack doesn't route to that address. Result: DNS lookups return "Connection refused" even though the host's actual resolver is reachable.
 
-`HostConfig.Dns` (the compose `dns:` field) does not fix this — it only changes the upstream resolvers Docker's embedded DNS forwards to, not the embedded DNS address Docker writes into `/etc/resolv.conf`. Workarounds for affected tenants:
+`HostConfig.Dns` (the compose `dns:` field) does not fix this — it only changes the upstream resolvers Docker's embedded DNS forwards to, not the embedded DNS address Docker writes into `/etc/resolv.conf`.
 
-- Bake static IPs or known hosts into the application image instead of relying on DNS.
-- Use the application's own DNS-over-HTTPS resolver (bypasses the OS resolver entirely).
-- Run the tenant as `runtime: runc` (loses gVisor's protection but DNS works).
-- Pull the tenant out of the user-defined bridge entirely — daemon-side substrate change, not yet implemented.
+The substrate's answer is a second runtime, so no tenant has to choose between gVisor and DNS:
 
-This affected hermes during the live runsc migration on hermes-staging; hermes is currently kept on `runc` for that reason. The isolation-probe doesn't make outbound network calls so it's not affected.
+- **`runsc-hostnet`** — the [prelaunch](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch) registers a second runtime, `runsc --network=host`. Network syscalls pass through to the container's own netns, so `127.0.0.11`, embedded DNS and container-name discovery behave exactly as under runc, while Sentry still mediates every other syscall. The trade is explicit, not hidden: netstack isolation is given up — network syscalls reach the host kernel again. `/_api/substrate` reports this as `"network_isolation": "host"` (vs `"sandbox"` for plain runsc, `"netns"` for runc-family).
+
+Plain `runsc` is unchanged: name resolution on a per-project bridge is still broken. `docker_client.py`
+sets an explicit `HostConfig.Dns` for runsc tenants (#108), but that only changes what the embedded
+resolver forwards to — on a user-defined network Docker still writes `127.0.0.11`, so it buys nothing
+there. A tenant that needs netstack isolation *and* DNS has no answer in this substrate today.
+
+`/_api/substrate` reports `available_runtimes` read live from Docker's `GET /info`, and the daemon refuses to start when `DAEMON_CONTAINER_RUNTIME` names a runtime Docker does not have — the substrate's runtime claim cannot silently drift from what the host actually runs.
 
 ## Open attack surface
 

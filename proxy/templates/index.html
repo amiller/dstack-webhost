@@ -5,90 +5,450 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tee-daemon</title>
 <style>
-  :root { color-scheme: light; }
+  :root {
+    color-scheme: light;
+    /* Watermelon constructivist-overprint kit — same system as the oauth3 app. */
+    --paper:  #f4efe3;   /* warm cream */
+    --card:   #fffdf7;
+    --ink:    #16181d;
+    --ink-2:  #595e66;   /* muted */
+    --line:   #d8d1bf;
+    --teal:   #00838a;   /* rind — attested prod */
+    --pink:   #ff48b0;   /* flesh — private/dev */
+    --blend:  #6a1450;   /* teal × pink overprint — operator override */
+    --teal-soft: #e4efef;
+    --pink-soft: #fde8f4;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color: #0f1419; background: #f1f4f8; line-height: 1.55; }
-  .header { background: #0d1b2e; background-image: linear-gradient(rgba(31,111,235,0.10) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.10) 1px, transparent 1px); background-size: 32px 32px; color: #fff; padding: 2.25rem 1.5rem; }
-  .header .wrap { max-width: 56rem; margin: 0 auto; }
-  .header h1 { margin: 0 0 0.4rem; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.015em; }
-  .header p { margin: 0; opacity: 0.85; font-size: 0.95rem; }
-  .header a { color: #8ab4f8; text-decoration: none; }
-  .header a:hover { text-decoration: underline; }
-  main { max-width: 56rem; margin: 1.5rem auto 3rem; padding: 0 1.5rem; }
-  .card-list { background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; padding: 1.25rem; box-shadow: 0 2px 12px rgba(13,27,46,0.04); }
-  h2 { font-size: 1.15rem; margin: 0 0 1rem; font-weight: 600; }
-  .grid { display: grid; gap: 0.85rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-  .card { padding: 0.95rem 1.05rem; border: 1px solid #e1e4e8; border-radius: 8px; background: #fafbfc; }
-  .card h3 { margin: 0 0 0.35rem; font-size: 1rem; font-weight: 600; }
-  .card .meta { color: #57606a; font-size: 0.82em; word-break: break-all; }
-  .card .links { margin-top: 0.6rem; display: flex; gap: 0.85rem; flex-wrap: wrap; font-size: 0.88em; }
-  .card .links a { color: #1f6feb; text-decoration: none; }
-  .card .links a:hover { text-decoration: underline; }
-  .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; font-weight: 500; margin-left: 6px; }
-  .badge.attested { background: #1a7f37; color: #fff; }
-  .badge.dev-public { background: #cf222e; color: #fff; }
-  .muted { color: #57606a; font-size: 0.95em; }
-  .err { color: #cf222e; font-size: 0.95em; }
-  .footer { max-width: 56rem; margin: 0 auto; padding: 0 1.5rem 2rem; color: #57606a; font-size: 0.85em; }
-  .footer a { color: #1f6feb; text-decoration: none; }
+  html, body { background: var(--paper); }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+         color: var(--ink); line-height: 1.55; }
+
+  /* ── Masthead with constructivist overprint ─────────────────────────── */
+  .masthead { position: relative; overflow: hidden; background: var(--paper);
+              border-bottom: 3px solid var(--ink); }
+  .overprint { position: absolute; inset: 0; isolation: isolate; }
+  .overprint .shape { position: absolute; mix-blend-mode: multiply; }
+  .overprint .circle { width: 22rem; height: 22rem; right: -6rem; top: -9rem;
+                       border-radius: 50%; background: var(--teal); opacity: .82; }
+  .overprint .bar { width: 120%; height: 2.1rem; left: -10%; top: 3.1rem;
+                    transform: rotate(-4deg); background: var(--pink); opacity: .85; }
+  .overprint .bar2 { width: 120%; height: .9rem; left: -10%; bottom: 1.4rem;
+                     transform: rotate(2.5deg); background: var(--teal); opacity: .7; }
+  .overprint .diag { width: 14rem; height: 14rem; right: 9rem; bottom: -7rem;
+                     background: var(--pink); opacity: .55;
+                     transform: rotate(45deg); }
+  .mast-wrap { position: relative; max-width: 58rem; margin: 0 auto;
+               padding: 2.4rem 1.5rem 2rem; }
+  .kicker { font-size: .78rem; font-weight: 700; letter-spacing: .22em;
+            text-transform: uppercase; color: var(--teal); margin: 0 0 .35rem; }
+  .masthead h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 3.4rem); font-weight: 900;
+                 letter-spacing: -.03em; line-height: .95; }
+  .masthead p { margin: .7rem 0 0; max-width: 42rem; color: var(--ink-2); font-size: 1rem; }
+  .masthead a { color: var(--teal); text-decoration: none; font-weight: 600; }
+  .masthead a:hover { text-decoration: underline; }
+
+  /* ── Layout ─────────────────────────────────────────────────────────── */
+  main { max-width: 58rem; margin: 1.5rem auto 3rem; padding: 0 1.5rem; }
+  section + section { margin-top: 1.75rem; }
+  h2 { font-size: 1.05rem; margin: 0 0 .35rem; font-weight: 800;
+       letter-spacing: -.01em; text-transform: uppercase; }
+  .sub { color: var(--ink-2); font-size: .92em; margin: 0 0 1rem; }
+  .muted { color: var(--ink-2); }
+  .err { color: #b3143b; }
+
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 4px;
+           padding: 1.25rem 1.3rem; box-shadow: 0 2px 14px rgba(20,24,29,.05); }
+
+  /* owner status bar */
+  .owner-status { font-size: .9em; margin: 0 0 1rem; }
+  .owner-status.authed { color: var(--teal); font-weight: 600; }
+  .owner-status.rejected { color: #9a6700; }
+  .owner-status button, .pointer button, .mast-login {
+    font: inherit; cursor: pointer; border: none; background: none; color: var(--teal);
+    text-decoration: underline; padding: 0; }
+  .mast-login { display: inline-block; margin-top: .55rem; font-weight: 700; }
+
+  /* ── Hero trust chain ──────────────────────────────────────────────── */
+  .chain { display: grid; gap: 0; }
+  .step { display: grid; grid-template-columns: 2.2rem 1fr; gap: .85rem;
+          padding: .75rem 0; border-top: 1px solid var(--line); }
+  .step:first-child { border-top: none; }
+  .step-n { width: 2.2rem; height: 2.2rem; background: var(--ink); color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; font-size: .95rem; }
+  .step.ok .step-n { background: var(--teal); }
+  .step.fail .step-n { background: #b3143b; }
+  .step-label { font-size: .74rem; color: var(--ink-2); text-transform: uppercase;
+                letter-spacing: .12em; font-weight: 700; }
+  .step-val { font-size: .98em; margin-top: 2px; word-break: break-all; }
+  .step-val a { color: var(--teal); text-decoration: none; font-weight: 600; }
+  .step-val a:hover { text-decoration: underline; }
+  .step-val .val { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+  .step-val .hint { display: block; color: var(--ink-2); font-size: .82em; margin-top: 2px; }
+  .step-val code { background: var(--teal-soft); padding: 1px 5px; border-radius: 2px; font-size: .92em; }
+  .step-val .fail { color: #b3143b; font-weight: 700; }
+  .help { cursor: help; border-bottom: 1px dotted var(--ink-2); }
+  .trust { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line);
+           font-size: .92em; color: var(--ink); }
+  .trust code { background: var(--teal-soft); padding: 1px 5px; border-radius: 2px; }
+
+  /* ── Layer sections ────────────────────────────────────────────────── */
+  .layer { position: relative; background: var(--card); border: 1px solid var(--line);
+           border-left: none; border-radius: 0 4px 4px 0; padding: 1.1rem 1.3rem 1.3rem;
+           box-shadow: 0 2px 14px rgba(20,24,29,.05); }
+  .layer::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 8px; }
+  .layer.prod::before     { background: var(--teal); }
+  .layer.dev::before      { background: var(--pink); }
+  .layer.override::before { background: linear-gradient(180deg, var(--teal) 0 50%, var(--pink) 50% 100%); }
+  .layer-head { display: flex; align-items: baseline; gap: .65rem; flex-wrap: wrap;
+                margin-bottom: .9rem; }
+  .layer-tag { font-weight: 900; font-size: .92rem; text-transform: uppercase;
+               letter-spacing: .04em; padding: .18rem .5rem; color: #fff; border-radius: 2px; }
+  .layer.prod .layer-tag     { background: var(--teal); }
+  .layer.dev .layer-tag      { background: var(--pink); }
+  .layer.override .layer-tag { background: var(--blend); }
+  .layer-count { font-size: .8rem; color: var(--ink-2); font-weight: 700; }
+  .layer-note  { flex-basis: 100%; font-size: .86em; color: var(--ink-2); margin: .15rem 0 0; }
+  .layer-note a { color: var(--teal); }
+
+  .grid { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .card { position: relative; padding: .95rem 1rem 1rem; border: 1px solid var(--line);
+          background: #fffdf8; border-radius: 3px; display: flex; flex-direction: column; }
+  .card::after { content: ""; position: absolute; left: -1px; right: -1px; top: -1px; height: 3px; border-radius: 3px 3px 0 0; }
+  .card.prod::after     { background: var(--teal); }
+  .card.dev::after      { background: var(--pink); }
+  .card.override::after { background: linear-gradient(90deg, var(--teal), var(--pink)); }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+  .card-head h3 { margin: 0; font-size: 1.02rem; font-weight: 800; word-break: break-all; }
+  .card .desc { margin: .4rem 0 0; color: var(--ink-2); font-size: .88em; }
+  .chip { flex: none; font-size: .64rem; font-weight: 800; text-transform: uppercase;
+          letter-spacing: .06em; padding: .2rem .42rem; color: #fff; border-radius: 2px; cursor: help; }
+  .chip.prod     { background: var(--teal); }
+  .chip.dev      { background: var(--pink); }
+  .chip.override { background: var(--blend); }
+  .meta { margin: .65rem 0 0; display: grid; gap: .3rem; }
+  .meta > div { display: flex; gap: .5rem; font-size: .82em; align-items: baseline; }
+  .meta dt { flex: none; width: 3.4rem; color: var(--ink-2); text-transform: uppercase;
+             letter-spacing: .06em; font-size: .9em; font-weight: 700; }
+  .meta dd { margin: 0; word-break: break-all; }
+  .meta a { color: var(--teal); text-decoration: none; font-weight: 600; }
+  .meta a:hover { text-decoration: underline; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+  .card-actions { margin-top: auto; padding-top: .7rem; font-size: .86em; display: flex; gap: .8rem; }
+  .card-actions a { color: var(--ink); text-decoration: none; font-weight: 700;
+                    border-bottom: 2px solid currentColor; }
+  .card-actions a:hover { color: var(--teal); }
+
+  /* anonymous pointer to hidden apps (folds in #43) */
+  .pointer { margin-top: 1.75rem; border: 2px dashed var(--pink); border-radius: 4px;
+             background: var(--pink-soft); padding: 1rem 1.15rem; display: flex;
+             gap: .8rem; align-items: center; flex-wrap: wrap; }
+  .pointer strong { color: var(--blend); }
+  .pointer button { color: var(--blend); font-weight: 700; }
+
+  .footer { max-width: 58rem; margin: 0 auto; padding: 0 1.5rem 2.5rem;
+            color: var(--ink-2); font-size: .85em; }
+  .footer a { color: var(--teal); text-decoration: none; font-weight: 600; }
+  .footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
-<header class="header">
-  <div class="wrap">
+<header class="masthead">
+  <div class="overprint" aria-hidden="true">
+    <span class="shape circle"></span>
+    <span class="shape bar"></span>
+    <span class="shape bar2"></span>
+    <span class="shape diag"></span>
+  </div>
+  <div class="mast-wrap">
+    <p class="kicker">dstack-webhost · pod console</p>
     <h1>tee-daemon</h1>
-    <p>You are looking at a <a href="https://amiller.github.io/dstack-webhost/" target="_blank">dstack-webhost</a> instance — a personal hosting platform for attestable web apps inside a Phala dstack CVM.</p>
-    <p style="margin-top:0.5rem;font-size:0.88rem;opacity:0.8">This is <strong>Andrew Miller's</strong> personal instance. You don't have to trust the operator — every attested app below carries a hardware-rooted quote you can verify. Want your own? <a href="/about">Run one on a Phala dstack CVM →</a></p>
+    <p>A <a href="https://amiller.github.io/dstack-webhost/" target="_blank">dstack-webhost</a>
+       instance — a personal host for attestable web apps inside a Phala dstack CVM. Every app is
+       sorted into one of three trust layers; attested apps carry a hardware-rooted quote binding
+       the running code to a pinned source hash.</p>
+    <span id="mast-owner"></span>
   </div>
 </header>
 <main>
-  <section class="card-list">
-    <h2>Apps deployed here</h2>
+  <section class="panel">
+    <h2 id="hero-title">Proving one app, live</h2>
+    <p class="sub" id="hero-sub">Following the trust chain of the featured app, fetched right now in your browser.</p>
+    <div id="hero"><p class="muted">Loading…</p></div>
+  </section>
+
+  <section class="panel">
+    <h2>Apps across three layers</h2>
+    <p class="sub">Each app sits in exactly one layer — <strong>attested prod</strong> (teal),
+       <strong>attested with operator override</strong> (RFC 0029, overprint), or
+       <strong>private / dev</strong> (pink, owner-only). The owner sees all of them.</p>
+    <p id="owner-status" class="owner-status"></p>
     <div id="apps"><p class="muted">Loading…</p></div>
   </section>
 </main>
 <div class="footer">
   Each card opens the running app, walks the trust chain via the verifier, or jumps to the source on GitHub.
-  Attested apps make a source-binding claim; public dev apps are listed but do not attest.
-  ·
-  <a href="/about">About this CVM</a>
-  ·
-  <a href="https://amiller.github.io/dstack-webhost/" target="_blank">About this platform →</a>
+  · <a href="/about">About this CVM</a>
+  · <a href="https://amiller.github.io/dstack-webhost/" target="_blank">About this platform →</a>
+  · <span id="owner-link"></span>
 </div>
 <script>
-(async function() {
-  const root = document.getElementById('apps');
-  const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  try {
-    const r = await fetch('/', { headers: { Accept: 'application/json' } });
-    if (!r.ok) { root.innerHTML = '<p class="err">CVM returned ' + r.status + '</p>'; return; }
-    const data = await r.json();
-    const projects = data.projects || {};
-    const names = Object.keys(projects);
-    if (!names.length) { root.innerHTML = '<p class="muted">No public apps deployed yet.</p>'; return; }
-    const verifyBase = 'https://amiller.github.io/dstack-webhost/verify.html';
-    const daemon = location.origin;
-    const cards = names.map(name => {
-      const p = projects[name];
-      const sourceLink = p.source && /github\.com/.test(p.source)
-        ? '<a href="' + escape(p.source) + (p.commit_sha ? '/tree/' + escape(p.commit_sha) : '') + '" target="_blank">source</a>'
-        : '';
-      const runLink = '<a href="/' + escape(name) + '/">open</a>';
-      const verifyLink = '<a href="' + verifyBase + '?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '" target="_blank">verify</a>';
-      let badge = '';
-      if (p.mode === 'attested') {
-        badge = '<span class="badge attested">attested</span>';
-      } else if (p.mode === 'dev' && p.public) {
-        badge = '<span class="badge dev-public">dev (public)</span>';
+(function() {
+  const BASE = window.__TEE_BASE__ || '';
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const getJSON = async (path, bearer) => {
+    const headers = { Accept: 'application/json' };
+    if (bearer) headers['Authorization'] = 'Bearer ' + bearer;
+    const r = await fetch(BASE + path, { headers });
+    if (!r.ok) throw new Error(path + ' → ' + r.status);
+    return r.json();
+  };
+
+  /* ── Owner-token login (PR #75). Token is validated via /_api/projects,
+     which answers 401/403 for a non-owner bearer; the root listing itself
+     always returns 200 with the public set. Token is never rendered. ── */
+  const TOKEN_KEY = 'tee_owner_token';
+  const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
+  const setToken = t => { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {} };
+  const clearToken = () => { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} };
+  const probeToken = async token => {
+    try {
+      const r = await fetch(BASE + '/_api/projects', { headers: { Authorization: 'Bearer ' + token } });
+      if (r.status === 200) return true;
+      if (r.status === 401 || r.status === 403) return false;
+      return null;
+    } catch (e) { return null; }
+  };
+  const promptAndLogin = () => {
+    const t = window.prompt('Enter your owner token (API_TOKEN):') || '';
+    if (!t) return;
+    setToken(t);
+    location.reload();
+  };
+  const loginBtn = (label) => '<button type="button" id="owner-login">' + label + '</button>';
+  const bindLogin = () => { const b = document.getElementById('owner-login'); if (b) b.onclick = e => { e.preventDefault(); promptAndLogin(); }; };
+
+  const setOwnerStatus = (state) => {
+    const bar = document.getElementById('owner-status');
+    const link = document.getElementById('owner-link');
+    const mast = document.getElementById('mast-owner');
+    bar.className = 'owner-status'; bar.textContent = '';
+    if (state === 'authed') {
+      bar.className = 'owner-status authed';
+      bar.textContent = 'Viewing as owner — every layer is visible, including private/dev apps.';
+      link.innerHTML = 'viewing as owner · <a href="#" id="owner-logout">logout</a>';
+      mast.innerHTML = '';
+      document.getElementById('owner-logout').onclick = e => { e.preventDefault(); clearToken(); location.reload(); };
+    } else {
+      if (state === 'rejected') {
+        bar.className = 'owner-status rejected';
+        bar.textContent = 'Owner token rejected — showing the public view.';
       }
-      const meta = p.commit_sha ? 'commit ' + escape(p.commit_sha.slice(0, 7)) : '';
-      const title = '<h3>' + escape(name) + (badge ? ' ' + badge : '') + '</h3>';
-      return '<div class="card">' + title + (meta ? '<div class="meta">' + meta + '</div>' : '') + '<div class="links">' + runLink + ' · ' + verifyLink + (sourceLink ? ' · ' + sourceLink : '') + '</div></div>';
-    }).join('');
-    root.innerHTML = '<div class="grid">' + cards + '</div>';
-  } catch (e) {
-    root.innerHTML = '<p class="err">Could not load: ' + escape(e.message) + '</p>';
+      link.innerHTML = '<a href="#" id="owner-login">owner login</a>';
+      mast.innerHTML = loginBtn('Owner login →');
+      bindLogin();
+      const l2 = document.getElementById('owner-login'); if (l2) l2.onclick = e => { e.preventDefault(); promptAndLogin(); };
+    }
+  };
+
+  /* ── Hero trust chain (unchanged logic, restyled) ───────────────────── */
+  const setStep = (n, ok, html) => {
+    const el = document.getElementById('step' + n);
+    el.classList.remove('ok', 'fail'); el.classList.add(ok ? 'ok' : 'fail');
+    el.querySelector('.step-val').innerHTML = html;
+  };
+  const failVal = msg => '<span class="fail">FAILED</span> <span class="hint">' + esc(msg) + '</span>';
+
+  async function renderHero(featured, version) {
+    const name = featured;
+    document.getElementById('hero-sub').textContent =
+      'Following the trust chain of "' + name + '", fetched right now in your browser.';
+    document.getElementById('hero').innerHTML =
+      '<div class="chain">' +
+        [['this endpoint'], ['runs in this CVM'], ['under this daemon build'], ['running exactly this source']]
+          .map((s, i) => '<div class="step" id="step' + (i + 1) + '"><div class="step-n">' + (i + 1) +
+            '</div><div><div class="step-label">' + s[0] +
+            '</div><div class="step-val muted">checking…</div></div></div>').join('') +
+      '</div><div class="trust" id="trust">checking anchor…</div>';
+
+    try {
+      const m = await getJSON('/_api/projects/' + name);
+      setStep(1, true,
+        '<a class="val" href="' + BASE + '/_api/projects/' + esc(name) + '" target="_blank">/' + esc(name) + '/</a>' +
+        ' <a href="' + BASE + '/' + esc(name) + '/" target="_blank">open app →</a>' +
+        '<span class="hint">manifest: mode ' + esc(m.mode) + ', runtime ' + esc(m.runtime) + (m.operator_debug ? ', operator-override' : '') + '</span>');
+    } catch (e) { setStep(1, false, failVal(e.message)); }
+
+    let bundle = null, bundleErr = null;
+    try { bundle = await getJSON('/_api/verification/' + name); } catch (e) { bundleErr = e.message; }
+    const quoteTitle = 'A TDX measurement quote binding the running code to a hardware root.';
+
+    try {
+      if (bundleErr) throw new Error(bundleErr);
+      const q = bundle && bundle.platform_quote && bundle.platform_quote.quote;
+      if (!q) throw new Error('no platform_quote.quote in evidence bundle');
+      setStep(2, true,
+        '<a class="val help" href="' + BASE + '/_api/verification/' + esc(name) + '" target="_blank" title="' + quoteTitle + '">' +
+        esc(q.slice(0, 48)) + '…</a>' +
+        ' <a href="' + BASE + '/_api/verification/' + esc(name) + '?format=html" target="_blank">rendered verifier →</a>' +
+        '<span class="hint">evidence bundle — <span class="help" title="' + quoteTitle + '">what is this?</span></span>');
+    } catch (e) { setStep(2, false, failVal(e.message)); }
+
+    try {
+      if (!version.commit) throw new Error('no commit in /_api/version');
+      const ghCommit = 'https://github.com/amiller/dstack-webhost/commit/' + version.commit;
+      setStep(3, true,
+        '<a class="val" href="' + esc(ghCommit) + '" target="_blank">' + esc(version.commit) + '</a>' +
+        ' <a href="' + BASE + '/_api/version" target="_blank">(/_api/version)</a>' +
+        '<span class="hint">the dstack-webhost build hosting every app here</span>');
+    } catch (e) { setStep(3, false, failVal(e.message)); }
+
+    try {
+      if (bundleErr) throw new Error(bundleErr);
+      const src = (bundle && bundle.app && bundle.app.source) || {};
+      if (!src.tree_hash) throw new Error('no app.source.tree_hash in evidence bundle');
+      const repo = src.repo && /github\.com/.test(src.repo) ? src.repo : '';
+      setStep(4, true,
+        '<span class="val">' + esc(src.tree_hash) + '</span>' +
+        (repo ? ' <a href="' + esc(repo) + '" target="_blank">source →</a>' : '') +
+        '<span class="hint">compare to <code>git rev-parse HEAD^{tree}</code> in the repo</span>');
+    } catch (e) { setStep(4, false, failVal(e.message)); }
+
+    renderTrust(bundle, bundleErr);
   }
+
+  function renderTrust(bundle, bundleErr) {
+    const el = document.getElementById('trust');
+    if (bundleErr || !bundle) {
+      el.innerHTML = '<span class="err">Could not read the anchor: ' + esc(bundleErr || 'no bundle') + '</span>';
+      return;
+    }
+    const anchored = bundle.onchain && bundle.onchain.kms_contract;
+    el.innerHTML = anchored
+      ? 'This instance anchors on-chain: <code>' + esc(bundle.onchain.kms_contract) + '</code> (chain ' +
+        esc(bundle.onchain.chain_id) + ') pins the allowed code, so the attestation\'s chain of custody does not pass through the operator. This is the stronger, contract-anchored configuration.'
+      : 'This instance is <strong>measured but operator-anchored</strong>. Every attested app carries a hardware-rooted TDX quote binding the running code to its pinned source hash — but it runs in Phala\'s <code>pha</code> namespace with no on-chain KMS contract, so the quote\'s chain of custody still passes through the operator (Andrew Miller). Honesty about the weakest link is the design principle: here, the weakest link is the operator.';
+  }
+
+  /* ── Three-layer grid ──────────────────────────────────────────────── */
+  const LAYERS = {
+    prod:     { tag: 'Attested · Prod', chip: 'prod',
+                note: 'Hardware-rooted TDX quote binds the running code to a pinned source hash. The verifiable public surface.' },
+    override: { tag: 'Attested · Operator Override', chip: 'override',
+                note: 'RFC 0029: an attested app that declares a measured operator-debug door. The door is part of the measurement — its existence is public, never a hidden side channel.' },
+    dev:      { tag: 'Private · Dev', chip: 'dev',
+                note: 'Iterating. No attestation claim; trust is whatever you would get on ordinary hosting. Owner-only.' },
+  };
+  const layerOf = p => (p.mode === 'attested' ? (p.operator_debug ? 'override' : 'prod') : 'dev');
+  const verifyBase = 'https://amiller.github.io/dstack-webhost/verify.html';
+  const daemon = location.origin;
+
+  function cardHTML(name, p, key) {
+    const info = LAYERS[key];
+    const attested = p.mode === 'attested';
+    const shortSha = p.commit_sha ? esc(p.commit_sha.slice(0, 7)) : '—';
+    const repo = p.source && /github\.com/.test(p.source);
+    // Empty source only happens for image deploys with no recorded git source
+    // (git/static deploys require one). Such apps have no source chain to walk,
+    // so the card says so up front instead of implying a "verify" walk (#88).
+    const noSource = !p.source;
+    const srcLink = repo
+      ? '<a href="' + esc(p.source) + (p.commit_sha ? '/tree/' + esc(p.commit_sha) : '') + '" target="_blank">' +
+        esc(p.source.replace(/^https?:\/\/github\.com\//, '')) + ' @ ' + shortSha + '</a>'
+      : (p.source ? '<span class="mono">' + esc(p.source) + '</span>'
+        : '<span class="muted">image deploy — digest-pinned, no source</span>');
+    const treeLink = (p.tree_hash && attested)
+      ? '<a class="mono" href="' + BASE + '/_api/verification/' + esc(name) + '?format=html" target="_blank" title="Rendered RFC 0020 evidence bundle">' + esc(p.tree_hash.slice(0, 12)) + '…</a>'
+      : '<span class="muted">—</span>';
+    const verifyText = noSource ? 'attestation' : 'verify';
+    const verifyLink = attested
+      ? '<a href="' + verifyBase + '?daemon=' + encodeURIComponent(daemon) + '&project=' + encodeURIComponent(name) + '" target="_blank">' + verifyText + ' ↗</a>'
+      : '';
+    // Manifest blurb (#43): rendered only when present — no description, no element.
+    const desc = p.description ? '<p class="desc">' + esc(p.description) + '</p>' : '';
+    return '<article class="card ' + key + '">' +
+      '<div class="card-head"><h3>' + esc(name) + '</h3>' +
+        '<span class="chip ' + info.chip + '" title="' + esc(info.note) + '">' + esc(attested ? 'attested' : 'dev') + '</span></div>' +
+      desc +
+      '<dl class="meta">' +
+        '<div><dt>mode</dt><dd>' + esc(p.mode) + '</dd></div>' +
+        '<div><dt>source</dt><dd>' + srcLink + '</dd></div>' +
+        '<div><dt>tree</dt><dd>' + treeLink + '</dd></div>' +
+      '</dl>' +
+      '<div class="card-actions"><a href="' + BASE + '/' + esc(name) + '/">open ↗</a>' +
+        (verifyLink ? ' ' + verifyLink : '') + '</div>' +
+    '</article>';
+  }
+
+  function renderLayers(projects, isOwner, hidden) {
+    const root = document.getElementById('apps');
+    const names = Object.keys(projects);
+    const buckets = { prod: [], override: [], dev: [] };
+    names.forEach(n => buckets[layerOf(projects[n])].push(n));
+    const order = ['prod', 'override', 'dev'];
+    let html = '';
+    order.forEach(key => {
+      if (key === 'dev' && !isOwner) return;          // private/dev hidden from anonymous
+      const arr = buckets[key]; if (!arr.length) return;
+      const info = LAYERS[key];
+      html += '<section class="layer ' + key + '">' +
+        '<div class="layer-head">' +
+          '<span class="layer-tag">' + esc(info.tag) + '</span>' +
+          '<span class="layer-count">' + arr.length + ' app' + (arr.length === 1 ? '' : 's') + '</span>' +
+          '<span class="layer-note">' + esc(info.note) + '</span>' +
+        '</div>' +
+        '<div class="grid">' + arr.map(n => cardHTML(n, projects[n], key)).join('') + '</div>' +
+      '</section>';
+    });
+    /* Pointer to the interesting-but-hidden apps (folds in #43). */
+    if (!isOwner && hidden > 0) {
+      html += '<div class="pointer"><span>This pod also runs <strong>' + hidden +
+        '</strong> private app' + (hidden === 1 ? '' : 's') +
+        ' the operator is iterating on — not advertised, not attested.</span>' +
+        loginBtn('Owner login to see them →') + '</div>';
+    }
+    if (!html) html = '<p class="muted">No apps deployed yet.</p>';
+    root.innerHTML = html;
+    bindLogin();
+  }
+
+  (async function() {
+    let projects, hidden = 0, authed = false;
+    setOwnerStatus('anon');
+    try {
+      const token = getToken();
+      let rejected = false, bearer = null;
+      if (token) {
+        const ok = await probeToken(token);
+        if (ok === true) { authed = true; bearer = token; }
+        else if (ok === false) { clearToken(); rejected = true; }
+      }
+      const data = await getJSON('/', bearer);
+      projects = data.projects || {};
+      hidden = data.hidden || 0;
+      if (authed || rejected) setOwnerStatus(authed ? 'authed' : 'rejected');
+    } catch (e) {
+      document.getElementById('hero').innerHTML = '<p class="err">Could not load projects: ' + esc(e.message) + '</p>';
+      document.getElementById('apps').innerHTML = '<p class="err">Could not load: ' + esc(e.message) + '</p>';
+      return;
+    }
+    renderLayers(projects, authed, hidden);
+
+    const names = Object.keys(projects);
+    const featured = 'isolation-probe';
+    const pick = projects[featured] && projects[featured].mode === 'attested' ? featured : null;
+    if (!pick) {
+      document.getElementById('hero-title').textContent = 'Isolation probe is not deployed';
+      document.getElementById('hero-sub').textContent = '';
+      document.getElementById('hero').innerHTML =
+        '<p class="muted">The canonical isolation-probe example is not deployed in attested mode, so there is no verified flow to show.</p>';
+      return;
+    }
+    let version = {};
+    try { version = await getJSON('/_api/version'); } catch (e) { version = { _err: e.message }; }
+    renderHero(pick, version);
+  })();
 })();
 </script>
 </body>

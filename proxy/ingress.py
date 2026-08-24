@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from dataclasses import asdict
+from datetime import datetime, timezone
 
 import aiohttp
 from aiohttp import web
@@ -18,14 +19,16 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
-from .deploy import deploy, teardown, promote
+from .deploy import deploy, teardown, promote, unpromote, import_bundle
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
 from .tokens import DEFAULT_TTL, TokenStore
 from .broker import BrokerStore
+from .browser_pool import BrowserPool, LeaseTimeout
 from . import secp
 from . import evidence
+from .ladder import ladder_hint
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +50,15 @@ def _sanitize_getkey(data):
         return {k: v for k, v in data.items() if k != "key"}
 
 
+def _redact_env(data: dict) -> dict:
+    """Replace every env value with '<redacted>'. API responses — admin or public —
+    must never echo plaintext secrets back to the client or into logs; GET, status,
+    deploy, redeploy, promote and aggregate all share this one rule."""
+    if data.get("env"):
+        data["env"] = dict.fromkeys(data["env"], "<redacted>")
+    return data
+
+
 DSTACK_SOCK = None  # set by main.py
 API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
 
@@ -58,11 +70,25 @@ MIME_TYPES = {
 }
 
 
+def _network_isolation(runtime: str, available: dict) -> str:
+    """How tenant network syscalls are mediated: "host" (passthrough to the
+    container netns/host kernel stack), "sandbox" (gVisor netstack), "netns"
+    (kernel netns + Docker bridge, runc-family). Derived from Docker's own
+    runtime registration — a name like runsc-hostnet doesn't say it alone."""
+    entry = available.get(runtime) or {}
+    if any(a.startswith("--network=host") for a in entry.get("runtimeArgs") or []):
+        return "host"
+    if runtime.startswith("runsc"):
+        return "sandbox"
+    return "netns"
+
+
 class Ingress:
     def __init__(self, store: ProjectStore, docker: DockerClient,
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
                  rtm: RuntimeManager, tunnel_store: TunnelStore,
-                 token_store: TokenStore, broker_store: BrokerStore | None = None):
+                 token_store: TokenStore, broker_store: BrokerStore | None = None,
+                 browser_pool: BrowserPool | None = None):
         self.store = store
         self.docker = docker
         self.audit_manager = audit_manager
@@ -71,6 +97,7 @@ class Ingress:
         self.tunnel_store = tunnel_store
         self.token_store = token_store
         self.broker_store = broker_store
+        self.browser_pool = browser_pool
         self.port_map: dict[int, str] = {}  # port -> project_name
 
     async def handle(self, request: web.Request) -> web.Response:
@@ -113,14 +140,24 @@ class Ingress:
             auth = request.headers.get("Authorization", "")
             authed = (API_TOKEN and auth.startswith("Bearer ")
                       and hmac.compare_digest(auth[7:], API_TOKEN))
-            visible = [p for p in self.store.list()
+            all_projects = self.store.list()
+            visible = [p for p in all_projects
                        if authed or p.mode == "attested" or p.public]
             projects = {p.name: {
                 "runtime": p.runtime, "mode": p.mode, "public": p.public,
                 "source": p.source, "commit_sha": p.commit_sha,
                 "tree_hash": p.tree_hash,
+                "description": p.description,
+                # RFC 0029 layering signal: a measured operator-debug door.
+                # Gated to attested at deploy time, so this only ever appears
+                # on the public-attested surface — its existence is part of the
+                # measurement, never a hidden side channel.
+                "operator_debug": p.operator_debug,
             } for p in visible}
-            resp = web.json_response({"projects": projects})
+            # Count of projects hidden from this viewer — drives the anonymous
+            # "pointer to the interesting ones" on the landing page (#43).
+            hidden = 0 if authed else len(all_projects) - len(visible)
+            resp = web.json_response({"projects": projects, "hidden": hidden})
             resp.headers["Access-Control-Allow-Origin"] = "*"
             return resp
 
@@ -505,29 +542,30 @@ class Ingress:
             return web.json_response({"error": "invalid token or scope"}, status=403)
         return None
 
-    def _substrate_info(self) -> dict:
+    async def _substrate_info(self) -> dict:
         rt = runtimes_mod.CONTAINER_RUNTIME
+        available = (await self.docker.info()).get("Runtimes") or {}
         shim_sha = hashlib.sha256(
             runtimes_mod._ENTRY_SHIM_DENO.encode()).hexdigest()
         return {
             "container_runtime": rt,
             "effective_runtime": rt or "runc",
+            "available_runtimes": sorted(available),
+            "network_isolation": _network_isolation(rt or "runc", available),
             "isolation_modes": ["shared", "container"],
             "deno_entry_shim_sha256": shim_sha,
             "networks": [runtimes_mod.NETWORK_DEV, runtimes_mod.NETWORK_ATTESTED],
         }
 
     def _api_version(self) -> dict:
-        """Return daemon version and git commit. In a built image DAEMON_COMMIT is
-        baked at build time (no .git present); locally it falls to a git read."""
-        commit = os.environ.get("DAEMON_COMMIT")
-        if not commit:
-            import subprocess
-            commit = subprocess.check_output(
-                ["git", "rev-parse", "--short", "HEAD"],
-                cwd=os.path.dirname(os.path.dirname(__file__)),
-            ).decode().strip()
-        return {"version": os.environ.get("DAEMON_VERSION", "dev"), "commit": commit}
+        """Return daemon version and git commit. Identity is resolved and
+        validated once at boot (proxy.main._resolve_commit): baked from the
+        build arg in an image, read from git when running from a checkout.
+        No request-time fallback — it could only mask a broken deploy."""
+        return {
+            "version": os.environ.get("DAEMON_VERSION", "dev"),
+            "commit": os.environ["DAEMON_COMMIT"],
+        }
 
     def _public_attested_path(self, path: str) -> str | None:
         """RFC 0015: return project name if `path` is a public verifier endpoint."""
@@ -537,6 +575,8 @@ class Ingress:
         if len(parts) == 2 and parts[0] == "projects" and parts[1]:
             return parts[1]
         if len(parts) == 3 and parts[0] == "projects" and parts[1] and parts[2] == "audit":
+            return parts[1]
+        if len(parts) == 3 and parts[0] == "projects" and parts[1] and parts[2] == "history":
             return parts[1]
         return None
 
@@ -560,7 +600,7 @@ class Ingress:
             return resp
 
         if method == "GET" and path == "substrate":
-            resp = web.json_response(self._substrate_info())
+            resp = web.json_response(await self._substrate_info())
             resp.headers["Access-Control-Allow-Origin"] = "*"
             return resp
 
@@ -580,8 +620,10 @@ class Ingress:
                         resp = await self._api_verification(request, public_name)
                     elif path.endswith("/audit"):
                         resp = await self._api_audit(public_name)
+                    elif path.endswith("/history"):
+                        resp = await self._api_history(public_name)
                     else:
-                        resp = await self._api_status(public_name, public=True)
+                        resp = await self._api_status(public_name)
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
@@ -626,6 +668,13 @@ class Ingress:
         if path == "routes" and method == "GET":
             return await self._api_routes()
 
+        # RFC 0017: fleet export/import (authed)
+        if path == "export" and method == "GET":
+            return await self._api_export()
+
+        if path == "import" and method == "POST":
+            return await self._api_import(request)
+
         if path == "audit" and method == "GET":
             return await self._api_all_audit()
 
@@ -647,8 +696,12 @@ class Ingress:
                 return await self._api_redeploy(name)
             if method == "POST" and rest == "promote":
                 return await self._api_promote(name)
+            if method == "POST" and rest == "unpromote":
+                return await self._api_unpromote(name)
             if method == "GET" and rest == "audit":
                 return await self._api_audit(name)
+            if method == "GET" and rest == "history":
+                return await self._api_history(name)
 
         if path.startswith("attest/"):
             name = path.split("/")[1]
@@ -657,6 +710,12 @@ class Ingress:
         if path.startswith("verification/"):
             name = path.split("/")[1]
             return await self._api_verification(request, name)
+
+        # RFC 0028: browser render pool (authed)
+        if path == "browser/render" and method == "POST":
+            return await self._api_browser_render(request)
+        if path == "browser/pool" and method == "GET":
+            return self._api_browser_pool_status()
 
         # RFC 0016: aggregate status endpoint (authed)
         if path == "status" and method == "GET":
@@ -670,7 +729,7 @@ class Ingress:
 
     async def _api_list(self) -> web.Response:
         projects = self.store.list()
-        return web.json_response([asdict(p) for p in projects])
+        return web.json_response([_redact_env(asdict(p)) for p in projects])
 
     async def _api_routes(self) -> web.Response:
         """Get the current routing table."""
@@ -732,7 +791,7 @@ class Ingress:
                 manifest = await request.json()
                 project = await deploy(
                     self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
-            return web.json_response(asdict(project), status=201)
+            return web.json_response(_redact_env(asdict(project)), status=201)
         except ValueError as e:
             # Bad manifest / port conflict etc. — the message is safe to return.
             return web.json_response({"error": str(e)}, status=400)
@@ -741,13 +800,40 @@ class Ingress:
             log.error("deploy failed: %s", traceback.format_exc())
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _api_status(self, name: str, public: bool = False) -> web.Response:
+    async def _api_export(self) -> web.Response:
+        """RFC 0017 §1: pin bundle for every project + audit refs. Raw env
+        secrets are excluded by the export projection (RFC 0018 owns them)."""
+        projects = self.store.list()
+        audit = {}
+        for p in projects:
+            entries = self.audit_manager.get_audit_log(p.name).to_json()
+            audit[p.name] = {"entries": len(entries),
+                             "url": f"/_api/projects/{p.name}/audit"}
+        return web.json_response({
+            "version": 1,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "projects": [p.export_dict() for p in projects],
+            "audit": audit,
+        })
+
+    async def _api_import(self, request: web.Request) -> web.Response:
+        """RFC 0017 §2: redeploy each bundle entry pinned; a pin that cannot be
+        reproduced errors and skips that project (never re-clones at latest)."""
+        try:
+            bundle = await request.json()
+        except json.JSONDecodeError as e:
+            return web.json_response({"error": f"bundle is not valid JSON: {e}"}, status=400)
+        try:
+            result = await import_bundle(
+                self.store, self.docker, self.audit_manager,
+                self.tracker, self.rtm, bundle)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        return web.json_response(result)
+
+    async def _api_status(self, name: str) -> web.Response:
         project = self.store.load(name)
-        data = asdict(project)
-        if public and data.get("env"):
-            # RFC 0015 verifier endpoints are unauthenticated; never expose env values.
-            data["env"] = {k: "<redacted>" for k in data["env"]}
-        return web.json_response(data)
+        return web.json_response(_redact_env(asdict(project)))
 
     async def _api_teardown(self, name: str) -> web.Response:
         await teardown(self.store, self.docker, self.audit_manager, self.tracker,
@@ -765,6 +851,7 @@ class Ingress:
             "isolation": project.isolation,
             "image": project.image, "image_port": project.image_port,
             "volumes": project.volumes, "env_passthrough": project.env_passthrough,
+            "dstack_env": project.dstack_env,
             "oci_runtime": project.oci_runtime,
             "cap_add": project.cap_add, "devices": project.devices,
             "egress": project.egress, "egress_provider": project.egress_provider,
@@ -777,7 +864,7 @@ class Ingress:
             }
         project = await deploy(
             self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
-        result = asdict(project)
+        result = _redact_env(asdict(project))
         if project.runtime == "image":
             result["changed"] = project.image_digest != old_digest
         else:
@@ -787,7 +874,14 @@ class Ingress:
     async def _api_promote(self, name: str) -> web.Response:
         try:
             project = await promote(self.store, self.audit_manager, self.rtm, name, DSTACK_SOCK)
-            return web.json_response(asdict(project))
+            return web.json_response(_redact_env(asdict(project)))
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+    async def _api_unpromote(self, name: str) -> web.Response:
+        try:
+            project = await unpromote(self.store, self.audit_manager, self.rtm, name)
+            return web.json_response(_redact_env(asdict(project)))
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
 
@@ -799,6 +893,14 @@ class Ingress:
                 return web.json_response({"error": "project not attested"}, status=400)
             audit = self.audit_manager.get_audit_log(name)
             return web.json_response(audit.to_json())
+        except FileNotFoundError:
+            return web.json_response({"error": "project not found"}, status=404)
+
+    async def _api_history(self, name: str) -> web.Response:
+        try:
+            project = self.store.load(name)
+            audit = self.audit_manager.get_audit_log(name)
+            return web.json_response(audit.history(project))
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
 
@@ -898,6 +1000,9 @@ class Ingress:
                 image_digest=project.image_digest or "",
                 binding_quote=binding_quote,
                 binding=project.binding or {},
+                operator_debug=evidence.OperatorDebugInfo(
+                    enabled=bool(project.operator_debug),
+                ),
             )
 
             # RFC 0027: surface the per-app binding kind. Phase 1 produces only
@@ -905,17 +1010,14 @@ class Ingress:
             if project.binding:
                 bundle.attestation_kind = "daemon-vouched"
 
-            # Get audit log (retained for backward compatibility, in main bundle for now)
-            audit = []
+            # Attach the per-project audit log to the bundle (part of the served shape).
             try:
                 audit_log = self.audit_manager.get_audit_log(name)
-                audit = audit_log.to_json()
+                bundle.audit = audit_log.to_json()
             except Exception as e:
                 log.warning("Failed to get audit log: %s", e)
 
-            result = bundle.to_dict()
-            result["audit"] = audit  # Retain audit for existing consumers
-            return web.json_response(result)
+            return web.json_response(bundle.to_dict())
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
 
@@ -945,7 +1047,7 @@ class Ingress:
 
         # Build JSON data for the template
         verification_data = {
-            "project": asdict(project),
+            "project": _redact_env(asdict(project)),
             "quote": quote,
             "audit": audit,
         }
@@ -1183,12 +1285,13 @@ class Ingress:
         """
         projects = []
         for project in self.store.list():
-            data = asdict(project)
+            data = _redact_env(asdict(project))
             # Add liveness info
             liveness = self.rtm.get_project_liveness(project)
             data["running"] = liveness["running"]
             data["container_id"] = liveness["container_id"]
             data["backend"] = liveness["backend"]
+            data["ladder"] = ladder_hint(data)
             # For attested projects, include public verification URL
             if project.mode == "attested":
                 # Get the scheme and host from the environment or request
@@ -1205,3 +1308,37 @@ class Ingress:
                 return web.Response(text=f.read(), content_type="text/html")
         except FileNotFoundError:
             return web.json_response({"error": "console not found"}, status=404)
+
+    def _api_browser_pool_status(self) -> web.Response:
+        """RFC 0028: pool liveness (slots free/busy, active leases)."""
+        if not self.browser_pool:
+            return web.json_response({"error": "browser pool not available"}, status=503)
+        return web.json_response(self.browser_pool.status())
+
+    async def _api_browser_render(self, request: web.Request) -> web.Response:
+        """RFC 0028: one-shot lease -> drive -> release. Acquires a browser from
+        the pool, injects the requester's jar for `domain` only, renders `url`,
+        and resets the container before it returns to the pool — so concurrent
+        callers never see each other's session."""
+        if not self.browser_pool:
+            return web.json_response({"error": "browser pool not available"}, status=503)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json"}, status=400)
+        domain = data.get("domain", "")
+        jar = data.get("jar", "")
+        url = data.get("url", "")
+        if not url:
+            return web.json_response({"error": "url is required"}, status=400)
+        timeout = float(data.get("timeout") or 0) or None
+        try:
+            result = await self.browser_pool.render(domain, jar, url, timeout=timeout)
+        except LeaseTimeout as e:
+            return web.json_response({"error": "lease timeout", "detail": str(e)},
+                                     status=503)
+        except Exception as e:
+            log.error("browser render failed: %s", e)
+            return web.json_response({"error": "render failed", "detail": str(e)},
+                                     status=502)
+        return web.json_response(result)

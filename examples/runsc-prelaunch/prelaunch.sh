@@ -1,6 +1,10 @@
 #!/bin/bash
-# dstack prelaunch script: install gVisor's runsc and register it as a Docker
-# runtime. Installs to /dstack/persistent/bin (writable ZFS); the dstack rootfs
+# dstack prelaunch script: install gVisor's runsc and register it as two
+# Docker runtimes — `runsc` and `runsc-hostnet` (--network=host). The hostnet
+# variant keeps Sentry mediating every other syscall while letting tenant
+# network syscalls reach the container's netns, so Docker's embedded DNS at
+# 127.0.0.11 and container-name discovery work (dead under plain runsc's own
+# netstack). Installs to /dstack/persistent/bin (writable ZFS); the dstack rootfs
 # is read-only, and sha512sum is not present in the prelaunch environment, so
 # verify with whichever sha512 tool is available.
 #
@@ -51,14 +55,18 @@ chmod +x "$INSTALL_DIR/runsc"
 echo "[prelaunch] registering runtime in /etc/docker/daemon.json"
 mkdir -p /etc/docker
 if [ -f /etc/docker/daemon.json ] && command -v jq >/dev/null 2>&1; then
-  jq --arg p "$INSTALL_DIR/runsc" '.runtimes.runsc = {"path": $p}' \
+  jq --arg p "$INSTALL_DIR/runsc" \
+    '.runtimes.runsc = {"path": $p}
+     | .runtimes["runsc-hostnet"] = {"path": $p, "runtimeArgs": ["--network=host"]}' \
     /etc/docker/daemon.json > /etc/docker/daemon.json.new \
     && mv /etc/docker/daemon.json.new /etc/docker/daemon.json
 else
   cat > /etc/docker/daemon.json <<JSON
 {
   "runtimes": {
-    "runsc": { "path": "$INSTALL_DIR/runsc" }
+    "runsc": {"path": "$INSTALL_DIR/runsc"},
+    "runsc-hostnet": {"path": "$INSTALL_DIR/runsc",
+                      "runtimeArgs": ["--network=host"]}
   }
 }
 JSON

@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -13,6 +14,8 @@ import time
 import requests
 from playwright.sync_api import sync_playwright
 
+from proxy.docker_client import GVISOR_DNS
+
 DAEMON_PORT = 18080
 TEST_TOKEN = "test-secret-token-12345"
 API = f"http://localhost:{DAEMON_PORT}/_api"
@@ -21,6 +24,40 @@ AUTH = {"Authorization": f"Bearer {TEST_TOKEN}"}
 
 daemon_proc = None
 tmpdir = None
+
+# RFC 0028 fake browser-bridge: a Deno stdlib HTTP server implementing the
+# pool's contract (/health, /session, /render, /reset). /render sleeps so
+# concurrency is observable and reports max_active so the test can prove the
+# pool serializes leases. State is in-memory; /reset clears it.
+FAKE_BROWSER_BRIDGE = r"""
+const sessions = new Map();
+let active = 0, maxActive = 0;
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj),
+    {status, headers: {"content-type": "application/json"}});
+}
+Deno.serve({port: 3000}, async (req) => {
+  const u = new URL(req.url);
+  if (req.method === "GET" && u.pathname === "/health") return json({ok: true});
+  if (req.method === "POST") {
+    let body = {};
+    try { body = await req.json(); } catch (_) {}
+    if (u.pathname === "/session") {
+      sessions.set(String(body.domain || ""), String(body.cookies ?? ""));
+      return json({ok: true});
+    }
+    if (u.pathname === "/render") {
+      active++; if (active > maxActive) maxActive = active;
+      await new Promise((r) => setTimeout(r, 400));
+      const v = sessions.get(String(body.domain || "")) ?? "";
+      active--;
+      return json({body: v, max_active: maxActive});
+    }
+    if (u.pathname === "/reset") { sessions.clear(); return json({ok: true}); }
+  }
+  return json({error: "not found"}, 404);
+});
+"""
 
 
 def api_post(path, **kwargs):
@@ -63,9 +100,10 @@ def push_update(name: str, files: dict[str, bytes]):
     subprocess.run(["git", "-C", work_dir, "push"], capture_output=True, check=True)
 
 
-def start_daemon():
+def start_daemon(reuse_tmpdir: bool = False):
     global daemon_proc, tmpdir
-    tmpdir = tempfile.mkdtemp(prefix="tee-daemon-test-")
+    if not reuse_tmpdir:
+        tmpdir = tempfile.mkdtemp(prefix="tee-daemon-test-")
     env = {
         **os.environ,
         "INGRESS_PORT": str(DAEMON_PORT),
@@ -79,12 +117,28 @@ def start_daemon():
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
         "FOO": "isolated-deno-passthrough",
     }
+    # RFC 0028: enable a 1-slot browser pool driven by a fake browser-bridge
+    # (Deno, stdlib) that implements the pool's HTTP contract. Lets the
+    # end-to-end suite prove isolation/reset/fairness with real docker without
+    # depending on a real Neko/Chromium image.
+    fake_dir = os.path.join(tmpdir, "fake-browser")
+    os.makedirs(fake_dir, exist_ok=True)
+    with open(os.path.join(fake_dir, "server.ts"), "w") as f:
+        f.write(FAKE_BROWSER_BRIDGE)
+    env.update({
+        "BROWSER_POOL_IMAGE": "denoland/deno:latest",
+        "BROWSER_POOL_CMD": "deno run --allow-net /app/server.ts",
+        "BROWSER_POOL_BINDS": f"{fake_dir}:/app:ro",
+        "BROWSER_POOL_SIZE": "1",
+        "BROWSER_POOL_PORT": "3000",
+        "BROWSER_POOL_LEASE_TTL": "5",
+    })
     daemon_proc = subprocess.Popen(
         [sys.executable, "-m", "proxy.main"],
         cwd=os.path.dirname(__file__),
         env=env, stdout=sys.stdout, stderr=sys.stderr,
     )
-    for _ in range(30):
+    for _ in range(120):
         time.sleep(0.5)
         try:
             requests.get(f"{INGRESS}/", timeout=1)
@@ -105,6 +159,9 @@ def cleanup_containers():
         ["docker", "rm", "-f", "tee-runtime-deno", "tee-runtime-node", "tee-runtime-python"],
         capture_output=True)
     subprocess.run(["docker", "network", "rm", "tee-apps"], capture_output=True)
+    # RFC 0028 browser pool containers (tee-browser-*)
+    subprocess.run("docker rm -f $(docker ps -aq --filter name=tee-browser-) 2>/dev/null || true",
+                   shell=True, capture_output=True)
 
 
 def test_auth():
@@ -129,7 +186,31 @@ def test_version():
     assert "commit" in data, f"commit field missing: {data}"
     assert isinstance(data["version"], str)
     assert isinstance(data["commit"], str)
+    # Identity must be TRUE, not merely present: the daemon runs from this
+    # checkout (no DAEMON_COMMIT baked), so its git read must match ours.
+    expected = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    assert data["commit"] == expected, \
+        f"commit mismatch: /_api/version says {data['commit']!r}, tree is {expected!r}"
     print(f"  Version: {data['version']} commit: {data['commit']} ✓")
+
+
+def test_boot_refuses_without_commit():
+    print("\n--- Test: daemon refuses to boot without a commit identity ---")
+    # A misbuilt image has no DAEMON_COMMIT and no .git; boot must fail loudly
+    # there, not 500 on /_api/version at some later audit request (issue #106).
+    bare = tempfile.mkdtemp(prefix="tee-daemon-nogit-")
+    repo = os.path.dirname(os.path.abspath(__file__))
+    for pkg in ("proxy", "verify"):
+        os.symlink(os.path.join(repo, pkg), os.path.join(bare, pkg))
+    env = {k: v for k, v in os.environ.items() if k != "DAEMON_COMMIT"}
+    p = subprocess.run([sys.executable, "-m", "proxy.main"], cwd=bare, env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert p.returncode != 0, "daemon must refuse to start without DAEMON_COMMIT"
+    assert "DAEMON_COMMIT" in p.stderr, f"unclear refusal message: {p.stderr[-500:]}"
+    refusing = [l for l in p.stderr.splitlines() if "DAEMON_COMMIT" in l][-1].strip()
+    print(f"  Refused at boot: {refusing} ✓")
 
 
 def test_deploy_static():
@@ -164,6 +245,44 @@ def test_caps_require_attested():
     assert project["cap_add"] == ["NET_ADMIN"], project
     assert project["devices"] == ["/dev/net/tun"], project
     print("  attested + caps accepted and surfaced on project ✓")
+
+
+def test_operator_debug():
+    """RFC 0029 Half A: operator_debug is a measured bool gated to attested mode."""
+    print("\n--- Test: operator_debug requires mode=attested (RFC 0029) ---")
+    repo = create_test_repo("test-opdebug", {
+        "index.html": b"<html><body>operator-debug</body></html>",
+    })
+    # dev mode (default) + operator_debug => rejected (door must be on the attested surface)
+    resp = api_post("/projects", json={"name": "test-opdebug", "source": repo,
+                                       "runtime": "static", "operator_debug": True})
+    assert resp.status_code >= 400, f"dev-mode operator_debug should be rejected, got {resp.status_code}"
+    assert "operator_debug requires mode=attested" in resp.text, resp.text
+    print(f"  dev-mode + operator_debug rejected ({resp.status_code}) ✓")
+    # attested mode + operator_debug => accepted, surfaced on project + verification bundle
+    resp = api_post("/projects", json={"name": "test-opdebug", "source": repo,
+                                       "runtime": "static", "mode": "attested",
+                                       "operator_debug": True})
+    assert resp.status_code == 201, f"attested operator_debug deploy failed: {resp.status_code} {resp.text}"
+    project = resp.json()
+    assert project["operator_debug"] is True, project
+    print("  attested + operator_debug accepted and surfaced on project ✓")
+    # The door is a live RFC 0020 fact in the verification bundle's app block
+    resp = api_get("/verification/test-opdebug")
+    assert resp.status_code == 200, f"verification failed: {resp.text}"
+    od = resp.json()["app"]["operator_debug"]
+    assert od["enabled"] is True, od
+    assert od["last_session_at"] == "", od  # null until Half B
+    print(f"  verification bundle surfaces operator_debug={od} ✓")
+    # A plain attested project (no door) reports enabled=False, not a missing key
+    repo2 = create_test_repo("test-opdebug-off", {"index.html": b"off"})
+    resp = api_post("/projects", json={"name": "test-opdebug-off", "source": repo2,
+                                       "runtime": "static", "mode": "attested"})
+    assert resp.status_code == 201, resp.text
+    resp = api_get("/verification/test-opdebug-off")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["app"]["operator_debug"]["enabled"] is False
+    print("  attested without operator_debug reports enabled=False ✓")
 
 
 def test_ingress_static():
@@ -226,6 +345,110 @@ def test_playwright_static():
         assert page.locator("#msg").inner_text() == "it works"
         print(f"  Playwright verified ✓")
         browser.close()
+
+
+def test_landing_cards():
+    """Landing card flags image deploys with no source up front (#88).
+
+    An image-runtime attested app with no recorded git source has no source chain
+    to walk, so its card must say so (image deploy — digest-pinned, no source) and
+    relabel the link off "verify" instead of implying a walkable trust chain. A card
+    WITH a source repo + commit keeps the "verify" wording unchanged.
+    """
+    print("\n--- Test: landing card distinguishes no-source image deploys (#88) ---")
+    img = api_post("/projects", json={
+        "name": "card-img-nosrc", "runtime": "image", "image": "nginx:alpine",
+        "image_port": 80, "mode": "attested",
+    })
+    assert img.status_code == 201, f"deploy image failed: {img.text}"
+    assert img.json()["source"] == "", "image deploy should have empty source"
+    repo = create_test_repo("card-git-src", {"index.html": b"<h1>has source</h1>"})
+    src = api_post("/projects", json={
+        "name": "card-git-src", "source": repo, "runtime": "static", "mode": "attested",
+    })
+    assert src.status_code == 201, f"deploy source failed: {src.text}"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"{INGRESS}/")
+        no_src = page.locator("#apps .card", has_text="card-img-nosrc")
+        with_src = page.locator("#apps .card", has_text="card-git-src")
+        no_src.wait_for(timeout=15000)
+        with_src.wait_for(timeout=15000)
+        no_txt = no_src.inner_text()
+        assert "digest-pinned, no source" in no_txt, f"no-source label missing: {no_txt!r}"
+        assert no_src.get_by_text("attestation").count() == 1, "attestation link missing"
+        assert no_src.get_by_text("verify").count() == 0, "no-source card should not offer verify"
+        assert with_src.get_by_text("verify").count() == 1, "source card should keep verify"
+        shot = os.environ.get("LANDING_CARD_SCREENSHOT")
+        if shot:
+            os.makedirs(os.path.dirname(shot), exist_ok=True)
+            page.screenshot(path=shot, full_page=True)
+            print(f"  screenshot -> {shot}")
+        browser.close()
+
+    api_delete("/projects/card-img-nosrc")
+    api_delete("/projects/card-git-src")
+    print("  Landing cards render correctly ✓")
+
+
+def test_landing_descriptions():
+    """Landing card shows the repo-manifest description as one line (#43).
+
+    A project whose repo-committed project.json carries a "description" gets it
+    rendered under the app name; a project without one renders exactly as before —
+    no empty element, no placeholder. The field also flows to /_api/projects and
+    the root JSON listing.
+    """
+    print("\n--- Test: landing card renders manifest descriptions (#43) ---")
+    desc_text = "A tiny static app used to prove the description line."
+    repo = create_test_repo("card-with-desc", {
+        "index.html": b"<h1>described</h1>",
+        "project.json": json.dumps({"description": desc_text}).encode(),
+    })
+    with_desc = api_post("/projects", json={
+        "name": "card-with-desc", "source": repo, "runtime": "static", "mode": "attested",
+    })
+    assert with_desc.status_code == 201, f"deploy described failed: {with_desc.text}"
+    assert with_desc.json()["description"] == desc_text, "deploy response missing description"
+    plain_repo = create_test_repo("card-no-desc", {"index.html": b"<h1>undescribed</h1>"})
+    no_desc = api_post("/projects", json={
+        "name": "card-no-desc", "source": plain_repo, "runtime": "static", "mode": "attested",
+    })
+    assert no_desc.status_code == 201, f"deploy undescribed failed: {no_desc.text}"
+    assert no_desc.json()["description"] == "", "undescribed deploy should have empty description"
+
+    listing = {p["name"]: p for p in api_get("/projects").json()}
+    assert listing["card-with-desc"]["description"] == desc_text, "/_api/projects missing description"
+    assert listing["card-no-desc"]["description"] == "", "/_api/projects description should be empty"
+    root = requests.get(f"{INGRESS}/", headers={"Accept": "application/json"}).json()
+    assert root["projects"]["card-with-desc"]["description"] == desc_text, "root listing missing description"
+    assert root["projects"]["card-no-desc"]["description"] == "", "root listing description should be empty"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"{INGRESS}/")
+        described = page.locator("#apps .card", has_text="card-with-desc")
+        undescribed = page.locator("#apps .card", has_text="card-no-desc")
+        described.wait_for(timeout=15000)
+        undescribed.wait_for(timeout=15000)
+        assert described.locator(".desc").inner_text() == desc_text, "description line missing"
+        assert described.locator(".card-head + .desc").count() == 1, "description should sit directly under the name"
+        assert undescribed.locator(".desc").count() == 0, "no-description card must render no desc element"
+        shot = os.environ.get("LANDING_DESC_SHOT_DIR")
+        if shot:
+            os.makedirs(shot, exist_ok=True)
+            page.screenshot(path=os.path.join(shot, "01-landing.png"), full_page=True)
+            described.screenshot(path=os.path.join(shot, "02-described-card.png"))
+            undescribed.screenshot(path=os.path.join(shot, "03-undescribed-card.png"))
+            print(f"  screenshots -> {shot}")
+        browser.close()
+
+    api_delete("/projects/card-with-desc")
+    api_delete("/projects/card-no-desc")
+    print("  Landing descriptions render correctly ✓")
 
 
 def test_deploy_deno():
@@ -500,6 +723,65 @@ export default (_req: Request, ctx: {env: Record<string,string>}) => {
     api_delete("/projects/test-iso-passthru")
 
 
+def test_dns_probe():
+    """Issue #2: outbound DNS for isolation:container tenants. The same
+    fetch-handler source must serve 200 under isolation:container AND
+    isolation:shared, and the isolated tenant keeps its per-project tee-proj-*
+    bridge. (The runsc gating itself — gVisor creates get explicit GVISOR_DNS —
+    is unit-tested in proxy/test_docker_client.py; this box has no runsc.)"""
+    print("\n--- Test: isolation:container outbound fetch (dns probe) ---")
+    handler = b"""
+export default async () => {
+  try {
+    const r = await fetch("https://example.com/");
+    const body = await r.text();
+    return new Response(JSON.stringify({status: r.status, ok: body.includes("Example Domain")}),
+      {headers: {"content-type": "application/json"}});
+  } catch (e) {
+    return new Response(JSON.stringify({error: String(e)}), {status: 500});
+  }
+};
+"""
+    for name, iso in (("dns-probe-iso", "container"), ("dns-probe-shared", "shared")):
+        manifest = {"runtime": "deno", "listen": {"port": 8080, "protocol": "http"}}
+        if iso != "shared":
+            manifest["isolation"] = iso
+        repo = create_test_repo(name, {
+            "project.json": json.dumps(manifest).encode(),
+            "server.ts": handler,
+        })
+        resp = api_post("/projects", json={"name": name, "source": repo})
+        assert resp.status_code == 201, f"Deploy {name} failed: {resp.text}"
+
+        r = None
+        for _ in range(30):
+            r = requests.get(f"{INGRESS}/{name}/")
+            if r.status_code == 200:
+                break
+            time.sleep(0.5)
+        assert r is not None and r.status_code == 200, \
+            f"{name} outbound fetch failed: {r.text if r is not None else 'no response'}"
+        assert r.json() == {"status": 200, "ok": True}, r.text
+        print(f"  {name} (isolation:{iso}) fetched https://example.com -> 200 ✓")
+
+    nets = subprocess.run(
+        ["docker", "inspect", "tee-isolated-dns-probe-iso-dev", "--format",
+         "{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}"],
+        capture_output=True, text=True, check=True).stdout.strip().split()
+    assert "tee-proj-dns-probe-iso-dev" in nets, nets
+    dns_raw = subprocess.run(
+        ["docker", "inspect", "tee-isolated-dns-probe-iso-dev", "--format",
+         "{{json .HostConfig.Dns}}"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    dns = json.loads(dns_raw)
+    assert dns is None or dns == GVISOR_DNS, \
+        f"unexpected Dns on isolated tenant: {dns}"
+    print(f"  isolated tenant on {nets}; Dns={dns} (explicit only under runsc) ✓")
+
+    api_delete("/projects/dns-probe-iso")
+    api_delete("/projects/dns-probe-shared")
+
+
 def test_per_project_network_isolation():
     print("\n--- Test: image-runtime tenants on separate networks ---")
     for n in ("net-a", "net-b"):
@@ -629,9 +911,19 @@ def test_substrate_endpoint():
     expected = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
     assert info["container_runtime"] == expected, info
     assert info["effective_runtime"] == (expected or "runc"), info
+    local_runtimes = json.loads(subprocess.run(
+        ["docker", "info", "--format", "{{json .Runtimes}}"],
+        capture_output=True, text=True, check=True).stdout)
+    assert info["available_runtimes"] == sorted(local_runtimes), info
+    assert info["network_isolation"] in ("host", "sandbox", "netns"), info
+    if not expected:
+        assert info["network_isolation"] == "netns", info
     assert "shared" in info["isolation_modes"] and "container" in info["isolation_modes"]
     assert len(info["deno_entry_shim_sha256"]) == 64
-    print(f"  effective_runtime={info['effective_runtime']} shim_sha={info['deno_entry_shim_sha256'][:12]} ✓")
+    print(f"  effective_runtime={info['effective_runtime']} "
+          f"network_isolation={info['network_isolation']} "
+          f"available={','.join(info['available_runtimes'])} "
+          f"shim_sha={info['deno_entry_shim_sha256'][:12]} ✓")
 
 
 def test_per_project_isolation():
@@ -791,6 +1083,70 @@ def test_list_projects():
         assert p["tree_hash"]
 
 
+def test_env_redaction():
+    """Issue #67: every project-returning endpoint must redact env, not just the
+    public verifier surface. A leak that moved from promote to list/status is not
+    a fix."""
+    print("\n--- Test: env redaction on project responses (issue #67) ---")
+    repo = create_test_repo("test-redact", {"index.html": b"redact"})
+    secret_env = {"GITHUB_CLIENT_SECRET": "super-secret-value-xyz"}
+    resp = api_post("/projects", json={
+        "name": "test-redact", "source": repo, "runtime": "static",
+        "mode": "dev", "env": secret_env,
+    })
+    assert resp.status_code == 201, f"deploy failed: {resp.text}"
+    # deploy response must not echo the plaintext secret
+    assert resp.json()["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, resp.json()["env"]
+
+    # GET single (admin status) must redact
+    one = api_get("/projects/test-redact").json()
+    assert one["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, one["env"]
+
+    # GET list must redact
+    listed = [p for p in api_get("/projects").json() if p["name"] == "test-redact"][0]
+    assert listed["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, listed["env"]
+
+    # promote (the reported leak) must redact
+    resp = api_post("/projects/test-redact/promote")
+    assert resp.status_code == 200, f"promote failed: {resp.text}"
+    assert resp.json()["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, resp.json()["env"]
+    print("  deploy/status/list/promote all redact env \u2713")
+
+
+def test_root_listing_layers():
+    """The public root listing drives the 3-layer console: anonymous sees only the
+    attested surface plus a `hidden` count (the #43 pointer); an owner bearer sees
+    everything. The listing carries the RFC 0029 `operator_debug` layering signal."""
+    print("\n--- Test: root listing layers + operator_debug + hidden count ---")
+    repo_dev = create_test_repo("listing-dev", {"index.html": b"dev"})
+    repo_att = create_test_repo("listing-attested", {"index.html": b"attested"})
+    repo_od = create_test_repo("listing-override", {"index.html": b"override"})
+    api_post("/projects", json={"name": "listing-dev", "source": repo_dev, "runtime": "static"})
+    api_post("/projects", json={"name": "listing-attested", "source": repo_att, "runtime": "static", "mode": "attested"})
+    r = api_post("/projects", json={"name": "listing-override", "source": repo_od,
+                                     "runtime": "static", "mode": "attested", "operator_debug": True})
+    assert r.status_code == 201, r.text
+
+    hdr_json = {"Accept": "application/json"}
+    anon = requests.get(f"{INGRESS}/", headers=hdr_json).json()
+    assert "listing-dev" not in anon["projects"], "private/dev leaked to anonymous"
+    assert "listing-attested" in anon["projects"], "attested hidden from anonymous"
+    assert "listing-override" in anon["projects"], "attested+operator_debug hidden from anonymous"
+    assert isinstance(anon["hidden"], int) and anon["hidden"] >= 1, anon
+    print(f"  anonymous: attested visible, dev hidden, hidden={anon['hidden']} ✓")
+
+    owner = requests.get(f"{INGRESS}/", headers={**hdr_json, **AUTH}).json()
+    assert "listing-dev" in owner["projects"], "owner cannot see private/dev"
+    assert owner["hidden"] == 0, owner
+    assert owner["projects"]["listing-attested"]["operator_debug"] is False
+    assert owner["projects"]["listing-override"]["operator_debug"] is True, "operator_debug layer signal missing"
+    print("  owner: all layers visible, operator_debug surfaced per layer ✓")
+
+    for n in ("listing-dev", "listing-attested", "listing-override"):
+        api_delete(f"/projects/{n}")
+    print("  cleaned up ✓")
+
+
 def test_rfc0020_bundle():
     """Test that the RFC 0020 verification endpoint returns the full bundle schema."""
     print("\n--- Test: RFC 0020 bundle schema ---")
@@ -936,6 +1292,224 @@ def test_rfc0020_source_pull():
         print(f"  Skipping git tree check (tree_hash_kind={facts.source.tree_hash_kind})")
 
 
+def test_tier0_source_binding_survives_promote():
+    """Tier-0 gate journey: source-backed dev deploy -> promote -> the evidence
+    bundle still binds the deploy-time tree_hash.
+
+    Mirrors oauth3-apps/harness/tier0-journeys.sh (journey 2/3): a source-backed
+    app is deployed with no mode (dev, the default) then promoted to attested,
+    and the verification bundle must surface app.source.tree_hash equal to the
+    deploy-time value. Existing bundle tests deploy directly in attested mode,
+    so they never exercise the promote() round-trip that this journey depends on.
+    """
+    print("\n--- Test: Tier-0 source binding survives dev->promote ---")
+    repo = create_test_repo("tier0-src", {"index.html": b"<html>tier0 source binding</html>"})
+    # Deploy with NO mode (dev, the default) — exactly like tier0 deploy_source.
+    resp = api_post("/projects", json={
+        "name": "tier0-src", "source": repo, "runtime": "static", "entry": "index.html"})
+    assert resp.status_code == 201, f"deploy failed: {resp.status_code} {resp.text}"
+    deploy = resp.json()
+    assert deploy["mode"] == "dev", deploy
+    deploy_tree_hash = deploy["tree_hash"]
+    assert deploy_tree_hash, "source-backed deploy must produce a tree_hash"
+    print(f"  deployed dev: tree_hash={deploy_tree_hash[:12]}")
+
+    # Promote to attested — the journey step whose bundle effect was untested.
+    resp = api_post(f"/projects/tier0-src/promote")
+    assert resp.status_code == 200, f"promote failed: {resp.status_code} {resp.text}"
+    assert resp.json()["mode"] == "attested", resp.json()
+    print("  promoted to attested ✓")
+
+    # The evidence bundle must still bind the deploy-time tree_hash.
+    resp = api_get("/verification/tier0-src")
+    assert resp.status_code == 200, f"verification failed: {resp.text}"
+    bundle = resp.json()
+    src = (bundle.get("app") or {}).get("source") or {}
+    th = src.get("tree_hash", "")
+    assert th, ("SOURCE BINDING MISSING: app.source.tree_hash absent after promote "
+                f"(bundle app={bundle.get('app')!r})")
+    assert th == deploy_tree_hash, (
+        f"source binding drifted: bundle {th[:12]} != deploy-time {deploy_tree_hash[:12]}")
+    print(f"  bundle app.source.tree_hash == deploy-time binding {th[:12]} ✓")
+
+    # The promote must be persisted to the audit log (pha gate showed only 1
+    # entry when this regressed — promote didn't complete). Assert it here so a
+    # half-finished promote can't pass the gate silently.
+    actions = [e.get("action") for e in (bundle.get("audit") or [])]
+    assert "deploy" in actions and "promote" in actions, (
+        f"audit missing promote entry: actions={actions}")
+    print(f"  audit recorded deploy+promote: {actions} ✓")
+
+
+def test_dstack_proxy_project_scoped():
+    """Issue #80/#7: GetKey must derive the key path from the proxy's bound
+    project_id (never a caller-supplied path), and reject traversal-shaped names.
+
+    Mirrors the operator's vulnerable->fixed demo: an own-project key is derived
+    correctly, and a cross-project `path` cannot redirect derivation.
+    """
+    import asyncio
+    import shutil
+    import aiohttp
+    from aiohttp import web
+    from proxy.dstack_proxy import DstackProxy
+
+    print("\n--- Test: dstack GetKey scoped to bound project (#80) ---")
+
+    async def fake_upstream(request):
+        # Echo the (possibly rewritten) body so the test sees what path the proxy
+        # actually forwarded to dstack.
+        body = await request.read()
+        return web.Response(body=body, content_type="application/json")
+
+    async def run():
+        tmp = tempfile.mkdtemp(prefix="dstack-proxy-test-")
+        try:
+            upstream_sock = os.path.join(tmp, "upstream.sock")
+            up_app = web.Application()
+            up_app.router.add_route("*", "/{path:.*}", fake_upstream)
+            up_runner = web.AppRunner(up_app)
+            await up_runner.setup()
+            await web.UnixSite(up_runner, upstream_sock).start()
+
+            proxy = DstackProxy(upstream_sock, "projA")
+            px_app = web.Application()
+            px_app.router.add_route("*", "/{path:.*}", proxy.handle)
+            px_runner = web.AppRunner(px_app)
+            await px_runner.setup()
+            client_sock = os.path.join(tmp, "proxy.sock")
+            await web.UnixSite(px_runner, client_sock).start()
+
+            conn = aiohttp.UnixConnector(path=client_sock)
+            async with aiohttp.ClientSession(connector=conn) as s:
+                # own-key derives projA/master
+                async with s.post("http://localhost/GetKey", json={"name": "master"}) as r:
+                    assert r.status == 200, r.status
+                    assert (await r.json())["path"] == "/tee-daemon/projects/projA/master"
+                # legacy cross-project path is IGNORED -> still projA/master
+                async with s.post("http://localhost/GetKey", json={
+                    "name": "master",
+                    "path": "/tee-daemon/projects/projB/secret",
+                }) as r:
+                    assert r.status == 200, r.status
+                    assert (await r.json())["path"] == "/tee-daemon/projects/projA/master"
+                # bad names rejected (traversal / empty / leading dot)
+                for bad in ["", "../x", "a/b", "a\\b", ".hidden", "a..b"]:
+                    async with s.post("http://localhost/GetKey", json={"name": bad}) as r:
+                        assert r.status == 400, (bad, r.status)
+                # a different project's proxy derives its OWN key (no cross-talk)
+                proxyB = DstackProxy(upstream_sock, "projB")
+                b_app = web.Application()
+                b_app.router.add_route("*", "/{path:.*}", proxyB.handle)
+                b_runner = web.AppRunner(b_app)
+                await b_runner.setup()
+                b_sock = os.path.join(tmp, "proxyB.sock")
+                await web.UnixSite(b_runner, b_sock).start()
+                bconn = aiohttp.UnixConnector(path=b_sock)
+                async with aiohttp.ClientSession(connector=bconn) as s2:
+                    async with s2.post("http://localhost/GetKey", json={"name": "master"}) as r:
+                        assert (await r.json())["path"] == "/tee-daemon/projects/projB/master"
+                await b_runner.cleanup()
+                # non-GetKey methods still pass through (no name required)
+                async with s.post("http://localhost/Info", json={}) as r:
+                    assert r.status == 200, r.status
+                # disallowed method denied
+                async with s.post("http://localhost/RawSign", json={}) as r:
+                    assert r.status == 403, r.status
+            await px_runner.cleanup()
+            await up_runner.cleanup()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    asyncio.run(run())
+    print("  project-scoped GetKey derivation OK ✓")
+
+
+def test_dstack_proxy_manager_per_project():
+    """Issue #80: DstackProxyManager serves one project-scoped socket per project
+    (dstack.sock + creds.sock in each project's own subdir), so a project's
+    container can be given only its own broker dir."""
+    import asyncio
+    import shutil
+    import aiohttp
+    from aiohttp import web
+    from proxy.dstack_proxy import DstackProxyManager
+
+    print("\n--- Test: DstackProxyManager per-project sockets (#80) ---")
+
+    async def fake_upstream(request):
+        body = await request.read()
+        return web.Response(body=body, content_type="application/json")
+
+    async def creds_handler(request):
+        # Stand-in for BrokerProxy: token-auth is irrelevant here; we only verify
+        # the SAME runner is reachable on every project's creds.sock.
+        return web.json_response({"ok": True})
+
+    async def run():
+        tmp = tempfile.mkdtemp(prefix="dstack-mgr-test-")
+        broker_dir = os.path.join(tmp, "broker")
+        os.makedirs(broker_dir)
+        try:
+            upstream_sock = os.path.join(tmp, "upstream.sock")
+            up_app = web.Application()
+            up_app.router.add_route("*", "/{path:.*}", fake_upstream)
+            up_runner = web.AppRunner(up_app)
+            await up_runner.setup()
+            await web.UnixSite(up_runner, upstream_sock).start()
+
+            creds_app = web.Application()
+            creds_app.router.add_route("*", "/{path:.*}", creds_handler)
+            creds_runner = web.AppRunner(creds_app)
+            await creds_runner.setup()
+
+            mgr = DstackProxyManager(upstream_sock, broker_dir, creds_runner)
+            await mgr.ensure("projA")
+            await mgr.ensure("projB")
+
+            # Each project got its OWN dstack.sock + creds.sock in its own subdir.
+            for p in ("projA", "projB"):
+                assert os.path.exists(os.path.join(broker_dir, p, "dstack.sock"))
+                assert os.path.exists(os.path.join(broker_dir, p, "creds.sock"))
+
+            async def getkey(project, name):
+                conn = aiohttp.UnixConnector(path=os.path.join(broker_dir, project, "dstack.sock"))
+                async with aiohttp.ClientSession(connector=conn) as s:
+                    async with s.post("http://localhost/GetKey", json={"name": name}) as r:
+                        return r.status, (await r.json()).get("path")
+
+            # projA's socket derives projA's key; projB's derives projB's — no cross-talk.
+            st, path = await getkey("projA", "master")
+            assert st == 200 and path == "/tee-daemon/projects/projA/master", (st, path)
+            st, path = await getkey("projB", "master")
+            assert st == 200 and path == "/tee-daemon/projects/projB/master", (st, path)
+
+            # The shared creds runner is reachable on BOTH project sockets.
+            for p in ("projA", "projB"):
+                conn = aiohttp.UnixConnector(path=os.path.join(broker_dir, p, "creds.sock"))
+                async with aiohttp.ClientSession(connector=conn) as s:
+                    async with s.post("http://localhost/proxy/g-x", json={}) as r:
+                        assert r.status == 200, (p, r.status)
+                        assert (await r.json()) == {"ok": True}
+
+            # ensure is idempotent; remove tears the project's sockets down.
+            await mgr.ensure("projA")
+            await mgr.remove("projA")
+            assert not os.path.exists(os.path.join(broker_dir, "projA", "dstack.sock"))
+            assert not os.path.exists(os.path.join(broker_dir, "projA", "creds.sock"))
+            # projB unaffected by projA's removal.
+            assert os.path.exists(os.path.join(broker_dir, "projB", "dstack.sock"))
+
+            await mgr.stop_all()
+            await creds_runner.cleanup()
+            await up_runner.cleanup()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    asyncio.run(run())
+    print("  per-project broker sockets (dstack + creds) OK ✓")
+
+
 def await_if_needed(func, *args, **kwargs):
     """Helper to run async functions in sync context if needed."""
     import asyncio
@@ -944,9 +1518,159 @@ def await_if_needed(func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
+def test_browser_pool():
+    """RFC 0028: pool isolates per-lease jars, resets between leases, and
+    serializes/fairly-queues acquires against a 1-slot pool."""
+    from concurrent.futures import ThreadPoolExecutor
+    print("\n--- Test: RFC 0028 browser pool (isolation/reset/fairness/timeout) ---")
+
+    # The pool warms in the background (image pull + health poll); wait for it.
+    status = None
+    for _ in range(80):
+        r = api_get("/browser/pool")
+        if r.status_code == 200 and r.json().get("started"):
+            status = r.json()
+            break
+        time.sleep(0.5)
+    assert status, f"browser pool never became ready: {r.status_code} {r.text}"
+    assert status["size"] == 1, status
+    print(f"  pool ready: size={status['size']} ✓")
+
+    # --- per-lease isolation + reset (the core 0028 fix) ---
+    # Lease A injects USER_A and renders -> sees USER_A.
+    r = api_post("/browser/render", json={"domain": "example.com", "jar": "USER_A", "url": "/me"})
+    assert r.status_code == 200, r.text
+    assert r.json()["body"] == "USER_A", r.json()
+    # A fresh lease with NO jar must see empty (reset cleared USER_A). Without
+    # reset this leaks USER_A to the next tenant — the exact bug in 0028.
+    r = api_post("/browser/render", json={"domain": "example.com", "jar": "", "url": "/me"})
+    assert r.status_code == 200, r.text
+    assert r.json()["body"] == "", f"reset leaked prior session: {r.json()}"
+    # A different jar lands cleanly.
+    r = api_post("/browser/render", json={"domain": "example.com", "jar": "USER_B", "url": "/me"})
+    assert r.json()["body"] == "USER_B", r.json()
+    print("  per-lease isolation + reset ✓")
+
+    # --- fairness: a 1-slot pool must serialize concurrent leases ---
+    def render(jar):
+        return api_post("/browser/render", json={"domain": "ex.com", "jar": jar, "url": "/x"})
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fa, fb = ex.submit(render, "C1"), ex.submit(render, "C2")
+        ra, rb = fa.result(), fb.result()
+    assert ra.status_code == 200 and rb.status_code == 200, (ra.text, rb.text)
+    # The bridge reports max concurrent /render calls it ever saw. A 1-slot pool
+    # serializes leases so it must be 1; a broken pool handing one container to
+    # both callers would see 2.
+    assert ra.json()["max_active"] == 1, ra.json()
+    assert rb.json()["max_active"] == 1, rb.json()
+    print("  fairness: concurrent leases serialized (max_active=1) ✓")
+
+    # --- acquire timeout under contention ---
+    def render_slow():
+        # holds the only slot for ~0.4s (bridge sleep)
+        return api_post("/browser/render", json={"domain": "ex.com", "jar": "S", "url": "/x"})
+    def render_hurry():
+        return api_post("/browser/render", json={"domain": "ex.com", "jar": "H", "url": "/x", "timeout": 0.1})
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        f_slow = ex.submit(render_slow)
+        # Wait until render_slow has acquired the slot (busy=1), then contend.
+        for _ in range(40):
+            if api_get("/browser/pool").json().get("busy") == 1:
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("render_slow never acquired the slot")
+        r_hurry = render_hurry()  # pool busy -> acquire times out at 0.1s
+        r_slow = f_slow.result()
+    assert r_slow.status_code == 200, r_slow.text
+    assert r_hurry.status_code == 503, f"expected lease timeout 503, got {r_hurry.status_code} {r_hurry.text}"
+    assert "timeout" in r_hurry.json().get("error", ""), r_hurry.json()
+    print("  acquire timeout under contention -> 503 ✓")
+
+
+def test_rfc0017_export_import():
+    print("\n--- Test: RFC 0017 export bundle + pinned import ---")
+    repo = create_test_repo("test-exp", {
+        "index.html": b"<html><body><h1>export me</h1></body></html>",
+    })
+    resp = api_post("/projects", json={
+        "name": "test-exp", "source": repo, "runtime": "static",
+        "env": {"SECRET": "hunter2-export-secret"},
+    })
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    pinned = resp.json()
+
+    resp = api_get("/export")
+    assert resp.status_code == 200, f"export failed: {resp.status_code} {resp.text}"
+    assert "hunter2-export-secret" not in resp.text, "env secret leaked into export bundle"
+    bundle = resp.json()
+    entry = next(p for p in bundle["projects"] if p["name"] == "test-exp")
+    for f in ("source", "ref", "commit_sha", "tree_hash", "image", "image_digest",
+              "runtime", "entry", "port", "mode", "volumes"):
+        assert f in entry, f"export entry missing {f}"
+    assert "env" not in entry, "env must not be exported (RFC 0018 owns secrets)"
+    assert entry["commit_sha"] == pinned["commit_sha"]
+    assert entry["tree_hash"] == pinned["tree_hash"]
+    print(f"  Export: {len(bundle['projects'])} projects, pins present, env absent \u2713")
+
+    # Tampered pin: one flipped hex char must ERROR + skip, naming the project.
+    bad_tree = ("0" if entry["tree_hash"][0] != "0" else "1") + entry["tree_hash"][1:]
+    resp = api_post("/import", json={"projects": [{**entry, "tree_hash": bad_tree}]})
+    assert resp.status_code == 200, resp.text
+    result = resp.json()
+    assert "test-exp" not in result["imported"], result
+    skip = next(s for s in result["skipped"] if s["project"] == "test-exp")
+    assert "tree_hash mismatch" in skip["error"], skip
+    assert api_get("/projects/test-exp").status_code == 200, "failed import damaged live project"
+    print(f"  Tampered tree_hash: ERROR+skip, project intact \u2713")
+
+    # Pinned import must not chase the moving ref: push a new commit, import the
+    # old pin, project comes back at the recorded commit_sha.
+    push_update("test-exp", {"index.html": b"<html><body><h1>moved on</h1></body></html>"})
+    resp = api_post("/import", json={"projects": [entry]})
+    assert resp.status_code == 200, resp.text
+    assert "test-exp" in resp.json()["imported"], resp.json()
+    after = api_get("/projects/test-exp").json()
+    assert after["commit_sha"] == pinned["commit_sha"], "import re-cloned at latest"
+    assert after["tree_hash"] == pinned["tree_hash"]
+    resp = requests.get(f"{INGRESS}/test-exp/")
+    assert "export me" in resp.text, "import served content outside the pin"
+    print("  Clean import: redeployed at pinned commit, not latest \u2713")
+
+
+def test_rfc0017_bootstrap():
+    print("\n--- Test: RFC 0017 empty registry + bundle at boot restores fleet ---")
+    bundle = api_get("/export").json()
+    assert bundle["projects"], "expected a non-empty fleet to export"
+    stop_daemon()
+    data_dir = os.path.join(tmpdir, "projects")
+    for e in os.listdir(data_dir):
+        if os.path.isfile(os.path.join(data_dir, e, "project.json")):
+            shutil.rmtree(os.path.join(data_dir, e))
+    with open(os.path.join(data_dir, "import-bundle.json"), "w") as f:
+        json.dump(bundle, f)
+    start_daemon(reuse_tmpdir=True)
+    restored = {p["name"]: p for p in api_get("/projects").json()}
+    for p in bundle["projects"]:
+        restorable = (p.get("runtime") == "image"
+                      or p.get("source", "").startswith(("https://", "http://", "/")))
+        if not restorable:
+            # tarball-origin projects carry a placeholder source — RFC 0017:
+            # they cannot be reconstituted, so the skip must be visible, not silent.
+            assert p["name"] not in restored, f"{p['name']} restored without a cloneable source?"
+            continue
+        assert p["name"] in restored, f"{p['name']} not restored from bundle"
+        if p["commit_sha"]:
+            assert restored[p["name"]]["commit_sha"] == p["commit_sha"], \
+                f"{p['name']} restored off-pin"
+    resp = requests.get(f"{INGRESS}/test-static/")
+    assert "Updated" in resp.text, "restored fleet not serving"
+    print(f"  Bootstrap: {len(bundle['projects'])} projects restored at their pins \u2713")
+
+
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-deno", "test-auto", "test-tarball", "test-image", "test-caps", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "net-a", "net-b", "data-iso", "rfc-test"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -959,10 +1683,14 @@ def main():
     cleanup_containers()
     start_daemon()
     try:
+        test_dstack_proxy_project_scoped()
+        test_dstack_proxy_manager_per_project()
         test_auth()
         test_version()
+        test_boot_refuses_without_commit()
         test_deploy_static()
         test_caps_require_attested()
+        test_operator_debug()
         test_ingress_static()
         test_scoped_tokens()
         test_git_blocked()
@@ -978,6 +1706,7 @@ def main():
         test_isolated_per_project_data_volume()
         test_env_passthrough()
         test_isolated_deno_env_passthrough()
+        test_dns_probe()
         test_image_redeploy()
         test_substrate_endpoint()
         test_autodetect()
@@ -988,11 +1717,19 @@ def main():
         test_redeploy()
         test_audit_log()
         test_list_projects()
+        test_env_redaction()
+        test_root_listing_layers()
+        test_landing_cards()
+        test_landing_descriptions()
         test_rfc0020_bundle()
         test_rfc0020_tamper()
         test_rfc0020_non_anchored()
         test_rfc0020_two_policies()
         test_rfc0020_source_pull()
+        test_tier0_source_binding_survives_promote()
+        test_browser_pool()
+        test_rfc0017_export_import()
+        test_rfc0017_bootstrap()
         test_teardown()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:

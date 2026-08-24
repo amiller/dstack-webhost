@@ -60,10 +60,20 @@ given a properly-scoped jar, so 0018 is the gating dependency.
 - Supersedes the interim bridge-secret lock and the single `login-with-anything` CVM.
 - Debug access to pool containers follows RFC 0026 (promotion-gated).
 
+## Decisions
+- **Isolation model — DECIDED: a fresh container per lease.** A lease gets a dedicated browser
+  container for its full duration; on release the container is destroyed, not reset-and-reused. This
+  buys the strongest isolation (no reset-completeness risk — nothing to clear because nothing is
+  reused) at the cost of cold-spawn latency, mitigated by the warm pool. This makes the "no
+  cross-session bleed" guarantee structural, not a scrubbing best-effort.
+- **Metering — DECIDED: account render-time per lease.** Because a lease is a discrete
+  container-for-a-duration, on release it writes `{plugin, subject, active_render_ms}` (and peak vCPU
+  if cheap to sample) to the audit log. This is simultaneously the fairness signal and the unit of a
+  future per-subject quota/price — browser-time as a scoped, metered capability. First cut ships the
+  accounting hook only; pricing/quota is later.
+
 ## Open questions
 - **Warm-pool sizing vs. cold-spawn latency** — Neko/Chromium cold start is seconds; a small warm pool
   hides it but costs memory. Autoscale on queue depth?
-- **Reset completeness** — clearing cookies/storage/serviceworkers between leases must be provably
-  total, or a fresh container per lease (safer, slower). Measure the reset, or pay for ephemerality?
 - **Egress binding** — each lease's egress should be locked to the target domain (the jar's cookie
   domains), consistent with RFC 0003's egress-lock default.

@@ -62,10 +62,17 @@ services:
       # ... other config
 ```
 
-`/_api/substrate` will then report `"effective_runtime": "runsc"`. Tenants run
+`/_api/substrate` will then report `"effective_runtime": "runsc"` (and
+`"network_isolation": "sandbox"`). Tenants run
 under gVisor; the [isolation-probe](https://github.com/amiller/dstack-webhost/tree/main/apps/isolation-probe)
 will show a different signature in `/proc/self/uid_map` and `user_ns` than
 sysbox-runc — gVisor synthesises those from its own Sentry process.
+
+For tenants that need outbound DNS, use `runsc-hostnet` instead (same runsc
+binary, registered with `--network=host`): Docker's embedded resolver at
+`127.0.0.11` is unreachable under plain runsc's netstack, and `HostConfig.Dns`
+does not fix that. `/_api/substrate` reports the difference as
+`"network_isolation": "host"`.
 
 ## Caveats
 

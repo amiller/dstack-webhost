@@ -12,6 +12,18 @@ You hit a TEE-hosted app. This page is the audit-ready report for what's running
 
 The mechanical part — proving the code running on this CVM is the same code in the public GitHub repo — is resolved on this page, automatically, on load. The judgmental part — whether the code does what it claims — is the source-reading work below. You don't have to do it; you can pass the URL to someone whose job it is.
 
+## Consumer verification
+
+The Python `verify()` library runs Phala's local DCAP/QVL verifier. Install its CLI before
+using the library:
+
+```sh
+cargo install dcap-qvl-cli
+```
+
+It returns structured facts, including quote validity and measurements; the consumer still
+chooses its acceptance policy.
+
 <p class="target"><span class="muted">Reading:</span> <code id="targetLine">timelock at hermes-staging</code></p>
 
 ## Provenance
