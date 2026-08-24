@@ -165,10 +165,14 @@ When a tenant runs under plain `runsc`, outbound DNS resolution hits a real inte
 
 `HostConfig.Dns` (the compose `dns:` field) does not fix this — it only changes the upstream resolvers Docker's embedded DNS forwards to, not the embedded DNS address Docker writes into `/etc/resolv.conf`.
 
-The substrate now handles this two ways, so no tenant has to choose between gVisor and DNS:
+The substrate's answer is a second runtime, so no tenant has to choose between gVisor and DNS:
 
 - **`runsc-hostnet`** — the [prelaunch](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch) registers a second runtime, `runsc --network=host`. Network syscalls pass through to the container's own netns, so `127.0.0.11`, embedded DNS and container-name discovery behave exactly as under runc, while Sentry still mediates every other syscall. The trade is explicit, not hidden: netstack isolation is given up — network syscalls reach the host kernel again. `/_api/substrate` reports this as `"network_isolation": "host"` (vs `"sandbox"` for plain runsc, `"netns"` for runc-family).
-- **Plain `runsc` tenants get explicit `HostConfig.Dns`** (routable resolvers — the queried hostname is already disclosed by SNI; see `docker_client.py`).
+
+Plain `runsc` is unchanged: name resolution on a per-project bridge is still broken. `docker_client.py`
+sets an explicit `HostConfig.Dns` for runsc tenants (#108), but that only changes what the embedded
+resolver forwards to — on a user-defined network Docker still writes `127.0.0.11`, so it buys nothing
+there. A tenant that needs netstack isolation *and* DNS has no answer in this substrate today.
 
 `/_api/substrate` reports `available_runtimes` read live from Docker's `GET /info`, and the daemon refuses to start when `DAEMON_CONTAINER_RUNTIME` names a runtime Docker does not have — the substrate's runtime claim cannot silently drift from what the host actually runs.
 
