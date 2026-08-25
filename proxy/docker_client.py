@@ -115,8 +115,14 @@ class DockerClient:
         _, body = await self._raw_request("GET", f"/containers/{cid}/logs?stdout=true&stderr=true&tail={tail}")
         return _demux_docker_stream(body)
 
+    # A pull that never returns must not be able to stall a boot. Docker Hub throttling an
+    # anonymous pull looks exactly like this, and 300s of it per broken tenant is a long time
+    # to hold the substrate. Recovery treats a failure here as "skip that project".
+    PULL_TIMEOUT = 120
+
     async def pull(self, image: str):
-        status, body = await self._raw_request("POST", f"/images/create?fromImage={image}")
+        status, body = await self._raw_request(
+            "POST", f"/images/create?fromImage={image}", timeout=self.PULL_TIMEOUT)
         if status >= 400:
             # Registry unreachable / rate-limited is fine if the image is already
             # cached locally — use the cached image rather than blocking the deploy.

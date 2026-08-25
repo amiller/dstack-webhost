@@ -1728,7 +1728,16 @@ def test_rfc0017_bootstrap():
     with open(os.path.join(data_dir, "import-bundle.json"), "w") as f:
         json.dump(bundle, f)
     start_daemon(reuse_tmpdir=True)
-    restored = {p["name"]: p for p in api_get("/projects").json()}
+    # The ingress now binds BEFORE recovery finishes (one slow image pull must not hold the
+    # whole pod dark — oauth3-prod7, 2026-08-25), so the bundle import lands shortly after
+    # the daemon answers rather than before it. Poll for the fleet instead of assuming boot
+    # already did the work.
+    want = {p["name"] for p in bundle["projects"]}
+    for _ in range(120):
+        restored = {p["name"]: p for p in api_get("/projects").json()}
+        if want <= set(restored):
+            break
+        time.sleep(0.5)
     for p in bundle["projects"]:
         restorable = (p.get("runtime") == "image"
                       or p.get("source", "").startswith(("https://", "http://", "/")))

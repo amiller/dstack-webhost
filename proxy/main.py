@@ -159,8 +159,22 @@ async def start():
 
     await audit_manager.replay_anchors()
 
-    # Recovery: restore shared runtimes for existing projects
-    await rtm.recover_all()
+    # Recovery runs in the BACKGROUND; the ingress binds without waiting for it.
+    # Awaiting it here meant one tenant's slow image pull held the whole pod dark:
+    # 2026-08-25, oauth3-prod7 sat unreachable for fifteen minutes on
+    # `Pulling alpine for project caps-probe` — one long-broken tenant, thirty-three
+    # healthy ones unreachable, and nothing served until it gave up. A project that
+    # has not been recovered yet answers 502 for a moment, which is strictly better
+    # than every project answering nothing.
+    recovery = asyncio.create_task(rtm.recover_all())
+
+    def _recovery_done(task):
+        exc = task.exception() if not task.cancelled() else None
+        if exc:
+            log.error("recover_all failed: %s", exc)
+        else:
+            log.info("Recovery complete")
+    recovery.add_done_callback(_recovery_done)
 
     # Recovery: restore tunnels from disk
     tunnel_store.recover()
