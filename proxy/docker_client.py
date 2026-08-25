@@ -96,6 +96,13 @@ class DockerClient:
         _, body = await self._raw_request("GET", f"/containers/{cid}/logs?stdout=true&stderr=true&tail={tail}")
         return body.decode("utf-8", errors="replace")
 
+    async def stats(self, cid: str) -> dict:
+        status, data = await self._json_request(
+            "GET", f"/containers/{cid}/stats?stream=false")
+        if status >= 400:
+            raise RuntimeError(f"stats failed ({status}): {data}")
+        return data
+
     async def pull(self, image: str):
         status, body = await self._raw_request("POST", f"/images/create?fromImage={image}")
         if status >= 400:
