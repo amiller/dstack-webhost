@@ -19,7 +19,7 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
-from .deploy import deploy, teardown, promote, unpromote, import_bundle
+from .deploy import deploy, teardown, promote, unpromote, import_bundle, REDACTED
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
@@ -55,7 +55,7 @@ def _redact_env(data: dict) -> dict:
     must never echo plaintext secrets back to the client or into logs; GET, status,
     deploy, redeploy, promote and aggregate all share this one rule."""
     if data.get("env"):
-        data["env"] = dict.fromkeys(data["env"], "<redacted>")
+        data["env"] = dict.fromkeys(data["env"], REDACTED)
     return data
 
 

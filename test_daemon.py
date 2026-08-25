@@ -1112,6 +1112,52 @@ def test_env_redaction():
     assert resp.json()["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, resp.json()["env"]
     print("  deploy/status/list/promote all redact env \u2713")
 
+    # The other half of the same rule: a redaction must never be STORED. Round-tripping the
+    # manifest we just fetched is exactly what a deploy script does, and before this guard it
+    # replaced the live secret with the string "<redacted>" (prod GitHub/Google login, 2026-08-24).
+    fetched = api_get("/projects/test-redact").json()
+    fetched["source"] = repo
+    resp = api_post("/projects", json=fetched)
+    assert resp.status_code == 400, f"round-tripping a redacted manifest must be refused: {resp.status_code} {resp.text}"
+    assert "GITHUB_CLIENT_SECRET" in resp.text and "<redacted>" in resp.text, resp.text
+    api_delete("/projects/test-redact")
+
+    # And the escape hatch that makes the refusal usable: omit env entirely and the stored values
+    # carry forward, so a caller can change oci_runtime (the gVisor migration) without re-supplying
+    # secrets it is not allowed to read. Proven by a handler that echoes its own env back.
+    repo2 = create_test_repo("test-keepenv", {
+        "project.json": json.dumps({"runtime": "deno"}).encode(),
+        "server.ts": b"""
+export default (_req: Request, ctx: {env: Record<string,string>}) => {
+  return new Response(JSON.stringify({secret: ctx.env.APP_SECRET || ""}),
+    {headers: {"content-type": "application/json"}});
+};
+""",
+    })
+    resp = api_post("/projects", json={
+        "name": "test-keepenv", "source": repo2, "env": {"APP_SECRET": "real-value-42"}})
+    assert resp.status_code == 201, f"deploy failed: {resp.text}"
+    for _ in range(20):
+        r = requests.get(f"{INGRESS}/test-keepenv/")
+        if r.status_code == 200:
+            break
+        time.sleep(0.5)
+    assert r.json() == {"secret": "real-value-42"}, r.text
+
+    resp = api_post("/projects", json={"name": "test-keepenv", "source": repo2, "oci_runtime": "runc"})
+    assert resp.status_code == 201, f"env-omitted redeploy failed: {resp.text}"
+    assert resp.json()["oci_runtime"] == "runc"
+    assert resp.json()["env"] == {"APP_SECRET": "<redacted>"}, resp.json()["env"]
+    for _ in range(20):
+        r = requests.get(f"{INGRESS}/test-keepenv/")
+        if r.status_code == 200 and r.json().get("secret"):
+            break
+        time.sleep(0.5)
+    assert r.json() == {"secret": "real-value-42"}, \
+        f"omitting env must PRESERVE the stored secret, got {r.text}"
+    api_delete("/projects/test-keepenv")
+    print("  a redacted env is refused; omitting env preserves the stored secrets \u2713")
+
 
 def test_root_listing_layers():
     """The public root listing drives the 3-layer console: anonymous sees only the
@@ -1670,7 +1716,7 @@ def test_rfc0017_bootstrap():
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-keepenv", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")

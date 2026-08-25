@@ -27,6 +27,10 @@ log = logging.getLogger(__name__)
 NETWORK_DEV = "tee-apps-dev"
 NETWORK_ATTESTED = "tee-apps-attested"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# The sentinel every project-returning API response writes over env values. It is a marker that
+# a secret was WITHHELD, never a value: deploy() refuses to store it (see below), so a client that
+# round-trips a fetched manifest gets a loud 400 instead of silently overwriting a live secret.
+REDACTED = "<redacted>"
 VALID_RUNTIMES = set(RUNTIME_CONFIG.keys()) | {"static", "dockerfile", "image"}
 
 DEFAULT_ENTRY = {
@@ -178,6 +182,27 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
 
     if not name or not NAME_RE.match(name):
         raise ValueError(f"Invalid project name: {name!r}")
+
+    # 2026-08-24: deploy-prod-core.sh built its manifest from GET /_api/projects/oauth3, which
+    # redacts env — and POSTed the redactions back, replacing prod's GitHub and Google client
+    # id/secret with the literal string "<redacted>". Every health gate stayed green; the failure
+    # surfaced as `client_id=%3Credacted%3E` when a user tried to log in. Refuse it here, once,
+    # for every client of this API rather than in each deploy script.
+    redacted = sorted(k for k, v in (manifest.get("env") or {}).items() if v == REDACTED)
+    if redacted:
+        raise ValueError(
+            f"env values for {', '.join(redacted)} are the literal {REDACTED!r} — that is a "
+            f"withheld secret, not a value. Supply the real values or omit 'env' to keep the "
+            f"ones already stored.")
+
+    # An ABSENT 'env' on an existing project carries the stored env forward, so a caller that
+    # only wants to change (say) oci_runtime does not have to re-supply secrets it cannot read.
+    # Clearing env stays possible and explicit: send "env": {}.
+    if "env" not in manifest:
+        try:
+            manifest = {**manifest, "env": dict(store.load(name).env or {})}
+        except FileNotFoundError:
+            pass
 
     if manifest.get("runtime") == "image":
         return await _deploy_image(store, docker, audit_manager, rtm, manifest)
