@@ -141,6 +141,7 @@ for img in denoland/deno:latest node:22-slim python:3.12-slim nginx:alpine; do d
 --- Test: image-runtime adopts existing volume ---  Volume survived teardown ✓
 --- Test: two deno projects isolation=container --- A cannot read B's files ✓
 --- Test: image-runtime tenants separate networks - a -> b blocked ✓
+    (verbatim log: "tenants" = image-runtime apps)
 --- Test: isolation:container per-project volume -- per-project volume created ✓
 --- Test: image-runtime env_passthrough ---         container correctly missing it ✓
 --- Test: image-runtime redeploy preserves manifest Redeploy preserved ✓
