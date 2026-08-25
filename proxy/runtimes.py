@@ -513,6 +513,46 @@ class RuntimeManager:
                 log.debug("daemon connect_network %s: %s", net_name, e)
         return net_name
 
+    async def remove_project_network(self, project_name: str, mode: str) -> None:
+        """Give the subnet back when a project goes away.
+
+        Docker allocates every bridge network a subnet from default-address-pools —
+        by default about thirty of them. A daemon that creates one network per project
+        and never removes one runs the pool dry, and then every new tenant fails at
+        create_network with a 404 that says nothing about the real cause. The
+        containers are cleaned up already; this is the address space they were using."""
+        net_name = f"tee-proj-{project_name}-{mode}"
+        daemon_hostname = os.environ.get("HOSTNAME", "")
+        if daemon_hostname:
+            try:
+                await self.docker.disconnect_network(daemon_hostname, net_name)
+            except Exception as e:
+                log.debug("daemon disconnect_network %s: %s", net_name, e)
+        try:
+            if await self.docker.remove_network(net_name):
+                log.info("Released network %s", net_name)
+            else:
+                log.info("Network %s still has containers attached; left alone", net_name)
+        except Exception as e:
+            log.warning("remove_network %s: %s", net_name, e)
+
+    async def reclaim_orphan_networks(self) -> int:
+        """Release tee-proj-* networks nothing is attached to. Safe to run at startup:
+        a network with a live tenant on it reports containers and is skipped."""
+        released = 0
+        try:
+            for net in await self.docker.list_networks("tee-proj-"):
+                if not await self.docker.network_is_empty(net):
+                    continue
+                if await self.docker.remove_network(net):
+                    released += 1
+                    log.info("Reclaimed orphaned network %s", net)
+        except Exception as e:
+            log.warning("network reclaim failed: %s", e)
+        if released:
+            log.info("Reclaimed %d orphaned project network(s)", released)
+        return released
+
     async def _attach_egress(self, container: str, project) -> None:
         """Opt-in shared VPN egress. The provider joins as the stable alias 'egress-vpn';
         consumers just join so docker DNS resolves that alias (proxy env is injected at
@@ -793,6 +833,21 @@ class RuntimeManager:
                 result["backend"] = "runtime not running"
 
         return result
+
+    async def get_container_id(self, project) -> str | None:
+        """Resolve a project's live container id for logs/inspect. Prefers the
+        in-memory map (populated on deploy/recover); falls back to resolving by
+        the deterministic container name so it still works right after a daemon
+        restart before recover_all has run."""
+        cid = self.image_cids.get(project.name)
+        if cid:
+            return cid
+        if project.runtime == "image" or project.isolation == "container":
+            prefix = "tee-image" if project.runtime == "image" else "tee-isolated"
+            return await self.docker.container_exists(f"{prefix}-{project.name}-{project.mode}")
+        if project.runtime in ("dockerfile",):
+            return project.container_id or None
+        return None
 
     async def recover_all(self):
         await self._bootstrap_from_import_bundle()

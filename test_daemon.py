@@ -1159,6 +1159,38 @@ export default (_req: Request, ctx: {env: Record<string,string>}) => {
     print("  a redacted env is refused; omitting env preserves the stored secrets \u2713")
 
 
+def test_project_network_reclaim():
+    """The subnet a torn-down project used must go back to Docker's pool.
+
+    Docker hands each bridge network a subnet from default-address-pools — about
+    thirty of them. One network per project that is never released means a daemon
+    eventually fails EVERY new tenant at create_network, with a 404 that names an
+    address pool and not the cause. webhost-staging hit exactly that on 2026-08-24
+    with 52 projects deployed."""
+    print("\n--- Test: a torn-down project gives its subnet back ---")
+    repo = create_test_repo("net-reclaim", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container",
+                                    "listen": {"port": 8080, "protocol": "http"}}).encode(),
+        "server.ts": b'export default () => new Response("ok");',
+    })
+    resp = api_post("/projects", json={"name": "net-reclaim", "source": repo})
+    assert resp.status_code == 201, f"deploy failed: {resp.text}"
+    nets = subprocess.run(["docker", "network", "ls", "--format", "{{.Name}}"],
+                          capture_output=True, text=True).stdout.split()
+    assert "tee-proj-net-reclaim-dev" in nets, "per-project network was never created"
+
+    api_delete("/projects/net-reclaim")
+    for _ in range(20):
+        nets = subprocess.run(["docker", "network", "ls", "--format", "{{.Name}}"],
+                              capture_output=True, text=True).stdout.split()
+        if "tee-proj-net-reclaim-dev" not in nets:
+            break
+        time.sleep(0.5)
+    assert "tee-proj-net-reclaim-dev" not in nets, \
+        "teardown left the project network (and its subnet) behind"
+    print("  network created on deploy, released on teardown \u2713")
+
+
 def test_root_listing_layers():
     """The public root listing drives the 3-layer console: anonymous sees only the
     attested surface plus a `hidden` count (the #43 pointer); an owner bearer sees
@@ -1764,6 +1796,7 @@ def main():
         test_audit_log()
         test_list_projects()
         test_env_redaction()
+        test_project_network_reclaim()
         test_root_listing_layers()
         test_landing_cards()
         test_landing_descriptions()

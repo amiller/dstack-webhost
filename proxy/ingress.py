@@ -62,6 +62,43 @@ def _redact_env(data: dict) -> dict:
 DSTACK_SOCK = None  # set by main.py
 API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
 
+# Headers this proxy never forwards upstream.
+HOP_HEADERS = ("host", "transfer-encoding", "accept-encoding")
+
+# Headers that claim who the client is. A tenant reading one is trusting whoever set it.
+FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "x-forwarded-proto", "x-forwarded-host")
+
+# Peers whose forwarded headers we believe, by address. Empty means "believe nobody".
+#
+# WHY THIS IS A LIST AND NOT `request.remote`. RFC 0004 says to set X-Forwarded-For from the
+# peer address. That is wrong on this stack and would be worse than doing nothing. The custom
+# domain path puts dstack-ingress (haproxy) in front of this daemon in `mode tcp`: haproxy
+# terminates TLS and forwards a raw stream, so `request.remote` here is haproxy's container
+# IP -- the SAME value for every client on earth. Injecting that as X-Forwarded-For
+# manufactures a constant that looks like a client IP, passes a "the header is present" test,
+# and silently breaks any rate limiting built on it.
+#
+# A real client IP can only come from a proxy that saw the connection and said so. Until
+# haproxy runs `mode http` with `http-request set-header X-Real-IP %[src]`, no such proxy
+# exists here and the honest answer to "who is the client" is that this daemon does not know.
+# It forwards nothing rather than invent it.
+#
+# What this DOES fix now: the ingress passes a client's own X-Forwarded-For through verbatim
+# (verified against the live pod -- `-H "X-Forwarded-For: 1.2.3.4"` reached the tenant
+# unchanged), so a tenant reading it reads a value the caller picked. Stripped unless the peer
+# is named here.
+TRUSTED_PROXIES = frozenset(
+    p.strip() for p in os.environ.get("TRUSTED_PROXY_IPS", "").split(",") if p.strip()
+)
+
+
+def forward_headers(request: web.Request, extra_drop: tuple = ()) -> dict:
+    """Client headers to pass upstream, minus anything this peer may not assert."""
+    drop = HOP_HEADERS + extra_drop
+    if request.remote not in TRUSTED_PROXIES:
+        drop += FORWARDED_HEADERS
+    return {k: v for k, v in request.headers.items() if k.lower() not in drop}
+
 MIME_TYPES = {
     ".html": "text/html", ".css": "text/css", ".js": "application/javascript",
     ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg",
@@ -282,8 +319,7 @@ class Ingress:
     async def _proxy(self, request: web.Request, ip: str, port: int,
                      path: str) -> web.Response:
         body = await request.read()
-        headers = {k: v for k, v in request.headers.items()
-                   if k.lower() not in ("host", "transfer-encoding", "accept-encoding")}
+        headers = forward_headers(request)
         url = f"http://{ip}:{port}{path}"
         async with aiohttp.ClientSession() as session:
             async with session.request(request.method, url,
@@ -438,8 +474,7 @@ class Ingress:
 
         # Handle regular HTTP request - make request to backend URL
         body = await request.read()
-        headers = {k: v for k, v in request.headers.items()
-                   if k.lower() not in ("host", "transfer-encoding", "accept-encoding")}
+        headers = forward_headers(request)
         url = f"{tunnel.backend}{subpath}"
         async with aiohttp.ClientSession() as session:
             async with session.request(request.method, url,
@@ -464,8 +499,7 @@ class Ingress:
             import aiohttp
 
             # Extract WebSocket headers
-            ws_headers = {k: v for k, v in request.headers.items()
-                          if k.lower() not in ("host", "connection", "upgrade", "transfer-encoding")}
+            ws_headers = forward_headers(request, extra_drop=("connection", "upgrade"))
 
             # Construct full backend URL with path
             full_url = f"{backend_url}{path}"
@@ -702,6 +736,8 @@ class Ingress:
                 return await self._api_audit(name)
             if method == "GET" and rest == "history":
                 return await self._api_history(name)
+            if method == "GET" and rest == "logs":
+                return await self._api_logs(name, request)
 
         if path.startswith("attest/"):
             name = path.split("/")[1]
@@ -904,6 +940,29 @@ class Ingress:
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
 
+    async def _api_logs(self, name: str, request: web.Request) -> web.Response:
+        """Read a project's container stdout/stderr (owner-authed, read-only).
+
+        Debugging a container that only reports symptoms from the outside (a VPN
+        that connects but passes no traffic, a crash-looping boot) previously had
+        no remote path here: docker exec is denied and there was no logs route, so
+        the only recourse was a full daemon redeploy with added instrumentation.
+        This exposes the logs the daemon can already read (docker_client.logs)."""
+        try:
+            project = self.store.load(name)
+        except FileNotFoundError:
+            return web.json_response({"error": "project not found"}, status=404)
+        try:
+            tail = min(int(request.query.get("tail", "200")), 2000)
+        except ValueError:
+            tail = 200
+        cid = await self.rtm.get_container_id(project)
+        if not cid:
+            return web.json_response(
+                {"error": "no container for project (not running?)"}, status=404)
+        text = await self.docker.logs(cid, tail=tail)
+        return web.Response(text=text, content_type="text/plain")
+
     async def _api_all_audit(self) -> web.Response:
         """Get audit entries for all known projects."""
         entries: list[dict] = []
@@ -1045,9 +1104,21 @@ class Ingress:
         except Exception as e:
             log.warning("Failed to get audit log: %s", e)
 
-        # Build JSON data for the template
+        # Build JSON data for the template.
+        # This endpoint is PUBLIC for attested projects (RFC 0015: a relying party must be able to
+        # verify what is running without holding the admin token). asdict(project) carries
+        # project.env, so embedding it published every attested project's secrets to anyone who
+        # asked -- BRIDGE_SECRET, OPENVPN_PASS, ZAI_API_KEY, OAuth client secrets. The template
+        # never reads env; it was leaked incidentally by serialising the whole record.
+        # Allowlist what the page renders instead of denylisting what it must not.
+        safe_project = {
+            k: v for k, v in asdict(project).items()
+            if k not in ("env",)
+        }
+        # env_passthrough is a list of NAMES with no values, and naming which secrets the KMS
+        # injects is part of what a verifier checks -- keep it.
         verification_data = {
-            "project": _redact_env(asdict(project)),
+            "project": safe_project,
             "quote": quote,
             "audit": audit,
         }
