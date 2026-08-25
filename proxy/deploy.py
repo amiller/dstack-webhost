@@ -396,7 +396,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     project.image_digest = digest
     store.save(project)
 
-    # Record every deploy — dev projects share the CVM with attested tenants,
+    # Record every deploy — dev projects share the CVM with attested apps,
     # so their mutations must be auditable too.
     audit = audit_manager.get_audit_log(name)
     await audit.record(AuditEntry(

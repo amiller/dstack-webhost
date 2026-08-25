@@ -1,11 +1,11 @@
 # RFC 0019: Managed Hosting via TeeSQL / AttestMesh
 
 ## Summary
-Run dstack-webhost as a managed, multi-tenant service on infrastructure TeeSQL
+Run dstack-webhost as a managed, multi-app service on infrastructure TeeSQL
 operates (their AttestMesh mesh and dstack nodes), so the hosting/ops burden moves
 to them while we keep the app and the attestation-appraisal layer. dstack-webhost
 stays open and self-hostable for personal use; the managed deployment is the paid,
-multi-tenant version. This is a request for collaboration: the design below is
+multi-app version. This is a request for collaboration: the design below is
 reviewable, but the (a)/(b) topology choice and the commercial model are decided
 with TeeSQL, not unilaterally here.
 
@@ -20,15 +20,15 @@ Two gaps line up:
   on-chain-anchored membership and attestation) with no real application running on
   it. It needs a flagship workload.
 
-A multi-tenant attestable-app host is a genuine stateful-cluster use of the mesh
+A multi-app attestable host is a genuine stateful-cluster use of the mesh
 (membership, the cluster shared key, peer coordination), not a toy. Putting
 dstack-webhost on AttestMesh gives them their first real app and gives us a managed,
 reliable substrate.
 
 What each side brings:
 
-- **We bring dstack-webhost** — the multi-tenant app host (deploy via git/API, dev →
-  attested-promotion, per-tenant isolation), unchanged for self-host and adapted for
+- **We bring dstack-webhost** — the multi-app host (deploy via git/API, dev →
+  attested-promotion, per-app isolation), unchanged for self-host and adapted for
   the managed/clustered deployment — and the **attestation appraisal**: independent
   validation and explanation of each hosted app's attestation path, distilled from
   existing research practice into a repeatable workflow. The appraisal is the
@@ -38,7 +38,7 @@ What each side brings:
   mesh on an on-chain-anchored ecosystem (base-prod; see Constraints), owning
   deploys, upgrades, health, and recovery — **to provide the reliability primitives
   we'd otherwise build** (same-`app_id` replicas behind the gateway's existing
-  health-routing for HA; durable per-tenant state that survives CVM recreation), and
+  health-routing for HA; durable per-app state that survives CVM recreation), and
   **to let the appraisal lean on AttestMesh's attestation machinery** (the on-chain
   KMS sig-chain verification, the attested indexer, its RPC-repro-stub pattern)
   rather than re-implementing it.
@@ -46,7 +46,7 @@ What each side brings:
 ## Design
 
 ### TeeSQL data model
-The unit of tenancy is a dstack-webhost instance (one daemon) owning N projects. The
+The unit of deployment is a dstack-webhost instance (one daemon) owning N projects. The
 atom is the `Project` manifest (`proxy/projects.py`): `name`, `runtime`, `entry`,
 `port`, `mode` (dev/attested), the source pins (`source`/`ref`/`commit_sha`/
 `tree_hash`, `image`/`image_digest`), `volumes`, and the per-app attestation fields
@@ -61,13 +61,13 @@ and are the credential broker's problem (RFC 0018), not the host store's.
   moves and no new store exists.
 - **Managed, option (b):** the manifest registry becomes mesh-shared state keyed by
   the cluster shared key (CSK) — membership-encrypted replication across webhost
-  members — and per-tenant `dataDir`s are sealed blobs restorable only inside the
+  members — and per-app `dataDir`s are sealed blobs restorable only inside the
   same app identity. RFC 0017's export bundle is the canonical serialization in
   transit and the bootstrap artifact when a member joins: a new member restores from
   the bundle during `recover_all()` before it serves traffic.
 
 What TeeSQL holds vs. never holds: they operate nodes, volumes, and the mesh, but no
-plaintext tenant secret ever reaches them — `env` stays behind RFC 0018 grants /
+plaintext app secret ever reaches them — `env` stays behind RFC 0018 grants /
 dstack KMS-derived keys — and manifests plus pins are public-safe metadata (the RFC
 0015 verification surface already publishes them for attested projects).
 
@@ -85,8 +85,8 @@ dstack KMS-derived keys — and manifests plus pins are public-safe metadata (th
   requires of evidence consumers, so we extend rather than duplicate.
 - **Granularity:** a shared instance is daemon-vouched (`attestation_kind:
   "daemon-vouched"` — the hardware quote attests the webhost, which vouches project
-  → tree_hash); a tenant that needs a hardware quote of the app itself gets a
-  per-app CVM (`"app-cvm"`). Granularity is a per-tenant deployment choice, not a
+  → tree_hash); an app that needs a hardware quote of itself gets a
+  per-app CVM (`"app-cvm"`). Granularity is a per-app deployment choice, not a
   platform fork.
 
 ### Architecture options (decide together)
@@ -94,7 +94,7 @@ dstack KMS-derived keys — and manifests plus pins are public-safe metadata (th
   dstack-webhost onto them as ordinary apps. Simplest, fastest start; the mesh is
   not load-bearing.
 - **(b) dstack-webhost as a real AttestMesh cluster.** Multiple webhost members in
-  one cluster, per-tenant durable state keyed by the CSK, mesh for coordination.
+  one cluster, per-app durable state keyed by the CSK, mesh for coordination.
   More work, but the stronger joint story (their mesh actually carries the app) and
   HA + shared state natively.
 
@@ -109,20 +109,20 @@ One codebase, two deployment modes (open core):
 - **Managed bring-up (option a):**
   1. TeeSQL stands up dstack node(s) on a base-prod ecosystem.
   2. dstack-webhost itself is deployed there as an *attested* app — promoted through
-     the same dev → attested gate as any tenant app, `app_id` from the on-chain
+     the same dev → attested gate as any other app, `app_id` from the on-chain
      `DstackApp` allowlist, binding quote recorded (the RFC 0025 machinery,
      unchanged).
   3. External named volumes are wired per RFC 0017's operational requirement, and
      export/import is enabled — this is the whole recovery story until (b) exists.
-  4. Tenants onboard through the existing `/_api` deploy + promotion; nothing in the
-     tenant path differs between modes.
+  4. Apps onboard through the existing `/_api` deploy + promotion; nothing in the
+     app path differs between modes.
   5. Upgrades: a new pinned webhost image, deployed and re-promoted like any other
      version — the pin is the upgrade contract; no in-place mutation.
   6. Recovery: RFC 0017 pinned restore — fresh CVM, import bundle, `recover_all()`
      rebuilds the fleet at recorded pins, refusing (never re-cloning latest) on pin
      mismatch. In (b) the same restore runs mesh-side keyed by the CSK.
 
-**Ownership:** we own the tenant relationship, billing, and signups by default;
+**Ownership:** we own the customer relationship, billing, and signups by default;
 TeeSQL is invisible infra. The appraisal is ours; co-branding is an open question.
 
 **Migration (a) → (b):** the RFC 0017 export bundle is carried across verbatim — it
@@ -169,7 +169,7 @@ Acceptance criteria for the slice:
   public RFC 0015 endpoints (`/_api/attest/<name>`, `/_api/verification/<name>`)
   return a valid binding (`app_id`, `tree_hash`, quote) for the daemon's own
   attested deployment.
-- One tenant app deployed and promoted through `/_api` on the managed host verifies
+- One app deployed and promoted through `/_api` on the managed host verifies
   end-to-end via the same public endpoints.
 - Export → destroy → import on the managed host restores the fleet at identical
   pins; a tampered pin errors, never silently re-clones.

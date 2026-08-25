@@ -1,7 +1,7 @@
-"""Tiny tenant that exposes its own kernel-namespace evidence.
+"""Tiny app that exposes its own kernel-namespace evidence.
 
 Lets a relying party corroborate the substrate's runtime claim
-(/_api/substrate) with on-tenant data the substrate cannot forge.
+(/_api/substrate) with the app's own data the substrate cannot forge.
 """
 import json
 import os

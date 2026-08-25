@@ -724,9 +724,9 @@ export default (_req: Request, ctx: {env: Record<string,string>}) => {
 
 
 def test_dns_probe():
-    """Issue #2: outbound DNS for isolation:container tenants. The same
+    """Issue #2: outbound DNS for isolation:container apps. The same
     fetch-handler source must serve 200 under isolation:container AND
-    isolation:shared, and the isolated tenant keeps its per-project tee-proj-*
+    isolation:shared, and the isolated app keeps its per-project tee-proj-*
     bridge. (The runsc gating itself — gVisor creates get explicit GVISOR_DNS —
     is unit-tested in proxy/test_docker_client.py; this box has no runsc.)"""
     print("\n--- Test: isolation:container outbound fetch (dns probe) ---")
@@ -775,15 +775,15 @@ export default async () => {
         capture_output=True, text=True, check=True).stdout.strip()
     dns = json.loads(dns_raw)
     assert dns is None or dns == GVISOR_DNS, \
-        f"unexpected Dns on isolated tenant: {dns}"
-    print(f"  isolated tenant on {nets}; Dns={dns} (explicit only under runsc) ✓")
+        f"unexpected Dns on isolated app: {dns}"
+    print(f"  isolated app on {nets}; Dns={dns} (explicit only under runsc) ✓")
 
     api_delete("/projects/dns-probe-iso")
     api_delete("/projects/dns-probe-shared")
 
 
 def test_per_project_network_isolation():
-    print("\n--- Test: image-runtime tenants on separate networks ---")
+    print("\n--- Test: image-runtime apps on separate networks ---")
     for n in ("net-a", "net-b"):
         api_post("/projects", json={
             "name": n, "runtime": "image",
@@ -858,7 +858,7 @@ export default async (req: Request, ctx: {env: Record<string,string>; dataDir: s
     info = r.json()
     assert info["dataDir"] == "/data", info
     assert info["canReadParent"] is False or info["parentEntries"] == [], \
-        f"isolated tenant must not see siblings via parent dir: {info}"
+        f"isolated app must not see siblings via parent dir: {info}"
     print(f"  dataDir={info['dataDir']}, parent unreadable ✓")
 
     vol_check = subprocess.run(
@@ -1538,7 +1538,7 @@ def test_browser_pool():
     assert r.status_code == 200, r.text
     assert r.json()["body"] == "USER_A", r.json()
     # A fresh lease with NO jar must see empty (reset cleared USER_A). Without
-    # reset this leaks USER_A to the next tenant — the exact bug in 0028.
+    # reset this leaks USER_A to the next user — the exact bug in 0028.
     r = api_post("/browser/render", json={"domain": "example.com", "jar": "", "url": "/me"})
     assert r.status_code == 200, r.text
     assert r.json()["body"] == "", f"reset leaked prior session: {r.json()}"

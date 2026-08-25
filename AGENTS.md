@@ -6,7 +6,7 @@ the change*.
 
 ## What this repo is
 
-`dstack-webhost` (a.k.a. tee-daemon): a multi-tenant host that runs apps in a TEE and lets
+`dstack-webhost` (a.k.a. tee-daemon): a host that runs many apps in a TEE and lets
 their attestation be **verified**. It is a **public** repo. The design queue is `rfcs/`; the
 task list extracted from those RFCs is `kanban.json`. A task usually names an RFC — **read
 that RFC first**, it is the spec.

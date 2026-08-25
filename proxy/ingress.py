@@ -71,7 +71,7 @@ MIME_TYPES = {
 
 
 def _network_isolation(runtime: str, available: dict) -> str:
-    """How tenant network syscalls are mediated: "host" (passthrough to the
+    """How app network syscalls are mediated: "host" (passthrough to the
     container netns/host kernel stack), "sandbox" (gVisor netstack), "netns"
     (kernel netns + Docker bridge, runc-family). Derived from Docker's own
     runtime registration — a name like runsc-hostnet doesn't say it alone."""

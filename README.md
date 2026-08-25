@@ -4,6 +4,8 @@ A personal Vercel for attestable web apps. Hosts many projects on a single Phala
 
 The daemon (`tee-daemon`) is the substrate: it does the ingress, the shared language runtime, the audit log, and the verifier surface. Project authors write small handlers; this code does everything else, once, for every project on a CVM.
 
+Vocabulary, once, up front — three layers are easy to blur. The **host owner** runs the CVM and chooses what runs on it. An **app** (a `project` in the code) is a deployed unit with its own container, source pin, and quote. A **user** (an *agent* in the Solid sense) is a person who delegates to many apps. The substrate isolates apps from each other; user-from-user isolation is enforced inside the apps' own credential core (see oauth3-server), not by this daemon — the [isolation probe](isolation-probe.md) says which boundary each runtime mechanism does and does not enforce.
+
 ## Quick start
 
 ```bash

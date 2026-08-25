@@ -21,29 +21,29 @@
 <body>
 <h1>Isolation probe</h1>
 
-<p>This page is served by an ordinary tenant of <a href="https://amiller.github.io/dstack-webhost">dstack-webhost</a>. Its job is to expose kernel-namespace evidence about itself so a relying party can corroborate — independently — what the substrate claims about which OCI runtime is mediating tenant syscalls inside the CVM.</p>
+<p>This page is served by an ordinary app of <a href="https://amiller.github.io/dstack-webhost">dstack-webhost</a>. Its job is to expose kernel-namespace evidence about itself so a relying party can corroborate — independently — what the substrate claims about which OCI runtime is mediating app syscalls inside the CVM.</p>
 
-<p>The substrate is the small daemon that brings up tenant containers. It claims a runtime via <a href="/_api/substrate"><code>/_api/substrate</code></a>. This page fetches that claim and the tenant's own <code>/proc</code>, then checks the two against each other.</p>
+<p>The substrate is the small daemon that brings up app containers. It claims a runtime via <a href="/_api/substrate"><code>/_api/substrate</code></a>. This page fetches that claim and the app's own <code>/proc</code>, then checks the two against each other.</p>
 
 <h2>Substrate claim</h2>
 <pre id="substrate">loading…</pre>
 
-<h2>Tenant evidence</h2>
+<h2>App evidence</h2>
 <pre id="probe">loading…</pre>
 
 <div id="verdict"></div>
 
 <h2>How to read this</h2>
-<p>Each OCI runtime leaves a different fingerprint inside the tenant. The substrate's <code>effective_runtime</code> claim should match the fingerprint we observe; if it doesn't, something is being misrepresented.</p>
+<p>Each OCI runtime leaves a different fingerprint inside the app. The substrate's <code>effective_runtime</code> claim should match the fingerprint we observe; if it doesn't, something is being misrepresented.</p>
 <ul>
 <li><strong><code>runc</code></strong> (default, no hardening) — <code>uid_map</code> = <code>0 0 4294967295</code> (trivial; root inside is root outside), <code>kernel_release</code> matches the host's actual kernel (e.g. <code>6.9.0-dstack</code>).</li>
 <li><strong><code>sysbox-runc</code></strong> (Nestybox; namespace/cap hardening) — <code>uid_map</code> is shifted (e.g. <code>0 100000 65536</code>; root inside is a non-zero UID on the host), <code>kernel_release</code> still matches the host. The shift is the signature of an active user-namespace remap.</li>
 <li><strong><code>runsc</code></strong> (gVisor; userspace kernel) — <code>uid_map</code> is trivial again, but <code>kernel_release</code> is something like <code>4.4.0</code> — gVisor's Sentry synthesises a fake kernel for the workload because Sentry <em>is</em> the kernel boundary. The fake kernel string is the signature; trivial <code>uid_map</code> alone wouldn't tell you anything.</li>
 </ul>
-<p>A malicious substrate could lie in <code>/_api/substrate</code>, but it cannot forge the tenant's own <code>/proc/self/uid_map</code> or what the kernel reports for <code>uname -a</code>.</p>
+<p>A malicious substrate could lie in <code>/_api/substrate</code>, but it cannot forge the app's own <code>/proc/self/uid_map</code> or what the kernel reports for <code>uname -a</code>.</p>
 
 <h2>Why this matters</h2>
-<p>A multi-tenant TEE makes a strong claim — "your code ran here, others' code can't tamper with yours" — but that claim is only as good as the isolation between co-tenants. The TEE attestation says what code is running; it does not by itself say what's keeping co-tenants from each other's secrets and files. That's an OCI-runtime job.</p>
+<p>A TEE that hosts many apps makes a strong claim — "your code ran here, others' code can't tamper with yours" — but that claim is only as good as the isolation between co-hosted apps. The TEE attestation says what code is running; it does not by itself say what's keeping co-hosted apps from each other's secrets and files. That's an OCI-runtime job.</p>
 
 <p>Two relevant runtimes: <a href="https://github.com/nestybox/sysbox"><code>sysbox-runc</code></a> hardens the existing kernel boundary (user-namespace remap, virtualised <code>/proc</code> and <code>/sys</code>, scoped capabilities). <a href="https://gvisor.dev/"><code>gVisor</code></a> goes further: a userspace kernel mediates syscalls so most kernel CVEs are unreachable. gVisor is stronger, but on Phala dstack TDX CVMs nested KVM isn't exposed, so gVisor would have to ship in the dstack base image (a coordinated change). <code>sysbox-runc</code> is registered as a Docker runtime on stock dstack today, so it's the isolation layer that's deployable now without changing the base image.</p>
 
@@ -92,15 +92,15 @@
   let cls = "warn", msg;
   if (matches && detected === "runsc") {
     cls = "ok";
-    msg = '✓ Substrate claims <code>runsc</code> (gVisor); tenant shows the Sentry signature — synthesised kernel <code>' + kernelRel + '</code> (not the host\'s actual kernel) and trivial <code>uid_map</code> (gVisor uses Sentry as its kernel boundary, not user namespaces).';
+    msg = '✓ Substrate claims <code>runsc</code> (gVisor); the app shows the Sentry signature — synthesised kernel <code>' + kernelRel + '</code> (not the host\'s actual kernel) and trivial <code>uid_map</code> (gVisor uses Sentry as its kernel boundary, not user namespaces).';
   } else if (matches && detected === "sysbox-runc") {
     cls = "ok";
-    msg = '✓ Substrate claims <code>sysbox-runc</code>; tenant shows the user-namespace-remap signature — shifted <code>uid_map</code> = <code>' + uidMap + '</code> with <code>kernel_release</code> = <code>' + kernelRel + '</code> matching the host.';
+    msg = '✓ Substrate claims <code>sysbox-runc</code>; the app shows the user-namespace-remap signature — shifted <code>uid_map</code> = <code>' + uidMap + '</code> with <code>kernel_release</code> = <code>' + kernelRel + '</code> matching the host.';
   } else if (matches && detected === "runc") {
     cls = "info";
-    msg = 'Substrate is on default <code>runc</code>; tenant shows the trivial mapping and host kernel. No tenant-vs-tenant hardening from the runtime layer.';
+    msg = 'Substrate is on default <code>runc</code>; the app shows the trivial mapping and host kernel. No app-vs-app hardening from the runtime layer.';
   } else {
-    msg = 'Mixed signals: substrate claim <code>' + claimed + '</code>, tenant evidence suggests <code>' + detected + '</code>. <code>uid_map</code>=<code>' + (uidMap || '(empty)') + '</code>, <code>kernel_release</code>=<code>' + kernelRel + '</code>.';
+    msg = 'Mixed signals: substrate claim <code>' + claimed + '</code>, app evidence suggests <code>' + detected + '</code>. <code>uid_map</code>=<code>' + (uidMap || '(empty)') + '</code>, <code>kernel_release</code>=<code>' + kernelRel + '</code>.';
   }
   verdict.innerHTML = '<div class="signal ' + cls + '">' + msg + '</div>';
 })();

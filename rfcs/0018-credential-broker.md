@@ -233,8 +233,8 @@ string; only the literal handle form `broker:<grant-id>` gets special treatment.
    `image` runtimes each project is its own container, so `BROKER_TOKEN → project` is a
    real per-project binding and `grant.project` is enforceable. In the **shared** deno
    runtime, many projects run in one `--allow-all` V8 isolate with one env (the known
-   multi-tenancy gap); a single `BROKER_TOKEN` there authenticates "this shared isolate,"
-   not an individual co-tenant. Co-tenants in the shared runtime are co-trust by
+   shared-isolate gap); a single `BROKER_TOKEN` there authenticates "this shared isolate,"
+   not an individual co-resident project. Co-residents in the shared runtime are co-trust by
    construction (the `runtimes.py` comment at lines 384–390 already says this), so the
    `grant.project` check there is advisory. **Real upstream secrets should use
    `isolation:container`.** This is a documented constraint, not a fallback.
@@ -318,7 +318,7 @@ of deploy/teardown/promote events, ruinous for high-volume credential *use*. So:
 - `runtimes.py`: `broker:<id>` handles pass through; mount `creds.sock` when
   `_project_uses_broker`; inject `BROKER_SOCKET`/`BROKER_TOKEN`; per-container caller
   identity for `isolation:container` / `image`.
-- Real secrets scoped to `isolation:container`; shared-runtime documented as co-tenant
+- Real secrets scoped to `isolation:container`; shared-runtime documented as co-resident
   trust.
 - One Dockerfile line: add `cryptography`.
 
