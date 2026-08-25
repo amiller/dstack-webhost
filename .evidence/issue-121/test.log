@@ -1,0 +1,1264 @@
+[tee-daemon] Recovered 0 tracked containers
+[tee-daemon] Docker proxy listening on /tmp/tee-daemon-test-3xorfga_/proxy/docker.sock
+[tee-daemon] dstack socket not found — dstack proxy + broker disabled
+[tee-daemon] Recovered 0 active tunnels
+[tee-daemon] Recovered 0 scoped API tokens
+[tee-daemon] Ingress + API listening on :18080 (default)
+[tee-daemon] tee-daemon running
+[proxy.browser_pool] Pulling browser image denoland/deno:latest...
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET / HTTP/1.1" 200 220 "-" "python-requests/2.34.2"
+Denied GetKey for project projA with bad name: ''
+Denied GetKey for project projA with bad name: '../x'
+Denied GetKey for project projA with bad name: 'a/b'
+Denied GetKey for project projA with bad name: 'a\\b'
+Denied GetKey for project projA with bad name: '.hidden'
+Denied GetKey for project projA with bad name: 'a..b'
+Denied dstack method: RawSign
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/projects HTTP/1.1" 401 195 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/projects HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/projects HTTP/1.1" 200 160 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET / HTTP/1.1" 200 220 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/version HTTP/1.1" 200 231 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-static container=- image=static
+[proxy.deploy] Deployed test-static from /tmp/tee-daemon-test-3xorfga_/repos/test-static.git@HEAD (ab8cfa86475d)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "POST /_api/projects HTTP/1.1" 201 915 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "POST /_api/projects HTTP/1.1" 400 218 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-caps container=- image=static
+[proxy.deploy] Deployed test-caps from /tmp/tee-daemon-test-3xorfga_/repos/test-caps.git@HEAD (7ae7fc1ca5da)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "POST /_api/projects HTTP/1.1" 201 941 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "POST /_api/projects HTTP/1.1" 400 218 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-opdebug container=- image=static
+[proxy.deploy] Deployed test-opdebug from /tmp/tee-daemon-test-3xorfga_/repos/test-opdebug.git@HEAD (6a2a5ab816a5)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "POST /_api/projects HTTP/1.1" 201 921 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/verification/test-opdebug HTTP/1.1" 200 1359 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-opdebug-off container=- image=static
+[proxy.deploy] Deployed test-opdebug-off from /tmp/tee-daemon-test-3xorfga_/repos/test-opdebug-off.git@HEAD (56034327e92e)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "POST /_api/projects HTTP/1.1" 201 930 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/verification/test-opdebug-off HTTP/1.1" 200 1377 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /test-static/ HTTP/1.1" 200 210 "-" "python-requests/2.34.2"
+[proxy.tokens] Created scoped API token tok-VIPK9StPy0A scope=projects/test-static expires=2026-08-25T16:00:33.540270+00:00
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "POST /_api/tokens HTTP/1.1" 201 429 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/projects/test-static HTTP/1.1" 200 910 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/routes HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/tokens HTTP/1.1" 403 199 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/tokens HTTP/1.1" 200 350 "-" "python-requests/2.34.2"
+[proxy.tokens] Revoked scoped API token tok-VIPK9StPy0A
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "DELETE /_api/tokens/tok-VIPK9StPy0A HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/projects/test-static HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /_api/routes HTTP/1.1" 200 638 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /test-static/.git/HEAD HTTP/1.1" 403 118 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "GET /test-static/ HTTP/1.1" 200 210 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.7778.96 Safari/537.36"
+[proxy.runtimes] Pulling denoland/deno:latest...
+[proxy.browser_pool] Browser slot 0 -> b0a233f21dfc (172.21.0.2:3000)
+[proxy.browser_pool] Browser pool ready: 1 slot(s)
+[proxy.runtimes] Runtime deno-dev -> f1210de42a70 (172.20.0.2), serving 1 projects
+[proxy.runtimes] No attested deno projects, skipping runtime container
+[proxy.audit] AUDIT deploy project=test-deno container=- image=denoland/deno:latest
+[proxy.deploy] Deployed test-deno from /tmp/tee-daemon-test-3xorfga_/repos/test-deno.git@HEAD (c441ec166310)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:33 -0500] "POST /_api/projects HTTP/1.1" 201 1007 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:44 -0500] "GET /test-deno/hello HTTP/1.1" 200 206 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project test-image...
+[proxy.runtimes] Image project test-image -> 25f80bc7f174 (172.22.0.2:80)
+[proxy.audit] AUDIT deploy project=test-image container=- image=nginx:alpine
+[proxy.deploy] Deployed image project test-image from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:44 -0500] "POST /_api/projects HTTP/1.1" 201 902 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 678, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('172.22.0.2', 80)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 187, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1683, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 856, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 810, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 172.22.0.2:80 ssl:default [Connect call failed ('172.22.0.2', 80)]
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:48 -0500] "GET /test-image/ HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:48 -0500] "GET /test-image/ HTTP/1.1" 200 1034 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project test-vol...
+[proxy.runtimes] Image project test-vol -> e2cc6c432eba (172.23.0.2:80)
+[proxy.audit] AUDIT deploy project=test-vol container=- image=nginx:alpine
+[proxy.deploy] Deployed image project test-vol from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:49 -0500] "POST /_api/projects HTTP/1.1" 201 915 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 678, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('172.23.0.2', 80)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 187, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1683, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 856, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 810, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 172.23.0.2:80 ssl:default [Connect call failed ('172.23.0.2', 80)]
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:53 -0500] "GET /test-vol/ HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:53 -0500] "GET /test-vol/ HTTP/1.1" 200 174 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-vol container=- image=-
+[proxy.deploy] Torn down test-vol
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:53 -0500] "DELETE /_api/projects/test-vol HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.runtimes] Isolated deno project test-iso-a -> 0dbfd9cbfc5b (172.24.0.2:3000)
+[proxy.audit] AUDIT deploy project=test-iso-a container=- image=denoland/deno:latest
+[proxy.deploy] Deployed test-iso-a from /tmp/tee-daemon-test-3xorfga_/repos/test-iso-a.git@HEAD (788d0d98f5b4)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:54 -0500] "POST /_api/projects HTTP/1.1" 201 1006 "-" "python-requests/2.34.2"
+[proxy.runtimes] Isolated deno project test-iso-b -> 9f1ce8b5f695 (172.25.0.2:3000)
+[proxy.audit] AUDIT deploy project=test-iso-b container=- image=denoland/deno:latest
+[proxy.deploy] Deployed test-iso-b from /tmp/tee-daemon-test-3xorfga_/repos/test-iso-b.git@HEAD (a20bf45bf2a6)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:50:58 -0500] "POST /_api/projects HTTP/1.1" 201 1006 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:02 -0500] "GET /test-iso-a/me HTTP/1.1" 200 177 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 678, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('172.25.0.2', 3000)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 187, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1683, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 856, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 810, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 172.25.0.2:3000 ssl:default [Connect call failed ('172.25.0.2', 3000)]
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:02 -0500] "GET /test-iso-b/me HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:03 -0500] "GET /test-iso-a/me HTTP/1.1" 200 177 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:03 -0500] "GET /test-iso-b/me HTTP/1.1" 200 176 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:03 -0500] "GET /test-iso-a/probe HTTP/1.1" 200 162 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-iso-a container=- image=-
+[proxy.deploy] Torn down test-iso-a
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:03 -0500] "DELETE /_api/projects/test-iso-a HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-iso-b container=- image=-
+[proxy.deploy] Torn down test-iso-b
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:03 -0500] "DELETE /_api/projects/test-iso-b HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project net-a...
+[proxy.runtimes] Image project net-a -> b3c1733fd688 (172.26.0.2:80)
+[proxy.audit] AUDIT deploy project=net-a container=- image=nginx:alpine
+[proxy.deploy] Deployed image project net-a from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:03 -0500] "POST /_api/projects HTTP/1.1" 201 848 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project net-b...
+[proxy.runtimes] Image project net-b -> 61b6234e6a86 (172.27.0.2:80)
+[proxy.audit] AUDIT deploy project=net-b container=- image=nginx:alpine
+[proxy.deploy] Deployed image project net-b from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:07 -0500] "POST /_api/projects HTTP/1.1" 201 848 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=net-a container=- image=-
+[proxy.deploy] Torn down net-a
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:13 -0500] "DELETE /_api/projects/net-a HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=net-b container=- image=-
+[proxy.deploy] Torn down net-b
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:14 -0500] "DELETE /_api/projects/net-b HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.runtimes] Isolated deno project data-iso -> 58dc53631302 (172.28.0.2:3000)
+[proxy.audit] AUDIT deploy project=data-iso container=- image=denoland/deno:latest
+[proxy.deploy] Deployed data-iso from /tmp/tee-daemon-test-3xorfga_/repos/data-iso.git@HEAD (c609956523ea)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:14 -0500] "POST /_api/projects HTTP/1.1" 201 980 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 678, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('172.28.0.2', 3000)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 187, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1683, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 856, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 810, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 172.28.0.2:3000 ssl:default [Connect call failed ('172.28.0.2', 3000)]
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:18 -0500] "GET /data-iso/list-data HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:18 -0500] "GET /data-iso/list-data HTTP/1.1" 200 217 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=data-iso container=- image=-
+[proxy.deploy] Torn down data-iso
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:18 -0500] "DELETE /_api/projects/data-iso HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project test-passthru...
+[proxy.runtimes] Image project test-passthru -> e45ff881c6c5 (172.29.0.2:80)
+[proxy.audit] AUDIT deploy project=test-passthru container=- image=nginx:alpine
+[proxy.deploy] Deployed image project test-passthru from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:19 -0500] "POST /_api/projects HTTP/1.1" 201 873 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-passthru container=- image=-
+[proxy.deploy] Torn down test-passthru
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:23 -0500] "DELETE /_api/projects/test-passthru HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.runtimes] Isolated deno project test-iso-passthru -> 3c0eb5c444c1 (172.30.0.2:3000)
+[proxy.audit] AUDIT deploy project=test-iso-passthru container=- image=denoland/deno:latest
+[proxy.deploy] Deployed test-iso-passthru from /tmp/tee-daemon-test-3xorfga_/repos/test-iso-passthru.git@HEAD (8408820522e5)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:23 -0500] "POST /_api/projects HTTP/1.1" 201 1003 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 678, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('172.30.0.2', 3000)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 187, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1683, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 856, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 810, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 172.30.0.2:3000 ssl:default [Connect call failed ('172.30.0.2', 3000)]
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:27 -0500] "GET /test-iso-passthru/ HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:28 -0500] "GET /test-iso-passthru/ HTTP/1.1" 200 179 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-iso-passthru container=- image=-
+[proxy.deploy] Torn down test-iso-passthru
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:28 -0500] "DELETE /_api/projects/test-iso-passthru HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.runtimes] Isolated deno project dns-probe-iso -> 564f595a8d59 (192.168.160.2:3000)
+[proxy.audit] AUDIT deploy project=dns-probe-iso container=- image=denoland/deno:latest
+[proxy.deploy] Deployed dns-probe-iso from /tmp/tee-daemon-test-3xorfga_/repos/dns-probe-iso.git@HEAD (326ae40598db)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:28 -0500] "POST /_api/projects HTTP/1.1" 201 990 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 678, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('192.168.160.2', 3000)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 187, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1683, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 856, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 810, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 192.168.160.2:3000 ssl:default [Connect call failed ('192.168.160.2', 3000)]
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:32 -0500] "GET /dns-probe-iso/ HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:33 -0500] "GET /dns-probe-iso/ HTTP/1.1" 200 168 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling denoland/deno:latest...
+[proxy.runtimes] Runtime deno-dev -> 8532a1ecf769 (172.20.0.2), serving 2 projects
+[proxy.runtimes] No attested deno projects, skipping runtime container
+[proxy.audit] AUDIT deploy project=dns-probe-shared container=- image=denoland/deno:latest
+[proxy.deploy] Deployed dns-probe-shared from /tmp/tee-daemon-test-3xorfga_/repos/dns-probe-shared.git@HEAD (eabb33f005f7)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:33 -0500] "POST /_api/projects HTTP/1.1" 201 993 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 678, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('172.20.0.2', 3000)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 199, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1683, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 856, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 810, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 172.20.0.2:3000 ssl:default [Connect call failed ('172.20.0.2', 3000)]
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:37 -0500] "GET /dns-probe-shared/ HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/amiller/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 678, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('172.20.0.2', 3000)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 199, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1683, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 856, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 810, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 172.20.0.2:3000 ssl:default [Connect call failed ('172.20.0.2', 3000)]
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:38 -0500] "GET /dns-probe-shared/ HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:38 -0500] "GET /dns-probe-shared/ HTTP/1.1" 200 168 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=dns-probe-iso container=- image=-
+[proxy.deploy] Torn down dns-probe-iso
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:38 -0500] "DELETE /_api/projects/dns-probe-iso HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=dns-probe-shared container=- image=-
+[proxy.runtimes] Pulling denoland/deno:latest...
+[proxy.runtimes] Runtime deno-dev -> c99ea6733053 (172.20.0.2), serving 1 projects
+[proxy.runtimes] No attested deno projects, skipping runtime container
+[proxy.deploy] Torn down dns-probe-shared
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:38 -0500] "DELETE /_api/projects/dns-probe-shared HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project test-redeploy-img...
+[proxy.runtimes] Image project test-redeploy-img -> b6da015a50ae (172.31.0.2:80)
+[proxy.audit] AUDIT deploy project=test-redeploy-img container=- image=nginx:alpine
+[proxy.deploy] Deployed image project test-redeploy-img from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:43 -0500] "POST /_api/projects HTTP/1.1" 201 927 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project test-redeploy-img...
+[proxy.runtimes] Image project test-redeploy-img -> 780bc0c4d608 (172.31.0.2:80)
+[proxy.audit] AUDIT deploy project=test-redeploy-img container=- image=nginx:alpine
+[proxy.deploy] Deployed image project test-redeploy-img from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:47 -0500] "POST /_api/projects/test-redeploy-img/redeploy HTTP/1.1" 200 940 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-redeploy-img container=- image=-
+[proxy.deploy] Torn down test-redeploy-img
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:51 -0500] "DELETE /_api/projects/test-redeploy-img HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:51 -0500] "GET /_api/substrate HTTP/1.1" 200 522 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling python:3.12-slim...
+[proxy.runtimes] Runtime python-dev -> 49bb2eefde6f (172.20.0.3), serving 1 projects
+[proxy.runtimes] No attested python projects, skipping runtime container
+[proxy.audit] AUDIT deploy project=test-auto container=- image=python:3.12-slim
+[proxy.deploy] Deployed test-auto from /tmp/tee-daemon-test-3xorfga_/repos/test-auto.git@HEAD (7e0f1673830f)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:51:51 -0500] "POST /_api/projects HTTP/1.1" 201 978 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET /test-auto/test HTTP/1.1" 200 166 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-tarball container=- image=static
+[proxy.deploy] Deployed test-tarball from tarball://local@manual (deadbeefcafe)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 201 882 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET /test-tarball/ HTTP/1.1" 200 186 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 400 202 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 400 205 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 400 250 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET /_api/projects/test-static HTTP/1.1" 200 910 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-static container=- image=static
+[proxy.deploy] Deployed test-static from /tmp/tee-daemon-test-3xorfga_/repos/test-static.git@HEAD (87005b8655fa)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects/test-static/redeploy HTTP/1.1" 200 927 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET /test-static/ HTTP/1.1" 200 179 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET /_api/audit HTTP/1.1" 200 5318 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET /_api/projects HTTP/1.1" 200 6333 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-redact container=- image=static
+[proxy.deploy] Deployed test-redact from /tmp/tee-daemon-test-3xorfga_/repos/test-redact.git@HEAD (8ce13a2970e4)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 201 951 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET /_api/projects/test-redact HTTP/1.1" 200 946 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET /_api/projects HTTP/1.1" 200 7121 "-" "python-requests/2.34.2"
+[proxy.deploy] dstack not available - cannot get app pubkey
+[proxy.deploy] Failed to get app pubkey for test-redact - promotion without binding quote
+[proxy.audit] AUDIT promote project=test-redact container=- image=-
+[proxy.deploy] Promoted test-redact to attested mode (commit: 8ce13a2970e4, tree_hash: f35656c5806b, kind: none)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects/test-redact/promote HTTP/1.1" 200 951 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=listing-dev container=- image=static
+[proxy.deploy] Deployed listing-dev from /tmp/tee-daemon-test-3xorfga_/repos/listing-dev.git@HEAD (11033a276f9f)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 201 915 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=listing-attested container=- image=static
+[proxy.deploy] Deployed listing-attested from /tmp/tee-daemon-test-3xorfga_/repos/listing-attested.git@HEAD (2d4f3886494e)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 201 930 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=listing-override container=- image=static
+[proxy.deploy] Deployed listing-override from /tmp/tee-daemon-test-3xorfga_/repos/listing-override.git@HEAD (913e8da46c0d)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 201 929 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET / HTTP/1.1" 200 2040 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "GET / HTTP/1.1" 200 3665 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=listing-dev container=- image=-
+[proxy.deploy] Torn down listing-dev
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "DELETE /_api/projects/listing-dev HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=listing-attested container=- image=-
+[proxy.deploy] Torn down listing-attested
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "DELETE /_api/projects/listing-attested HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=listing-override container=- image=-
+[proxy.deploy] Torn down listing-override
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "DELETE /_api/projects/listing-override HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project card-img-nosrc...
+[proxy.runtimes] Image project card-img-nosrc -> 6bc959c418e2 (192.168.16.2:80)
+[proxy.audit] AUDIT deploy project=card-img-nosrc container=- image=nginx:alpine
+[proxy.deploy] Deployed image project card-img-nosrc from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:06 -0500] "POST /_api/projects HTTP/1.1" 201 862 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=card-git-src container=- image=static
+[proxy.deploy] Deployed card-git-src from /tmp/tee-daemon-test-3xorfga_/repos/card-git-src.git@HEAD (6e415ec3c573)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:10 -0500] "POST /_api/projects HTTP/1.1" 201 922 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:10 -0500] "GET / HTTP/1.1" 200 25971 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.7778.96 Safari/537.36"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:10 -0500] "GET / HTTP/1.1" 200 1894 "http://localhost:18080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.7778.96 Safari/537.36"
+[proxy.audit] AUDIT teardown project=card-img-nosrc container=- image=-
+[proxy.deploy] Torn down card-img-nosrc
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:10 -0500] "DELETE /_api/projects/card-img-nosrc HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=card-git-src container=- image=-
+[proxy.deploy] Torn down card-git-src
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "DELETE /_api/projects/card-git-src HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=card-with-desc container=- image=static
+[proxy.deploy] Deployed card-with-desc from /tmp/tee-daemon-test-3xorfga_/repos/card-with-desc.git@HEAD (0843fd4053f2)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "POST /_api/projects HTTP/1.1" 201 970 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=card-no-desc container=- image=static
+[proxy.deploy] Deployed card-no-desc from /tmp/tee-daemon-test-3xorfga_/repos/card-no-desc.git@HEAD (8cd54073966a)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "POST /_api/projects HTTP/1.1" 201 922 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET /_api/projects HTTP/1.1" 200 8692 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET / HTTP/1.1" 200 2082 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET / HTTP/1.1" 200 25971 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.7778.96 Safari/537.36"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET / HTTP/1.1" 200 2082 "http://localhost:18080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.7778.96 Safari/537.36"
+[proxy.audit] AUDIT teardown project=card-with-desc container=- image=-
+[proxy.deploy] Torn down card-with-desc
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "DELETE /_api/projects/card-with-desc HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=card-no-desc container=- image=-
+[proxy.deploy] Torn down card-no-desc
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "DELETE /_api/projects/card-no-desc HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=rfc-test container=- image=static
+[proxy.deploy] Deployed rfc-test from /tmp/tee-daemon-test-3xorfga_/repos/rfc-test.git@HEAD (90156f929e10)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "POST /_api/projects HTTP/1.1" 201 914 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET /_api/verification/rfc-test HTTP/1.1" 200 1345 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET /_api/verification/rfc-test HTTP/1.1" 200 1345 "-" "Python/3.11 aiohttp/3.14.1"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET /_api/verification/rfc-test HTTP/1.1" 200 1345 "-" "Python/3.11 aiohttp/3.14.1"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET /_api/verification/rfc-test HTTP/1.1" 200 1345 "-" "Python/3.11 aiohttp/3.14.1"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET /_api/verification/rfc-test HTTP/1.1" 200 1345 "-" "Python/3.11 aiohttp/3.14.1"
+[proxy.audit] AUDIT deploy project=tier0-src container=- image=static
+[proxy.deploy] Deployed tier0-src from /tmp/tee-daemon-test-3xorfga_/repos/tier0-src.git@HEAD (0b273b843c2e)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "POST /_api/projects HTTP/1.1" 201 911 "-" "python-requests/2.34.2"
+[proxy.deploy] dstack not available - cannot get app pubkey
+[proxy.deploy] Failed to get app pubkey for tier0-src - promotion without binding quote
+[proxy.audit] AUDIT promote project=tier0-src container=- image=-
+[proxy.deploy] Promoted tier0-src to attested mode (commit: 0b273b843c2e, tree_hash: 08c8b8a39026, kind: none)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "POST /_api/projects/tier0-src/promote HTTP/1.1" 200 911 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET /_api/verification/tier0-src HTTP/1.1" 200 1934 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "GET /_api/browser/pool HTTP/1.1" 200 263 "-" "python-requests/2.34.2"
+[proxy.browser_pool] Lease bl-bf1179da18a9 -> slot 0 (example.com)
+[proxy.browser_pool] Lease bl-bf1179da18a9 released (reset)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:11 -0500] "POST /_api/browser/render HTTP/1.1" 200 194 "-" "python-requests/2.34.2"
+[proxy.browser_pool] Lease bl-51557291ae25 -> slot 0 (example.com)
+[proxy.browser_pool] Lease bl-51557291ae25 released (reset)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:12 -0500] "POST /_api/browser/render HTTP/1.1" 200 188 "-" "python-requests/2.34.2"
+[proxy.browser_pool] Lease bl-e323e805e30d -> slot 0 (example.com)
+[proxy.browser_pool] Lease bl-e323e805e30d released (reset)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:12 -0500] "POST /_api/browser/render HTTP/1.1" 200 194 "-" "python-requests/2.34.2"
+[proxy.browser_pool] Lease bl-bd152b1433b2 -> slot 0 (ex.com)
+[proxy.browser_pool] Lease bl-bd152b1433b2 released (reset)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:12 -0500] "POST /_api/browser/render HTTP/1.1" 200 190 "-" "python-requests/2.34.2"
+[proxy.browser_pool] Lease bl-aab0b7ff5cc8 -> slot 0 (ex.com)
+[proxy.browser_pool] Lease bl-aab0b7ff5cc8 released (reset)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:12 -0500] "POST /_api/browser/render HTTP/1.1" 200 190 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:13 -0500] "GET /_api/browser/pool HTTP/1.1" 200 263 "-" "python-requests/2.34.2"
+[proxy.browser_pool] Lease bl-ca92e22eec04 -> slot 0 (ex.com)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:13 -0500] "GET /_api/browser/pool HTTP/1.1" 200 263 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:13 -0500] "POST /_api/browser/render HTTP/1.1" 503 252 "-" "python-requests/2.34.2"
+[proxy.browser_pool] Lease bl-ca92e22eec04 released (reset)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:13 -0500] "POST /_api/browser/render HTTP/1.1" 200 189 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-exp container=- image=static
+[proxy.deploy] Deployed test-exp from /tmp/tee-daemon-test-3xorfga_/repos/test-exp.git@HEAD (483d721259a3)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:14 -0500] "POST /_api/projects HTTP/1.1" 201 931 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:14 -0500] "GET /_api/export HTTP/1.1" 200 7694 "-" "python-requests/2.34.2"
+[proxy.deploy] import skipped test-exp: tree_hash mismatch for test-exp: pinned 0668fe4fe106a8ac33bf61bd5b165a30d525fecd, source at 483d721259a3 hashes to 6668fe4fe106a8ac33bf61bd5b165a30d525fecd
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:14 -0500] "POST /_api/import HTTP/1.1" 200 382 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:14 -0500] "GET /_api/projects/test-exp HTTP/1.1" 200 926 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-exp container=- image=static
+[proxy.deploy] Deployed test-exp from /tmp/tee-daemon-test-3xorfga_/repos/test-exp.git@HEAD (483d721259a3)
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:14 -0500] "POST /_api/import HTTP/1.1" 200 200 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:14 -0500] "GET /_api/projects/test-exp HTTP/1.1" 200 926 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:14 -0500] "GET /test-exp/ HTTP/1.1" 200 181 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:14 -0500] "GET /_api/export HTTP/1.1" 200 7694 "-" "python-requests/2.34.2"
+[tee-daemon] Shutting down
+[proxy.docker_proxy] Recovered tracked container 49bb2eefde6f
+[proxy.docker_proxy] Recovered tracked container c99ea6733053
+[proxy.docker_proxy] Recovered tracked container 25f80bc7f174
+[tee-daemon] Recovered 3 tracked containers
+[tee-daemon] Docker proxy listening on /tmp/tee-daemon-test-3xorfga_/proxy/docker.sock
+[tee-daemon] dstack socket not found — dstack proxy + broker disabled
+[proxy.runtimes] Empty registry + import bundle at /tmp/tee-daemon-test-3xorfga_/projects/import-bundle.json — restoring fleet
+[proxy.audit] AUDIT deploy project=rfc-test container=- image=static
+[proxy.deploy] Deployed rfc-test from /tmp/tee-daemon-test-3xorfga_/repos/rfc-test.git@HEAD (90156f929e10)
+[proxy.runtimes] Pulling python:3.12-slim...
+[proxy.runtimes] Runtime python-dev -> 5adb9551985f (172.20.0.3), serving 1 projects
+[proxy.runtimes] No attested python projects, skipping runtime container
+[proxy.audit] AUDIT deploy project=test-auto container=- image=python:3.12-slim
+[proxy.deploy] Deployed test-auto from /tmp/tee-daemon-test-3xorfga_/repos/test-auto.git@HEAD (7e0f1673830f)
+[proxy.audit] AUDIT deploy project=test-caps container=- image=static
+[proxy.deploy] Deployed test-caps from /tmp/tee-daemon-test-3xorfga_/repos/test-caps.git@HEAD (7ae7fc1ca5da)
+[proxy.runtimes] Pulling denoland/deno:latest...
+[proxy.runtimes] Runtime deno-dev -> 593a93ec8eac (172.20.0.2), serving 1 projects
+[proxy.runtimes] No attested deno projects, skipping runtime container
+[proxy.audit] AUDIT deploy project=test-deno container=- image=denoland/deno:latest
+[proxy.deploy] Deployed test-deno from /tmp/tee-daemon-test-3xorfga_/repos/test-deno.git@HEAD (c441ec166310)
+[proxy.audit] AUDIT deploy project=test-exp container=- image=static
+[proxy.deploy] Deployed test-exp from /tmp/tee-daemon-test-3xorfga_/repos/test-exp.git@HEAD (483d721259a3)
+[proxy.runtimes] Pulling nginx:alpine for project test-image...
+[proxy.runtimes] Image project test-image -> 07dde108d939 (172.22.0.2:80)
+[proxy.audit] AUDIT deploy project=test-image container=- image=nginx:alpine
+[proxy.deploy] Deployed image project test-image from nginx:alpine (digest sha256:7bc5ba2f958a)
+[proxy.audit] AUDIT deploy project=test-opdebug container=- image=static
+[proxy.deploy] Deployed test-opdebug from /tmp/tee-daemon-test-3xorfga_/repos/test-opdebug.git@HEAD (6a2a5ab816a5)
+[proxy.audit] AUDIT deploy project=test-opdebug-off container=- image=static
+[proxy.deploy] Deployed test-opdebug-off from /tmp/tee-daemon-test-3xorfga_/repos/test-opdebug-off.git@HEAD (56034327e92e)
+[proxy.audit] AUDIT deploy project=test-redact container=- image=static
+[proxy.deploy] Deployed test-redact from /tmp/tee-daemon-test-3xorfga_/repos/test-redact.git@HEAD (8ce13a2970e4)
+[proxy.audit] AUDIT deploy project=test-static container=- image=static
+[proxy.deploy] Deployed test-static from /tmp/tee-daemon-test-3xorfga_/repos/test-static.git@HEAD (87005b8655fa)
+[proxy.deploy] import skipped test-tarball: git clone failed: Cloning into '/tmp/tee-daemon-test-3xorfga_/projects/test-tarball/files.pin'...
+fatal: unable to access 'https://tarball://local/': Could not resolve host: tarball
+[proxy.audit] AUDIT deploy project=tier0-src container=- image=static
+[proxy.deploy] Deployed tier0-src from /tmp/tee-daemon-test-3xorfga_/repos/tier0-src.git@HEAD (0b273b843c2e)
+[proxy.runtimes] Bootstrapped from /tmp/tee-daemon-test-3xorfga_/projects/import-bundle.json: imported=['rfc-test', 'test-auto', 'test-caps', 'test-deno', 'test-exp', 'test-image', 'test-opdebug', 'test-opdebug-off', 'test-redact', 'test-static', 'tier0-src'] skipped=['test-tarball']
+[proxy.runtimes] Pulling denoland/deno:latest...
+[proxy.runtimes] Runtime deno-dev -> 7ec5ab6c1ecc (172.20.0.2), serving 1 projects
+[proxy.runtimes] No attested deno projects, skipping runtime container
+[proxy.runtimes] Pulling python:3.12-slim...
+[proxy.runtimes] Runtime python-dev -> f8e05d7f89f4 (172.20.0.3), serving 1 projects
+[proxy.runtimes] No attested python projects, skipping runtime container
+[proxy.runtimes] Pulling nginx:alpine for project test-image...
+[proxy.runtimes] Image project test-image -> 3f91815c9c36 (172.22.0.2:80)
+[tee-daemon] Recovered 0 active tunnels
+[proxy.tokens] Recovered scoped API token tok-VIPK9StPy0A
+[tee-daemon] Recovered 1 scoped API tokens
+[tee-daemon] Ingress + API listening on :18080 (default)
+[tee-daemon] tee-daemon running
+[proxy.browser_pool] Pulling browser image denoland/deno:latest...
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:51 -0500] "GET / HTTP/1.1" 200 2011 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:51 -0500] "GET /_api/projects HTTP/1.1" 200 8621 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:51 -0500] "GET /test-static/ HTTP/1.1" 200 179 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-static container=- image=-
+[proxy.deploy] Torn down test-static
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:51 -0500] "DELETE /_api/projects/test-static HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-caps container=- image=-
+[proxy.deploy] Torn down test-caps
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:51 -0500] "DELETE /_api/projects/test-caps HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-deno container=- image=-
+[proxy.runtimes] No dev deno projects, skipping runtime container
+[proxy.runtimes] No attested deno projects, skipping runtime container
+[proxy.deploy] Torn down test-deno
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:51 -0500] "DELETE /_api/projects/test-deno HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-auto container=- image=-
+[proxy.browser_pool] Browser slot 0 -> 1ad32e31e3fb (172.21.0.2:3000)
+[proxy.browser_pool] Browser pool ready: 1 slot(s)
+[proxy.runtimes] No dev python projects, skipping runtime container
+[proxy.runtimes] No attested python projects, skipping runtime container
+[proxy.deploy] Torn down test-auto
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:51 -0500] "DELETE /_api/projects/test-auto HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/test-tarball/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-tarball HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-image container=- image=-
+[proxy.deploy] Torn down test-image
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-image HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/test-iso-a/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-iso-a HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/test-iso-b/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-iso-b HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/test-passthru/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-passthru HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/test-iso-passthru/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-iso-passthru HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/test-redeploy-img/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-redeploy-img HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-redact container=- image=-
+[proxy.deploy] Torn down test-redact
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-redact HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/net-a/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/net-a HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/net-b/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/net-b HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amiller/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 107, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 678, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/ingress.py", line 823, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/rw-121/proxy/deploy.py", line 502, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/rw-121/proxy/projects.py", line 103, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-3xorfga_/projects/data-iso/project.json'
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/data-iso HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=rfc-test container=- image=-
+[proxy.deploy] Torn down rfc-test
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/rfc-test HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-opdebug container=- image=-
+[proxy.deploy] Torn down test-opdebug
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-opdebug HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-opdebug-off container=- image=-
+[proxy.deploy] Torn down test-opdebug-off
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-opdebug-off HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=tier0-src container=- image=-
+[proxy.deploy] Torn down tier0-src
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/tier0-src HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-exp container=- image=-
+[proxy.deploy] Torn down test-exp
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "DELETE /_api/projects/test-exp HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [25/Aug/2026:10:52:56 -0500] "GET /_api/projects HTTP/1.1" 200 160 "-" "python-requests/2.34.2"
+[tee-daemon] Shutting down
+
+--- Test: dstack GetKey scoped to bound project (#80) ---
+  project-scoped GetKey derivation OK ✓
+
+--- Test: DstackProxyManager per-project sockets (#80) ---
+  per-project broker sockets (dstack + creds) OK ✓
+
+--- Test: API auth ---
+  Auth: 401/403/200/200 ✓
+
+--- Test: version endpoint ---
+  Version: dev commit: 4d83bbb3 ✓
+
+--- Test: daemon refuses to boot without a commit identity ---
+  Refused at boot: RuntimeError: DAEMON_COMMIT is empty and no .git is present: this image was built without the GIT_COMMIT build arg (docker-compose.yaml build.args, or docker build --build-arg GIT_COMMIT=<short-sha>). Refusing to start rather than report an unknown commit on /_api/version (issue #106). ✓
+
+--- Test: deploy static from git ---
+  Deployed: commit=ab8cfa86475d tree=4671cbe7cdd0
+
+--- Test: cap_add/devices require mode=attested ---
+  dev-mode + caps rejected (400) ✓
+  attested + caps accepted and surfaced on project ✓
+
+--- Test: operator_debug requires mode=attested (RFC 0029) ---
+  dev-mode + operator_debug rejected (400) ✓
+  attested + operator_debug accepted and surfaced on project ✓
+  verification bundle surfaces operator_debug={'enabled': True, 'last_session_at': ''} ✓
+  attested without operator_debug reports enabled=False ✓
+
+--- Test: static serving ---
+  Content verified
+
+--- Test: scoped, revocable API tokens ---
+  scoped allow/deny, revoke, owner compatibility ✓
+
+--- Test: .git path blocked ---
+  .git blocked ✓
+
+--- Test: Playwright static ---
+  Playwright verified ✓
+
+--- Test: deploy deno from git with project.json ---
+  Deployed: test-deno commit=c441ec166310
+
+--- Test: deno handler ---
+  Deno: {'path': '/hello', 'ok': True, 'db': 'postgres://localhost/testdb'}
+
+--- Test: container runtime selection ---
+  Runtime=runc ✓
+
+--- Test: deploy image-runtime project (nginx) ---
+  Deployed: image=nginx:alpine digest=sha256:7bc5ba2f958a
+
+--- Test: image-runtime ingress (nginx serves /) ---
+  nginx served 896 bytes ✓
+  Image container runtime=runc ✓
+
+--- Test: image-runtime adopts an existing named volume ---
+  Deployed test-vol with adopted volume tee-test-adopt-vol
+  Adopted volume content served by nginx ✓
+  Volume survived project teardown ✓
+
+--- Test: two deno projects with isolation=container can't see each other ---
+  A serves its own secret, B serves its own secret ✓
+  A cannot read B's files (Deno --allow-read scoped) ✓
+  Both isolated containers under sysbox-runc (when configured) ✓
+
+--- Test: image-runtime apps on separate networks ---
+  net-a on ['tee-proj-net-a-dev']; net-b on ['tee-proj-net-b-dev']; disjoint ✓
+  wget from a -> b ip 172.27.0.2 blocked (rc=1) ✓
+
+--- Test: isolation:container gets a per-project data volume ---
+  dataDir=/data, parent unreadable ✓
+  per-project volume tee-projdata-data-iso created ✓
+
+--- Test: image-runtime env_passthrough (hermes-shape secret flow) ---
+  Daemon had no TEE_TEST_SECRET; container correctly missing it ✓
+
+--- Test: isolated deno env_passthrough ---
+  Handler saw FOO from daemon env via ctx.env ✓
+
+--- Test: isolation:container outbound fetch (dns probe) ---
+  dns-probe-iso (isolation:container) fetched https://example.com -> 200 ✓
+  dns-probe-shared (isolation:shared) fetched https://example.com -> 200 ✓
+  isolated app on ['tee-proj-dns-probe-iso-dev']; Dns=None (explicit only under runsc) ✓
+
+--- Test: image-runtime redeploy preserves manifest ---
+  Redeploy preserved image, image_port, volumes ✓
+
+--- Test: public /_api/substrate exposes runtime identity ---
+  effective_runtime=runc network_isolation=netns available=io.containerd.runc.v2,runc shim_sha=76f995f51b2b ✓
+
+--- Test: auto-detect runtime from files ---
+  Auto-detected: runtime=python
+  Verified: {'detected': 'python'}
+
+--- Test: deploy static via multipart tarball ---
+  Deployed: commit=deadbeefcafe tree=da812238516b
+  Content served ✓
+
+--- Test: multipart deploy with missing 'files' field ---
+  Got expected 400: {'error': "missing 'files' field"}
+
+--- Test: multipart deploy with missing 'manifest' field ---
+  Got expected 400: {'error': "missing 'manifest' field"}
+
+--- Test: multipart deploy with malformed manifest JSON ---
+  Got expected 400: {'error': 'manifest is not valid JSON: Expecting value: line 1 column 1 (char 0)'}
+
+--- Test: redeploy after git push ---
+  Redeploy: changed=True, new commit=87005b8655fa
+  Content updated ✓
+
+--- Test: audit log ---
+  9 deploys, all have commit + tree_hash ✓
+
+--- Test: list projects ---
+  Projects: ['test-auto', 'test-caps', 'test-deno', 'test-image', 'test-opdebug', 'test-opdebug-off', 'test-static', 'test-tarball']
+
+--- Test: env redaction on project responses (issue #67) ---
+  deploy/status/list/promote all redact env ✓
+
+--- Test: root listing layers + operator_debug + hidden count ---
+  anonymous: attested visible, dev hidden, hidden=6 ✓
+  owner: all layers visible, operator_debug surfaced per layer ✓
+  cleaned up ✓
+
+--- Test: landing card distinguishes no-source image deploys (#88) ---
+  Landing cards render correctly ✓
+
+--- Test: landing card renders manifest descriptions (#43) ---
+  Landing descriptions render correctly ✓
+
+--- Test: RFC 0020 bundle schema ---
+  Deployed rfc-test: commit=90156f929e10, tree=62e466382a11
+  Bundle has all RFC 0020 keys: ['app', 'audit', 'gateway', 'onchain', 'platform_quote', 'schema_version', 'webhost_app_id']
+  source: repo=/tmp/tee-daemon-test-3xorfga_/repos/rfc-test.git, commit=90156f929e10, tree=62e466382a11
+  onchain: chain_id=0 (non-anchored)
+  gateway: {'domain': '', 'app_id': '', 'zt_cert_ref': ''}
+  platform_quote present: False
+
+--- Test: RFC 0020 tamper detection ---
+  verify() returned facts: quote_valid=False, errors=1
+  Tampered tree_hash would be in errors: ['Tree hash mismatch detected']
+
+--- Test: RFC 0020 non-anchored (chain_id 0) ---
+  chain_id=0: onchain_approved=False, no crash ✓
+
+--- Test: RFC 0020 two policies, one facts ---
+  Policy A (tree_hash allowlist): True
+  Policy B (strict onchain+quote): False
+  Same facts, different outcomes: A=True, B=False ✓
+
+--- Test: RFC 0020 source pull (tree hash verification) ---
+  Git tree SHA matches deployed tree_hash: 62e466382a11 ✓
+
+--- Test: Tier-0 source binding survives dev->promote ---
+  deployed dev: tree_hash=08c8b8a39026
+  promoted to attested ✓
+  bundle app.source.tree_hash == deploy-time binding 08c8b8a39026 ✓
+  audit recorded deploy+promote: ['deploy', 'promote'] ✓
+
+--- Test: RFC 0028 browser pool (isolation/reset/fairness/timeout) ---
+  pool ready: size=1 ✓
+  per-lease isolation + reset ✓
+  fairness: concurrent leases serialized (max_active=1) ✓
+  acquire timeout under contention -> 503 ✓
+
+--- Test: RFC 0017 export bundle + pinned import ---
+  Export: 12 projects, pins present, env absent ✓
+  Tampered tree_hash: ERROR+skip, project intact ✓
+  Clean import: redeployed at pinned commit, not latest ✓
+
+--- Test: RFC 0017 empty registry + bundle at boot restores fleet ---
+  Bootstrap: 12 projects restored at their pins ✓
+
+--- Test: teardown ---
+  Torn down: test-static
+  Torn down: test-caps
+  Torn down: test-deno
+  Torn down: test-auto
+  Torn down: test-image
+  Torn down: test-redact
+  Torn down: rfc-test
+  Torn down: test-opdebug
+  Torn down: test-opdebug-off
+  Torn down: tier0-src
+  Torn down: test-exp
+  All projects removed ✓
+
+=== ALL TESTS PASSED ===

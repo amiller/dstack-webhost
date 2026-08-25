@@ -60,7 +60,7 @@ Multiple curators and multiple specs are expected.
      timing-leak examples are negative fixtures (`examples/timing-leak-demo`,
      `examples/rsa-timing-demo`).
    - `substrate.oci_runtime_corroborated`: the app corroborates the daemon's OCI-runtime claim
-     using tenant-visible evidence (`examples/isolation-probe`, `/_api/substrate`).
+     using in-app evidence (`examples/isolation-probe`, `/_api/substrate`).
 2. **Evaluator input.** The evaluator starts from RFC 0020 facts, fetches the source at
    `Facts.source.tree_hash`, and reads only the app handler, declared evidence artifacts, and
    the substrate references named by the spec. This is the automated form of the small per-app

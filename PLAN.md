@@ -18,6 +18,8 @@ against the MVP slice is the operator's to file.
 
 # Issue #2 — isolation:container tenants have no outbound DNS under runsc
 
+> Verbatim plan record: "tenant" throughout this section means an app (a project's container).
+
 PLAN — checkboxes derived from the issue's `## Acceptance`.
 
 ## Root cause recap
@@ -93,3 +95,25 @@ consumer-facing verifier path to staging for the required pinned `/_api/version`
       + local HTTP serve verified; push (read-only ghcr token) and `phala deploy`
       (dead API key) are operator steps — exact commands in
       `.evidence/issue-106/transcript.md` §5.
+
+---
+
+# Issue #121 plan — "tenant" is used for containers; the word hides which boundary gVisor enforces
+
+PLAN — checkboxes derived from the issue's `## Acceptance`.
+
+- [x] isolation-probe.md: /proc finding restated as cross-**app** (not cross-tenant); a
+      "which boundary" statement saying gVisor enforces app↔app + app↔host-kernel and NOT
+      user↔user; full tenant→app/project word pass over the page.
+- [x] No "tenant"-for-a-container left in `proxy/` comments or repo docs (root docs, rfcs/,
+      examples/, AGENTS.md, docker-compose comment, prelaunch.sh). Occurrences that mean a
+      *person* (browser pool, RFC 0028) become "user". Historical verbatim logs
+      (`.evidence/`, SETUP-ZED.md's pasted run log) stay untouched, named in the PR.
+- [x] README.md + DEVELOPER_GUIDE.md name the three layers (host owner / app / agent-user)
+      once, up front.
+- [x] test_daemon.py suite green (prose-only diff: comments, docstrings, print labels).
+- [x] Tier 2 walk of the edited probe page copy deployed to webhost-staging (python-runtime
+      tarball — the dockerfile runtime turned out to be accepted-but-unimplemented: no build/
+      start path exists, so `probe-121` never left "runtime not running"; the walk serves the
+      branch's probe.py + index.html verbatim behind a handle() adapter);
+      ghcr probe-image rebuild for hermes-staging remains the named operator step.

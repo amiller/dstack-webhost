@@ -2,6 +2,8 @@
 
 For deploying a project onto a tee-daemon CVM. For platform context, see the [homepage](index.md). For auditing a deployed project, see the [audit guide](audit.md).
 
+Vocabulary, once: the **host owner** runs the CVM; an **app** (a `project` in the code and in the API below) is a deployed unit with its own container; a **user** (an *agent* in the Solid sense) is a person who delegates to apps. The substrate isolates apps from each other — user-from-user isolation lives in the apps' credential core, not in this daemon.
+
 You need:
 
 - A running tee-daemon CVM and its admin token (`TEE_DAEMON_TOKEN`).
@@ -34,7 +36,7 @@ Other supported runtimes follow the same shape: a single entry file per project.
 | `python` | `app.py` | `requirements.txt` honored if present. |
 | `static` | `.` | A directory of files, served verbatim. |
 | `dockerfile` | `Dockerfile` | Custom container; you provide the listener. |
-| `image` | (none) | Layer-1 tenant — bring an existing OCI image. See [Image runtime](#image-runtime-layer-1). |
+| `image` | (none) | Layer-1 app — bring an existing OCI image. See [Image runtime](#image-runtime-layer-1). |
 
 For exact signatures of the non-Deno runtimes, see `proxy/runtimes.py` in the daemon repo — it's the source of truth.
 
@@ -77,11 +79,11 @@ Drop this in the project's repo root to declare the runtime contract alongside t
 }
 ```
 
-For deno/bun projects that want stronger sandboxing than the shared runtime, add `"isolation": "container"`. Each such project gets its own container running deno with `--allow-read` scoped to its own files, `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`. `manifest.env` is passed via Deno args (not env permission) so handlers still see `ctx.env` but can't read other tenants' secrets. The container is placed on a per-project Docker network (`tee-proj-<name>-<mode>`), so siblings are not reachable by IP or container name. `ctx.dataDir` points at `/data`, backed by a per-project named volume — siblings' data is not visible.
+For deno/bun projects that want stronger sandboxing than the shared runtime, add `"isolation": "container"`. Each such project gets its own container running deno with `--allow-read` scoped to its own files, `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`. `manifest.env` is passed via Deno args (not env permission) so handlers still see `ctx.env` but can't read other projects' secrets. The container is placed on a per-project Docker network (`tee-proj-<name>-<mode>`), so siblings are not reachable by IP or container name. `ctx.dataDir` points at `/data`, backed by a per-project named volume — siblings' data is not visible.
 
 ## Image runtime (Layer 1)
 
-For a tenant that ships as a built OCI image rather than a handler, use `runtime: "image"`:
+For an app that ships as a built OCI image rather than a handler, use `runtime: "image"`:
 
 ```bash
 curl -X POST $CVM/_api/projects \
@@ -104,7 +106,7 @@ curl -X POST $CVM/_api/projects \
 | `volumes` | Optional `[{name, mount}]`. Named volumes are referenced by name and adopted idempotently — pre-existing data survives. |
 | `env_passthrough` | Optional list of env-var names; the daemon forwards values from its own environment, keeping secrets out of `project.json`. |
 
-The container runs under the daemon's configured OCI runtime (see `/_api/substrate`). On a CVM with `DAEMON_CONTAINER_RUNTIME=sysbox-runc`, all image-runtime tenants get user-namespace remap and virtualised `/proc` for free. The container is placed on a per-project Docker network — sibling tenants are not reachable by IP or hostname; only the daemon proxies traffic in and out. See the [isolation probe](isolation-probe.md) for a worked example.
+The container runs under the daemon's configured OCI runtime (see `/_api/substrate`). On a CVM with `DAEMON_CONTAINER_RUNTIME=sysbox-runc`, all image-runtime apps get user-namespace remap and virtualised `/proc` for free. The container is placed on a per-project Docker network — sibling apps are not reachable by IP or hostname; only the daemon proxies traffic in and out. See the [isolation probe](isolation-probe.md) for a worked example.
 
 ## Promote to attested
 
@@ -133,7 +135,7 @@ Public (no auth required), only for **attested** projects:
 | | |
 |---|---|
 | `GET /` | Listing of attested projects. `Accept: text/html` returns the daemon's viewer page; `Accept: application/json` returns JSON. |
-| `GET /_api/substrate` | The substrate's runtime configuration: effective OCI runtime (e.g. `sysbox-runc`), the runtimes Docker actually has (live `GET /info`), network-isolation posture (`host`/`sandbox`/`netns`), supported isolation modes, deno entry-shim hash. Lets a relying party verify what's mediating tenant syscalls — and see a configured/available mismatch rather than trust a name. |
+| `GET /_api/substrate` | The substrate's runtime configuration: effective OCI runtime (e.g. `sysbox-runc`), the runtimes Docker actually has (live `GET /info`), network-isolation posture (`host`/`sandbox`/`netns`), supported isolation modes, deno entry-shim hash. Lets a relying party verify what's mediating app syscalls — and see a configured/available mismatch rather than trust a name. |
 | `GET /_api/projects/<name>` | Project manifest. |
 | `GET /_api/projects/<name>/audit` | Audit log. |
 | `GET /_api/attest/<name>` | Raw dstack quote. |

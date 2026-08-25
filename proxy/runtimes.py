@@ -36,7 +36,7 @@ DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 # must NOT get that. Each project gets its OWN subdir (one project-scoped
 # DstackProxy per project — see dstack_proxy.DstackProxyManager), and a
 # project's container is mounted ONLY its own subdir, so it cannot reach
-# another project's broker socket (cross-tenant key derivation, issue #7).
+# another project's broker socket (cross-app key derivation, issue #7).
 # Under Docker-in-Docker the daemon can't bind its own container path into a
 # sibling, so the operator points BROKER_HOST_PATH at the host path that backs
 # BROKER_SOCKET_DIR (e.g. bind-mount /var/run/tee-broker:/var/run/broker and set
@@ -111,9 +111,9 @@ def _project_broker_binds(project) -> list[str]:
 
 
 def _shared_broker_binds() -> list[str]:
-    """Shared runtime (one container, many projects): co-tenants are co-trust by
-    construction (shared V8/fs/env), so per-project isolation is moot here —
-    mount the broker parent read-only for reachability."""
+    """Shared runtime (one container, many projects): co-resident projects are
+    co-trust by construction (shared V8/fs/env), so per-project isolation is
+    moot here — mount the broker parent read-only for reachability."""
     if not BROKER_HOST_PATH:
         return []
     return [f"{BROKER_HOST_PATH}:{BROKER_MOUNT_IN_APP}:ro"]
@@ -124,7 +124,7 @@ CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
 
 async def verify_configured_runtime(docker: DockerClient):
     """Refuse to start when DAEMON_CONTAINER_RUNTIME names a runtime Docker
-    does not have — otherwise tenants silently land in a weaker sandbox than
+    does not have — otherwise apps silently land in a weaker sandbox than
     /_api/substrate advertises."""
     rt = CONTAINER_RUNTIME
     if not rt:
@@ -444,7 +444,7 @@ class RuntimeManager:
                 binds.append(f"{DATA_VOLUME_NAME}:{DATA_VOLUME_MOUNT_IN_RUNTIME}:rw")
                 data_root = DATA_VOLUME_MOUNT_IN_RUNTIME
 
-            # Expose the broker to shared-runtime tenants that need it. Co-tenants
+            # Expose the broker to shared-runtime projects that need it. Co-residents
             # here are co-trust (one V8 isolate, shared fs/env), so the broker
             # parent is mounted whole rather than per-project.
             if BROKER_HOST_PATH and any(_project_needs_broker(p) for p in mode_projects):
@@ -478,10 +478,10 @@ class RuntimeManager:
             ]
 
             # Shared-runtime containers stay on the docker default OCI runtime,
-            # not DAEMON_CONTAINER_RUNTIME. Co-tenants here are co-trust by
+            # not DAEMON_CONTAINER_RUNTIME. Co-residents here are co-trust by
             # construction (one V8 isolate, shared env, shared FS), so the
             # kernel-CVE-class protection runsc adds doesn't pay off. (runsc
-            # tenants get explicit GVISOR_DNS — docker_client.)
+            # apps get explicit GVISOR_DNS — docker_client.)
             # Per-project containers (image-runtime, isolation:container) keep
             # CONTAINER_RUNTIME.
             cid = await self.docker.create_container(

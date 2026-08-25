@@ -4,22 +4,31 @@ layout: default
 
 # Isolation probe
 
-A multi-tenant TEE makes a strong claim — *your code ran here, the others' code can't tamper with yours* — but the TEE attestation only covers what code is running. It does not by itself say what's keeping co-tenants from each other's secrets and files. That's a job for the OCI runtime that brings up tenant containers.
+A TEE that hosts many apps makes a strong claim — *your code ran here, the other apps' code can't tamper with yours* — but the TEE attestation only covers what code is running. It does not by itself say what's keeping co-hosted apps from each other's secrets and files. That's a job for the OCI runtime that brings up app containers.
 
-dstack-webhost runs every tenant under a runtime the substrate selects, and exposes the choice publicly at [`/_api/substrate`](https://github.com/amiller/dstack-webhost/blob/main/proxy/ingress.py). A relying party who wants to check the claim can deploy a tiny tenant whose only job is to expose its own kernel-namespace view, and then compare:
+dstack-webhost runs every app under a runtime the substrate selects, and exposes the choice publicly at [`/_api/substrate`](https://github.com/amiller/dstack-webhost/blob/main/proxy/ingress.py). A relying party who wants to check the claim can deploy a tiny app whose only job is to expose its own kernel-namespace view, and then compare:
 
 - **What the substrate says** — the daemon's stated runtime (e.g. `sysbox-runc`).
-- **What the tenant sees** — the container's own `/proc/self/uid_map`, `user_ns`, etc.
+- **What the app sees** — the container's own `/proc/self/uid_map`, `user_ns`, etc.
 
-A malicious substrate can lie in `/_api/substrate`, but it cannot forge the tenant's own `/proc`. That's the corroboration loop the probe demonstrates.
+A malicious substrate can lie in `/_api/substrate`, but it cannot forge the app's own `/proc`. That's the corroboration loop the probe demonstrates.
+
+## Which boundary the runtime enforces
+
+Two isolation boundaries exist on this substrate, and "tenant" has been used for both — which hides which one any given mechanism actually enforces:
+
+- **App ↔ app, app ↔ host kernel.** An *app* (a `project` in the code) is a deployed unit with its own container. The OCI runtime — gVisor's Sentry, sysbox's namespaces — is what keeps apps away from each other's files and away from the host kernel. **This is the boundary gVisor enforces.**
+- **User ↔ user.** A *user* (an agent in the Solid sense) is a person who delegates to many apps; per-subject sealed jars, scoped tokens and read gates keep users' data away from each other. That boundary lives in the credential core of the apps themselves (see oauth3-server's vault) — **gVisor does nothing for it, and no runtime choice on this substrate ever will.**
+
+This page says *app* where a container is meant and *user* where a person is meant.
 
 ## Live demo
 
-The probe is deployed as a [Layer-1 tenant](rfcs/0001-platform-vision.md) on hermes-staging:
+The probe is deployed as a [Layer-1 app](rfcs/0001-platform-vision.md) on hermes-staging:
 
 → **[hermes-staging.dstack-pha-prod7.phala.network/probe/](https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/probe/)**
 
-The page fetches `/_api/substrate` and the tenant's own `/api/probe`, then renders a verdict. Source: [`examples/isolation-probe/`](https://github.com/amiller/dstack-webhost/tree/main/examples/isolation-probe).
+The page fetches `/_api/substrate` and the app's own `/api/probe`, then renders a verdict. Source: [`examples/isolation-probe/`](https://github.com/amiller/dstack-webhost/tree/main/examples/isolation-probe).
 
 ## What the verdict means
 
@@ -30,17 +39,17 @@ sysbox-runc:   "0     231072      65536"     ← shifted, ns boundary active
 runc default:  "0          0 4294967295"      ← trivial, no remap
 ```
 
-The probe's verdict is "consistent" when the substrate's claim and the tenant's `uid_map` agree on which regime is in force.
+The probe's verdict is "consistent" when the substrate's claim and the app's `uid_map` agree on which regime is in force.
 
 ## What the substrate layers on top of the runtime
 
 The OCI runtime is one layer. dstack-webhost adds three substrate-level mechanisms that go beyond what `sysbox-runc` alone provides:
 
-- **Per-project Docker network.** Image-runtime tenants and `isolation: container` deno tenants each get `tee-proj-<name>-<mode>`; only the daemon is connected. A sibling tenant cannot reach another by IP, by container name, or by Docker DNS — the bridge drops the traffic. ([`proxy/runtimes.py::_ensure_project_network`](https://github.com/amiller/dstack-webhost/blob/main/proxy/runtimes.py))
-- **Per-project named volume.** `isolation: container` tenants mount `tee-projdata-<name>` at `/data`. They never see other tenants' subdirs of the daemon's shared data volume. ([`proxy/runtimes.py::start_isolated`](https://github.com/amiller/dstack-webhost/blob/main/proxy/runtimes.py))
-- **Scoped Deno permissions.** `isolation: container` deno tenants run under `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`, `--allow-read` scoped to the project's own files. `manifest.env` is passed via Deno args (not env permission), so the handler sees `ctx.env` but cannot read other tenants' env values.
+- **Per-project Docker network.** Image-runtime apps and `isolation: container` deno apps each get `tee-proj-<name>-<mode>`; only the daemon is connected. A sibling app cannot reach another by IP, by container name, or by Docker DNS — the bridge drops the traffic. ([`proxy/runtimes.py::_ensure_project_network`](https://github.com/amiller/dstack-webhost/blob/main/proxy/runtimes.py))
+- **Per-project named volume.** `isolation: container` apps mount `tee-projdata-<name>` at `/data`. They never see other projects' subdirs of the daemon's shared data volume. ([`proxy/runtimes.py::start_isolated`](https://github.com/amiller/dstack-webhost/blob/main/proxy/runtimes.py))
+- **Scoped Deno permissions.** `isolation: container` deno apps run under `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`, `--allow-read` scoped to the project's own files. `manifest.env` is passed via Deno args (not env permission), so the handler sees `ctx.env` but cannot read other projects' env values.
 
-The shared deno runtime is *intentionally co-trust*: tenants there share a V8 isolate, share `/daemon-data` rw, and share a network. That's the model — opting into the shared runtime is opting into co-trust with its peers. Strong inter-tenant isolation requires `isolation: container` or `runtime: image`.
+The shared deno runtime is *intentionally co-trust*: projects there share a V8 isolate, share `/daemon-data` rw, and share a network. That's the model — opting into the shared runtime is opting into co-trust with its peers. Strong inter-app isolation requires `isolation: container` or `runtime: image`.
 
 ## Picking the runtime
 
@@ -48,13 +57,13 @@ The choice on this substrate is between three OCI runtimes, all of which can be 
 
 - **`runc`** — the default. No hardening; same syscall surface as a non-containerised process.
 - **`sysbox-runc`** — Nestybox's hardened runc. Adds automatic user-namespace remap, virtualised `/proc` and `/sys`, scoped capabilities. Already registered as a Docker runtime on stock dstack — no install step. Meaningful against namespace/capability escapes; **does not shrink the host kernel's syscall attack surface**, so kernel CVEs (`io_uring`, BPF, etc.) remain reachable.
-- **`runsc` (gVisor)** — Google's userspace kernel. Sentry intercepts syscalls; only ~50 of ~330 host syscalls are reachable from a tenant, behind a strict seccomp filter. Addresses kernel-CVE escape as a class. Not present on stock dstack, but installable via prelaunch script ([`examples/runsc-prelaunch/`](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch)) — the script's hash is in the measured launch payload, the binary is pinned by sha512, the trust chain stays intact. (A privileged bootstrap container in the compose is a parallel attestation-safe path; not wired up because the prelaunch path was sufficient.)
+- **`runsc` (gVisor)** — Google's userspace kernel. Sentry intercepts syscalls; only ~50 of ~330 host syscalls are reachable from an app, behind a strict seccomp filter. Addresses kernel-CVE escape as a class. Not present on stock dstack, but installable via prelaunch script ([`examples/runsc-prelaunch/`](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch)) — the script's hash is in the measured launch payload, the binary is pinned by sha512, the trust chain stays intact. (A privileged bootstrap container in the compose is a parallel attestation-safe path; not wired up because the prelaunch path was sufficient.)
 
 For nested KVM (which would let gVisor use its faster KVM platform): not exposed in dstack TDX. The ptrace/systrap platform is what we use, with the perf cost measured below.
 
 ## Recommendation
 
-**`runsc` (gVisor) is the recommended runtime for this substrate.** Attestation is the product; the relying-party threat model genuinely values kernel-CVE resistance, which is the only thing `runsc` adds and `sysbox-runc` does not. The perf cost is ~20% throughput and ~2× p99 tail on a 1-vCPU CVM (see below) — tolerable for the small handlers and Layer-1 image apps this substrate hosts. **`sysbox-runc` is the right fallback** for tenants whose workloads can't accept that perf hit (a database under load, a latency-critical endpoint). **Plain `runc` has no place** on a multi-tenant TEE substrate when sysbox-runc is right there at zero cost.
+**`runsc` (gVisor) is the recommended runtime for this substrate.** Attestation is the product; the relying-party threat model genuinely values kernel-CVE resistance, which is the only thing `runsc` adds and `sysbox-runc` does not. The perf cost is ~20% throughput and ~2× p99 tail on a 1-vCPU CVM (see below) — tolerable for the small handlers and Layer-1 image apps this substrate hosts. **`sysbox-runc` is the right fallback** for apps whose workloads can't accept that perf hit (a database under load, a latency-critical endpoint). **Plain `runc` has no place** on a multi-app TEE substrate when sysbox-runc is right there at zero cost.
 
 This was a working assumption the substrate started under (`DAEMON_CONTAINER_RUNTIME=sysbox-runc` is what hermes-staging runs today); the comparison below is the data that turned it from "deferred until we measure" into a real recommendation.
 
@@ -76,11 +85,11 @@ The runtime-choice implication:
 
 - **`sysbox-runc`** is the right *default floor* — namespace/cap hardening for free.
 - **`runsc`** is an *opt-in upgrade* when the threat model justifies ~20% throughput and ~2× p99 tail for kernel-CVE resistance. It's not a free lunch.
-- Plain `runc` is no faster than sysbox-runc; there's no performance reason to prefer it on a multi-tenant TEE substrate.
+- Plain `runc` is no faster than sysbox-runc; there's no performance reason to prefer it on a multi-app TEE substrate.
 
 ## A covert channel runsc actually closes: `/proc` is host-wide under runc and sysbox-runc
 
-While digging for residual cross-tenant channels on hermes-staging, the most striking real finding: `/proc/loadavg`, `/proc/stat`, `/proc/meminfo`, and `/proc/uptime` are all *host-wide* under `runc` and `sysbox-runc`. Reading them from inside any tenant gives back the host's actual values — including activity contributed by sibling tenants.
+While digging for residual cross-app channels on hermes-staging, the most striking real finding: `/proc/loadavg`, `/proc/stat`, `/proc/meminfo`, and `/proc/uptime` are all *host-wide* under `runc` and `sysbox-runc`. Reading them from inside any app gives back the host's actual values — including activity contributed by sibling apps.
 
 Side-by-side, on the same host:
 
@@ -94,19 +103,19 @@ Side-by-side, on the same host:
 
 This is a working covert channel under runc/sysbox-runc:
 
-1. Tenant A busy-loops a CPU core in a deliberate pattern (e.g. spin 1s, idle 1s).
-2. Tenant B reads `/proc/loadavg` once per second.
+1. App A busy-loops a CPU core in a deliberate pattern (e.g. spin 1s, idle 1s).
+2. App B reads `/proc/loadavg` once per second.
 3. B reconstructs A's signal from the load oscillation.
 
 Bandwidth is low (loadavg updates over seconds), but the channel is structurally there and easy to demonstrate. Sysbox doesn't help — its FUSE-virtualised `/proc` covers some files but lets `loadavg`/`stat`/`uptime`/`meminfo` pass through to the host's view.
 
-**`runsc` (gVisor) closes this channel** by synthesising those `/proc` entries inside Sentry — the tenant only ever sees its own kernel-state-equivalent, never the host's. Sentry IS the kernel for the workload, so there's no host view to leak.
+**`runsc` (gVisor) closes this channel** by synthesising those `/proc` entries inside Sentry — the app only ever sees its own kernel-state-equivalent, never the host's. Sentry IS the kernel for the workload, so there's no host view to leak.
 
-This is the strongest concrete reason to prefer runsc on this substrate that surfaced during the comparison work — the kernel-CVE argument was structural but abstract; this is a demonstrable cross-tenant information leak that flipping the runtime literally closes. (Higher-bandwidth channels — cache timing, memory pressure modulation — are harder to characterise and likely remain to some degree under any runtime when tenants share physical hardware.)
+This is the strongest concrete reason to prefer runsc on this substrate that surfaced during the comparison work — the kernel-CVE argument was structural but abstract; this is a demonstrable cross-app information leak that flipping the runtime literally closes. (Higher-bandwidth channels — cache timing, memory pressure modulation — are harder to characterise and likely remain to some degree under any runtime when apps share physical hardware.)
 
 ## Disguised leaker: a leak runtime isolation does not close
 
-The `/proc` covert channel above is closed by switching runtimes. The harder threat — and the more honest one — is a tenant whose source review *passes*, whose attestation chain *holds*, but which leaks the very thing it claims to protect via a side channel the substrate cannot see. That's the rug-pull case: the relying party reads the source, accepts the attestation, and is wrong.
+The `/proc` covert channel above is closed by switching runtimes. The harder threat — and the more honest one — is an app whose source review *passes*, whose attestation chain *holds*, but which leaks the very thing it claims to protect via a side channel the substrate cannot see. That's the rug-pull case: the relying party reads the source, accepts the attestation, and is wrong.
 
 The simplest demonstration of the class, deployed live on hermes-staging at `/vault/` (under `runsc` + `isolation: container` — the strongest substrate config we have):
 
@@ -145,7 +154,7 @@ target: https://...phala.network/vault/  length: 8  samples/byte: 10
 recovered: 'deadbeef'  in 983.2s
 ```
 
-Source for the project and the attack: [`examples/timing-leak-demo/`](https://github.com/amiller/dstack-webhost/tree/main/examples/timing-leak-demo). The substrate is doing its job — runsc mediates syscalls, per-project networks isolate the tenant, the daemon never sees the secret. The leak is *inside the project's own response time*, public to anyone with `curl`.
+Source for the project and the attack: [`examples/timing-leak-demo/`](https://github.com/amiller/dstack-webhost/tree/main/examples/timing-leak-demo). The substrate is doing its job — runsc mediates syscalls, per-project networks isolate the app, the daemon never sees the secret. The leak is *inside the project's own response time*, public to anyone with `curl`.
 
 ### Why this matters and what's actually realistic
 
@@ -161,18 +170,18 @@ A follow-up demo with one of the above (probably textbook RSA — Hamming-weight
 
 ## gVisor + Docker embedded DNS
 
-When a tenant runs under plain `runsc`, outbound DNS resolution hits a real interaction bug between gVisor's sandbox netstack and Docker's embedded DNS resolver at `127.0.0.11`. Docker forces `nameserver 127.0.0.11` into `/etc/resolv.conf` for any container on a user-defined bridge network (which is most of them, including the per-project `tee-proj-<name>-<mode>` networks the substrate creates). gVisor's own netstack doesn't route to that address. Result: DNS lookups return "Connection refused" even though the host's actual resolver is reachable.
+When an app runs under plain `runsc`, outbound DNS resolution hits a real interaction bug between gVisor's sandbox netstack and Docker's embedded DNS resolver at `127.0.0.11`. Docker forces `nameserver 127.0.0.11` into `/etc/resolv.conf` for any container on a user-defined bridge network (which is most of them, including the per-project `tee-proj-<name>-<mode>` networks the substrate creates). gVisor's own netstack doesn't route to that address. Result: DNS lookups return "Connection refused" even though the host's actual resolver is reachable.
 
 `HostConfig.Dns` (the compose `dns:` field) does not fix this — it only changes the upstream resolvers Docker's embedded DNS forwards to, not the embedded DNS address Docker writes into `/etc/resolv.conf`.
 
-The substrate's answer is a second runtime, so no tenant has to choose between gVisor and DNS:
+The substrate's answer is a second runtime, so no app has to choose between gVisor and DNS:
 
 - **`runsc-hostnet`** — the [prelaunch](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch) registers a second runtime, `runsc --network=host`. Network syscalls pass through to the container's own netns, so `127.0.0.11`, embedded DNS and container-name discovery behave exactly as under runc, while Sentry still mediates every other syscall. The trade is explicit, not hidden: netstack isolation is given up — network syscalls reach the host kernel again. `/_api/substrate` reports this as `"network_isolation": "host"` (vs `"sandbox"` for plain runsc, `"netns"` for runc-family).
 
 Plain `runsc` is unchanged: name resolution on a per-project bridge is still broken. `docker_client.py`
-sets an explicit `HostConfig.Dns` for runsc tenants (#108), but that only changes what the embedded
+sets an explicit `HostConfig.Dns` for runsc apps (#108), but that only changes what the embedded
 resolver forwards to — on a user-defined network Docker still writes `127.0.0.11`, so it buys nothing
-there. A tenant that needs netstack isolation *and* DNS has no answer in this substrate today.
+there. An app that needs netstack isolation *and* DNS has no answer in this substrate today.
 
 `/_api/substrate` reports `available_runtimes` read live from Docker's `GET /info`, and the daemon refuses to start when `DAEMON_CONTAINER_RUNTIME` names a runtime Docker does not have — the substrate's runtime claim cannot silently drift from what the host actually runs.
 
@@ -180,13 +189,13 @@ there. A tenant that needs netstack isolation *and* DNS has no answer in this su
 
 What this stack does *not* address, and is worth arguing about:
 
-- **Kernel CVEs.** `sysbox-runc` hardens the namespace/capability boundary; it does not shrink the host kernel's syscall attack surface. A tenant that exploits a kernel bug (`io_uring`, BPF, etc.) escapes the CVM and breaks every tenant's quote. The CVM is currently on `6.9.0-dstack` from May 2024, which has a year of post-release CVEs. This is the structural reason for the gVisor argument above. The provisioning path is now demonstrated to work via [prelaunch script](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch); flipping hermes-staging onto runsc is a separate operational decision (perf, hermes compat) rather than a missing capability.
-- **Weakest-link tenant on a shared kernel.** Every tenant on the CVM shares one Linux kernel, so the effective isolation floor for *any* tenant is whatever the *weakest* tenant's runtime exposes. A gVisor-protected app on the same CVM as a runc-protected sibling is no better off than the sibling against kernel-CVE escape — once the host kernel is compromised by the weak link, an attacker reads Sentry-protected memory from outside Sentry's mediation. This is the structural reason `DAEMON_CONTAINER_RUNTIME` is a CVM-level switch rather than a per-manifest field; per-project runtime choice would be a foot-gun for the attestation claim. (On hermes-staging the `hermes` and `ssh-debug` peer services run under default runc because they're outside the substrate's "design under test" boundary; for a serious deployment they'd need to share the floor.)
-- **Per-tenant resource limits.** No cgroup memory/CPU/disk caps today. A hostile tenant can OOM the host or starve sibling CPU. Easy to add — this is unfinished work, not a hard problem.
-- **Same-host side channels.** `/proc/loadavg`, RAM pressure, page-cache timing, CPU contention — `sysbox-runc` does not virtualise these. A tenant pair could plausibly establish a covert channel by modulating load and timing read-back. Quantifying the bandwidth would be its own demo, not yet built.
-- **Daemon TCB.** The daemon (`tee-daemon`) owns Docker, owns each tenant's per-project network, and is the authority behind `/_api/substrate`. A daemon compromise is a total compromise. The TEE attestation pins the daemon's image hash; a relying party walks the trust chain to the public source and audits it as part of the substrate.
-- **Inter-mode bridges.** The daemon connects itself to every per-project network so it can reverse-proxy. A tenant that compromised the daemon's network stack from inside its own network could in principle pivot. The exposed surface is the daemon's bridge interface plus its ingress port — small, but not zero.
-- **Verifier coverage of image-runtime tenants.** The current verifier page checks `tree_hash` against GitHub; for image-runtime tenants the integrity claim is `image_digest` against a registry, and the verifier page does not yet branch on this. Audit machinery, not a runtime hole.
+- **Kernel CVEs.** `sysbox-runc` hardens the namespace/capability boundary; it does not shrink the host kernel's syscall attack surface. An app that exploits a kernel bug (`io_uring`, BPF, etc.) escapes the CVM and breaks every app's quote. The CVM is currently on `6.9.0-dstack` from May 2024, which has a year of post-release CVEs. This is the structural reason for the gVisor argument above. The provisioning path is now demonstrated to work via [prelaunch script](https://github.com/amiller/dstack-webhost/tree/main/examples/runsc-prelaunch); flipping hermes-staging onto runsc is a separate operational decision (perf, hermes compat) rather than a missing capability.
+- **Weakest-link app on a shared kernel.** Every app on the CVM shares one Linux kernel, so the effective isolation floor for *any* app is whatever the *weakest* app's runtime exposes. A gVisor-protected app on the same CVM as a runc-protected sibling is no better off than the sibling against kernel-CVE escape — once the host kernel is compromised by the weak link, an attacker reads Sentry-protected memory from outside Sentry's mediation. This is the structural reason `DAEMON_CONTAINER_RUNTIME` is a CVM-level switch rather than a per-manifest field; per-project runtime choice would be a foot-gun for the attestation claim. (On hermes-staging the `hermes` and `ssh-debug` peer services run under default runc because they're outside the substrate's "design under test" boundary; for a serious deployment they'd need to share the floor.)
+- **Per-app resource limits.** No cgroup memory/CPU/disk caps today. A hostile app can OOM the host or starve sibling CPU. Easy to add — this is unfinished work, not a hard problem.
+- **Same-host side channels.** `/proc/loadavg`, RAM pressure, page-cache timing, CPU contention — `sysbox-runc` does not virtualise these. An app pair could plausibly establish a covert channel by modulating load and timing read-back. Quantifying the bandwidth would be its own demo, not yet built.
+- **Daemon TCB.** The daemon (`tee-daemon`) owns Docker, owns each app's per-project network, and is the authority behind `/_api/substrate`. A daemon compromise is a total compromise. The TEE attestation pins the daemon's image hash; a relying party walks the trust chain to the public source and audits it as part of the substrate.
+- **Inter-mode bridges.** The daemon connects itself to every per-project network so it can reverse-proxy. An app that compromised the daemon's network stack from inside its own network could in principle pivot. The exposed surface is the daemon's bridge interface plus its ingress port — small, but not zero.
+- **Verifier coverage of image-runtime apps.** The current verifier page checks `tree_hash` against GitHub; for image-runtime apps the integrity claim is `image_digest` against a registry, and the verifier page does not yet branch on this. Audit machinery, not a runtime hole.
 
 A natural next demo is a sibling probe that actually tries each of these channels and reports what worked. Not built yet — the substrate-level fixes (network, volume, Deno perms) closed the easier channels first; the side-channel work is harder and lower priority.
 
@@ -199,7 +208,7 @@ The image is already published — you can deploy it directly without rebuilding
 #   environment:
 #     - DAEMON_CONTAINER_RUNTIME=sysbox-runc
 
-# Deploy as a tenant:
+# Deploy as an app:
 curl -X POST https://<cvm>/_api/projects \
   -H "Authorization: Bearer $TEE_DAEMON_TOKEN" \
   -H "Content-Type: application/json" \

@@ -21,8 +21,8 @@ services:
       # Per-project broker sockets live under here (one subdir per project, each
       # holding that project's dstack.sock + creds.sock). It MUST be a host bind
       # (not a named volume) so the daemon can bind a project's OWN subdir into
-      # that project's container at /run/broker — a tenant must only ever see
-      # its own broker dir (cross-tenant GetKey derivation, issue #7).
+      # that project's container at /run/broker — an app must only ever see
+      # its own broker dir (cross-app GetKey derivation, issue #7).
       # BROKER_HOST_PATH names the host side.
       - ${BROKER_HOST_PATH:-/var/run/tee-broker}:/var/run/broker
     environment:

@@ -1,7 +1,7 @@
 #!/bin/bash
 # dstack prelaunch script: install gVisor's runsc and register it as two
 # Docker runtimes — `runsc` and `runsc-hostnet` (--network=host). The hostnet
-# variant keeps Sentry mediating every other syscall while letting tenant
+# variant keeps Sentry mediating every other syscall while letting app
 # network syscalls reach the container's netns, so Docker's embedded DNS at
 # 127.0.0.11 and container-name discovery work (dead under plain runsc's own
 # netstack). Installs to /dstack/persistent/bin (writable ZFS); the dstack rootfs

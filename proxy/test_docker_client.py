@@ -2,7 +2,7 @@
 
 runsc containers must carry explicit Dns: Docker's embedded 127.0.0.11 resolver
 is dead under the gVisor netstack (issue #2). Every other runtime must stay
-untouched so runc tenants keep Docker's embedded resolver."""
+untouched so runc apps keep Docker's embedded resolver."""
 
 import asyncio
 

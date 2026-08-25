@@ -29,7 +29,7 @@ app process           →  runs in a shared Deno isolate or sibling container
 Hardware attests the **daemon**. The step from "approved daemon code" to "this app is H" is an
 in-daemon assertion. Three classes of consumer need more: a counterparty releasing funds to *this
 app*; an auditor wanting a non-repudiable H↔endpoint binding rooted below daemon logic; a high-value
-tenant wanting blast-radius isolation (today all shared-runtime tenants share one V8 isolate and one
+app wanting blast-radius isolation (today all shared-runtime apps share one V8 isolate and one
 derived-key namespace). Three unused dstack primitives sit behind the allow-list
 (`proxy/dstack_proxy.py`): `GetQuote` (fresh TDX quote with caller-chosen 64-byte `report_data`),
 `EmitEvent` (extend RTMR3 with a measured, logged event), and per-app-CVM provisioning.
@@ -90,9 +90,9 @@ two kinds distinguishable to consumers.
    (to the 64-byte field); `GetQuote(report_data)` → `binding_quote` (raw TDX bytes + collateral
    pointer); persist it with `tree_hash`/`commit_sha`/`image_digest`; `EmitEvent("tee-daemon/promote",
    {...})` so the promotion is in RTMR3's measured-event log.
-2. **Keep `GetQuote` daemon-side.** Tenant apps reach dstack only through the filtered broker
+2. **Keep `GetQuote` daemon-side.** Apps reach dstack only through the filtered broker
    (`/run/broker/dstack.sock`, scoped to `/tee-daemon/`); the binding-quote call is daemon-side, so no
-   tenant can mint quotes for paths it doesn't own. If app-side `GetQuote` is ever exposed it must be
+   app can mint quotes for paths it doesn't own. If app-side `GetQuote` is ever exposed it must be
    report_data-domain-scoped the same way `GetKey` is path-scoped.
 3. **Serve it.** Extend `_api_attest`/`_api_verification` to return `binding_quote`, `report_data`,
    and the preimage (`app_id`,`name`,`tree_hash`,`app_pubkey`) so a verifier recomputes `report_data`
@@ -151,7 +151,7 @@ the bundle as `app-cvm`); `verify()`'s `app-cvm` measured-identity target; durab
 - **Quote freshness / revocation.** A binding quote is point-in-time; stale bundles still verify after
   teardown/re-promote. Need a liveness signal — the app signs a fresh nonce with `app_pubkey`, or the
   bundle carries the current RTMR3 log so a re-promote shows up.
-- **Shared-isolate reality.** (b) hardware-binds H but the shared Deno runtime still runs many tenants
+- **Shared-isolate reality.** (b) hardware-binds H but the shared Deno runtime still runs many apps
   in one `--allow-all` V8 isolate. `daemon-vouched` must never be read as "isolated"; only (a) closes
   that. Document it.
 - **base-prod gating.** (a) requires base-prod (pha-prod returns chain_id 0). (b)'s quote verifies
@@ -160,5 +160,5 @@ the bundle as `app-cvm`); `verify()`'s `app-cvm` measured-identity target; durab
 
 ## Out of Scope
 The appraisal/verdict layer (RFC 0020 / 0022); durable state for promoted per-app CVMs (RFC 0017);
-secret delegation to attested apps (RFC 0018); closing the shared-isolate multi-tenancy gap (its own
+secret delegation to attested apps (RFC 0018); closing the shared-isolate gap (its own
 isolation RFC — this RFC makes the trust *level* honest, it does not raise it).
