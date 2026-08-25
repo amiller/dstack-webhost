@@ -12,13 +12,20 @@ TEE="${TEE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"   # daemon source = 
 HA="$HOME/projects/hermes-agent"         # where the deploy manifests live
 IMG="ghcr.io/amiller/tee-socket-proxy"
 KMS=()
+PRELAUNCH=()
 
 case "$TARGET" in
   staging) CVM=webhost-staging; COMPOSE="$HA/docker-compose.webhost-staging.yaml"; ENVF="$HA/deploy-notes/.env.webhost-staging" ;;
   prod)    CVM=hermes-staging;  COMPOSE="$HA/docker-compose.hermes-prod.yaml";     ENVF="$HA/deploy-notes/.env.hermes-prod" ;;
   pod)     CVM=oauth3-prod7;    COMPOSE="$HA/docker-compose.prod7.yaml";           ENVF="$HA/deploy-notes/.env.prod9"
            : "${PRIVATE_KEY:?pod is Base-KMS: export PRIVATE_KEY (the Base signer) first}"
-           KMS=(--kms base --private-key "$PRIVATE_KEY" --rpc-url "${ETH_RPC_URL:-https://mainnet.base.org}") ;;
+           KMS=(--kms base --private-key "$PRIVATE_KEY" --rpc-url "${ETH_RPC_URL:-https://mainnet.base.org}")
+           # NOT optional. The prelaunch is what puts runsc/runsc-hostnet in Docker, and this
+           # CVM's DAEMON_CONTAINER_RUNTIME names runsc-hostnet — deploy without it and the next
+           # boot has no such runtime, so verify_configured_runtime() refuses to start the daemon
+           # and the pod is dark. It also carries the wider default-address-pools.
+           PRELAUNCH=(--pre-launch-script "$HA/deploy-notes/prelaunch-runsc-resilient.sh")
+           [ -f "$HA/deploy-notes/prelaunch-runsc-resilient.sh" ] || { echo "missing prelaunch script — refusing to deploy a pod that would boot without runsc" >&2; exit 1; } ;;
   *) echo "unknown target '$TARGET' (valid: staging, prod, pod)" >&2; exit 1 ;;
 esac
 COMMIT=$(git -C "$TEE" rev-parse --short HEAD)
@@ -48,7 +55,7 @@ sed -i -E "s#${IMG}@sha256:[a-f0-9]+#${DIGEST}#" "$COMPOSE"
 grep -n "$IMG" "$COMPOSE"
 
 echo "==> 4/4 upgrade $CVM CVM (restarts every service in the compose; sealed env re-supplied)"
-phala deploy --cvm-id "$CVM" -c "$COMPOSE" -e "$ENVF" "${KMS[@]}" --wait
+phala deploy --cvm-id "$CVM" -c "$COMPOSE" -e "$ENVF" "${KMS[@]}" "${PRELAUNCH[@]}" --wait
 
 echo
 echo "DONE ($TARGET -> $CVM)."
