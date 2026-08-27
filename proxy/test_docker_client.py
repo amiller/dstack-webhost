@@ -34,6 +34,14 @@ def test_runsc_create_carries_gvisor_dns():
     assert hc["Dns"] == GVISOR_DNS
 
 
+def test_runsc_variants_carry_gvisor_dns():
+    captured, dc = _capturing_client()
+    _create(dc, "runsc-hostuds")
+    hc = captured["body"]["HostConfig"]
+    assert hc["Runtime"] == "runsc-hostuds"
+    assert hc["Dns"] == GVISOR_DNS
+
+
 def test_runc_and_shared_creates_keep_embedded_dns():
     for runtime in ("runc", ""):
         captured, dc = _capturing_client()

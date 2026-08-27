@@ -1,6 +1,7 @@
 #!/bin/bash
-# dstack prelaunch script: install gVisor's runsc and register it as two
-# Docker runtimes — `runsc` and `runsc-hostnet` (--network=host). The hostnet
+# dstack prelaunch script: install gVisor's runsc and register it as three
+# Docker runtimes — `runsc`, `runsc-hostuds` (--host-uds=open), and
+# `runsc-hostnet` (--network=host). The hostnet
 # variant keeps Sentry mediating every other syscall while letting app
 # network syscalls reach the container's netns, so Docker's embedded DNS at
 # 127.0.0.11 and container-name discovery work (dead under plain runsc's own
@@ -57,6 +58,7 @@ mkdir -p /etc/docker
 if [ -f /etc/docker/daemon.json ] && command -v jq >/dev/null 2>&1; then
   jq --arg p "$INSTALL_DIR/runsc" \
     '.runtimes.runsc = {"path": $p}
+     | .runtimes["runsc-hostuds"] = {"path": $p, "runtimeArgs": ["--host-uds=open"]}
      | .runtimes["runsc-hostnet"] = {"path": $p, "runtimeArgs": ["--network=host"]}' \
     /etc/docker/daemon.json > /etc/docker/daemon.json.new \
     && mv /etc/docker/daemon.json.new /etc/docker/daemon.json
@@ -65,6 +67,8 @@ else
 {
   "runtimes": {
     "runsc": {"path": "$INSTALL_DIR/runsc"},
+    "runsc-hostuds": {"path": "$INSTALL_DIR/runsc",
+                       "runtimeArgs": ["--host-uds=open"]},
     "runsc-hostnet": {"path": "$INSTALL_DIR/runsc",
                       "runtimeArgs": ["--network=host"]}
   }
