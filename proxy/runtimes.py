@@ -56,24 +56,46 @@ async def resolve_broker_volume(docker: DockerClient, socket_dir: str) -> str:
     external volume.
     """
     global BROKER_VOLUME_NAME
-    if BROKER_VOLUME_NAME:
-        return BROKER_VOLUME_NAME
+    configured = BROKER_VOLUME_NAME
+    want = socket_dir.rstrip("/")
+
+    # Always inspect, even when configured. Docker auto-creates a named volume
+    # that does not exist, so a stale or typo'd BROKER_VOLUME_NAME mounts a
+    # fresh empty volume into every attested app — the same ENOENT-inside-the-app
+    # this function exists to prevent, and worse for being reported as success.
+    found = ""
     me = os.environ.get("HOSTNAME", "")
     if not me:
         log.warning("no HOSTNAME, cannot resolve the broker volume by self-inspection")
-        return ""
-    try:
-        info = await docker.inspect(me)
-    except Exception as e:
-        log.warning("could not inspect self (%s) to resolve the broker volume: %s", me, e)
-        return ""
-    want = socket_dir.rstrip("/")
-    for m in info.get("Mounts", []):
-        if m.get("Type") == "volume" and str(m.get("Destination", "")).rstrip("/") == want:
-            BROKER_VOLUME_NAME = m.get("Name", "")
-            log.info("resolved broker volume %s from our own mount at %s",
-                     BROKER_VOLUME_NAME, want)
-            return BROKER_VOLUME_NAME
+    else:
+        try:
+            info = await docker.inspect(me)
+        except Exception as e:
+            log.warning("could not inspect self (%s) to resolve the broker volume: %s", me, e)
+            info = {}
+        for m in info.get("Mounts", []):
+            if m.get("Type") == "volume" and str(m.get("Destination", "")).rstrip("/") == want:
+                found = m.get("Name", "")
+                break
+
+    if configured:
+        if found and found != configured:
+            log.error("BROKER_VOLUME_NAME=%s does not match the volume actually mounted "
+                      "at %s (%s). Honouring the environment, but attested apps will get "
+                      "an empty auto-created volume and no broker unless this is "
+                      "deliberate.", configured, want, found)
+        elif not found:
+            log.error("BROKER_VOLUME_NAME=%s is set but no volume is mounted at %s here, "
+                      "so it cannot be verified. If it is wrong, Docker will auto-create "
+                      "an empty volume and attested apps will get no broker.",
+                      configured, want)
+        return configured
+
+    if found:
+        BROKER_VOLUME_NAME = found
+        log.info("resolved broker volume %s from our own mount at %s", found, want)
+        return found
+
     log.warning("no volume mounted at %s; attested apps will get no broker", want)
     return ""
 IMAGE_APP_RESTART_POLICY = {"Name": "on-failure", "MaximumRetryCount": 5}
