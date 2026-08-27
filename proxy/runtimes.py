@@ -40,6 +40,42 @@ DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 # /run/broker/dstack.sock; nothing else). Mirrors DAEMON_VOLUME_NAME.
 BROKER_VOLUME_NAME = os.environ.get("BROKER_VOLUME_NAME", "")
 BROKER_MOUNT_IN_APP = "/run/broker"
+
+
+async def resolve_broker_volume(docker: DockerClient, socket_dir: str) -> str:
+    """Work out which volume backs our own broker socket dir, and use that.
+
+    Compose prefixes volume names with the project name, so the resolved name
+    of `broker_sock` is something like `dstack_broker_sock`. Requiring the
+    operator to copy that back into BROKER_VOLUME_NAME by hand fails quietly:
+    the daemon still serves the broker, still mints its own quotes, and still
+    marks projects `attested`, while every attested app gets no mount and every
+    receipt it writes says the quote is missing. Ask Docker instead.
+
+    An explicit BROKER_VOLUME_NAME still wins, for operators pinning an
+    external volume.
+    """
+    global BROKER_VOLUME_NAME
+    if BROKER_VOLUME_NAME:
+        return BROKER_VOLUME_NAME
+    me = os.environ.get("HOSTNAME", "")
+    if not me:
+        log.warning("no HOSTNAME, cannot resolve the broker volume by self-inspection")
+        return ""
+    try:
+        info = await docker.inspect(me)
+    except Exception as e:
+        log.warning("could not inspect self (%s) to resolve the broker volume: %s", me, e)
+        return ""
+    want = socket_dir.rstrip("/")
+    for m in info.get("Mounts", []):
+        if m.get("Type") == "volume" and str(m.get("Destination", "")).rstrip("/") == want:
+            BROKER_VOLUME_NAME = m.get("Name", "")
+            log.info("resolved broker volume %s from our own mount at %s",
+                     BROKER_VOLUME_NAME, want)
+            return BROKER_VOLUME_NAME
+    log.warning("no volume mounted at %s; attested apps will get no broker", want)
+    return ""
 IMAGE_APP_RESTART_POLICY = {"Name": "on-failure", "MaximumRetryCount": 5}
 
 
@@ -47,7 +83,17 @@ def _attested_broker_binds(mode: str) -> list[str]:
     """Bind ONLY the filtered dstack broker socket into attested app containers,
     at a dedicated path (no docker.sock, no /var/run clobber).
     Read-only is fine: connect() doesn't write the socket file."""
-    if mode != "attested" or not BROKER_VOLUME_NAME:
+    if mode != "attested":
+        return []
+    if not BROKER_VOLUME_NAME:
+        # Loud, because the app cannot diagnose this from the inside. It sees
+        # ENOENT on /run/broker/dstack.sock, which is indistinguishable from a
+        # broker that is merely down, so it correctly reports itself unattested
+        # and the operator sees a working deployment producing bare hashes.
+        log.error("attested runtime is starting with NO broker: BROKER_VOLUME_NAME is "
+                  "unset and could not be resolved, so %s will be absent and GetQuote "
+                  "will fail inside the app. Receipts will say they are unattested.",
+                  BROKER_MOUNT_IN_APP)
         return []
     return [f"{BROKER_VOLUME_NAME}:{BROKER_MOUNT_IN_APP}:ro"]
 # Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").

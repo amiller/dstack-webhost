@@ -13,7 +13,7 @@ from .docker_proxy import DockerProxy
 from .dstack_proxy import DstackProxy
 from .docker_client import DockerClient
 from .projects import ProjectStore
-from .runtimes import RuntimeManager
+from .runtimes import RuntimeManager, resolve_broker_volume
 from .tunnel import TunnelStore
 from . import ingress as ingress_mod
 from .ingress import Ingress
@@ -89,9 +89,16 @@ async def start():
         await web.UnixSite(dstack_runner, dstack_sock_path).start()
         os.chmod(dstack_sock_path, 0o666)
         log.info("dstack proxy (filtered broker) listening on %s", dstack_sock_path)
-        if os.environ.get("BROKER_VOLUME_NAME"):
-            log.info("Broker shared to attested apps via BROKER_VOLUME_NAME=%s "
-                     "(appears at /run/broker/dstack.sock)", os.environ["BROKER_VOLUME_NAME"])
+        # Resolve before any runtime starts, so the first attested container
+        # already gets the mount. An explicit env var still wins.
+        broker_volume = await resolve_broker_volume(docker, BROKER_SOCKET_DIR)
+        if broker_volume:
+            log.info("Broker shared to attested apps via volume %s "
+                     "(appears at /run/broker/dstack.sock)", broker_volume)
+        else:
+            log.error("Broker is served locally but NOT shared to attested apps: no "
+                      "volume backs %s. Attested projects will run without a quote.",
+                      BROKER_SOCKET_DIR)
     else:
         log.warning("dstack socket not found — dstack proxy disabled")
 
