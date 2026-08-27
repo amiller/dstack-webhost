@@ -87,7 +87,7 @@
   <h1>What the swarm can show you, walked and dated</h1>
   <div class="fresh">
     <span class="oldest">oldest evidence on this page: 0m ago</span>
-    <span class="assembled">html assembled 2026-08-27 18:18 CDT (assembly time is not evidence freshness)</span>
+    <span class="assembled">html assembled 2026-08-27 18:22 CDT (assembly time is not evidence freshness)</span>
   </div>
 <section class="block"><h2>Your asks</h2>
 <p class="cap">Open <code>operator-ask</code> issues across the repos — the things you asked to see, each with its current flow status. This section leads the report so an evaporated plan is visible, not forgotten.</p>
@@ -290,9 +290,9 @@
 </ul>
 <h3>Lane health over time</h3>
 <table class="swarm-table"><tr><th>lane</th><th>runs logged</th><th>pass rate</th><th>latest</th></tr>
-<tr><td><b>browser-pool</b></td><td>339</td><td>339/339</td><td style="color:#00838a">08-27T23:18 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
-<tr><td><b>e2e-verifier</b></td><td>339</td><td>17/339</td><td style="color:#c2185b">08-27T23:18 — FAIL: e2e-flow engine exited 1</td></tr>
-<tr><td><b>login-with-everything</b></td><td>339</td><td>195/339</td><td style="color:#00838a">08-27T23:18 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
+<tr><td><b>browser-pool</b></td><td>340</td><td>340/340</td><td style="color:#00838a">08-27T23:22 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
+<tr><td><b>e2e-verifier</b></td><td>340</td><td>17/340</td><td style="color:#c2185b">08-27T23:22 — FAIL: e2e-flow engine exited 1</td></tr>
+<tr><td><b>login-with-everything</b></td><td>340</td><td>196/340</td><td style="color:#00838a">08-27T23:22 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
 </table>
 <p class="cap" style="color:#57606a">History collection started 2026-07-06; each 30-min refresh appends a snapshot.</p>
 <h3>Agent census</h3><p>2 running, 120 idle/stopped on the paseo daemon right now.</p>
@@ -323,7 +323,7 @@ section.work .none{ color:var(--faint,#6e6a62); font-style:italic; }
 section.work .cap{ color:var(--faint,#6e6a62); font-size:12px; margin:6px 0 0; }
 section.work a{ color:#1f6feb; }
 <section class="work"><h2 id="work">Work — the autonomous loop</h2><p class="cap">What the loop is doing: recent runs (issue → branch → verify → PR), PR merge + pass/fail state, and the ready/operator-ask queue. Sourced live from <code>gh</code> + <code>~/paseo-batch/out</code>; any section whose substance is &gt;24h old or absent turns RED.</p>
-<div class="sub "><span class="last-run" title="2026-08-27 22:27 UTC">last run 50m ago</span><h3>Recent runs</h3><table class="smoke-tbl"><thead><tr><th>issue</th><th>title</th><th>branch</th><th>verify</th><th>PR · merge</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/issues/38">#38</a></td><td>Otter demo: activity log noisy with frequent poll entries — coalesce +</td><td><code></code></td><td class="verify v-unknown">unknown</td><td>— </td></tr>
+<div class="sub "><span class="last-run" title="2026-08-27 22:27 UTC">last run 54m ago</span><h3>Recent runs</h3><table class="smoke-tbl"><thead><tr><th>issue</th><th>title</th><th>branch</th><th>verify</th><th>PR · merge</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/issues/38">#38</a></td><td>Otter demo: activity log noisy with frequent poll entries — coalesce +</td><td><code></code></td><td class="verify v-unknown">unknown</td><td>— </td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/6">#6</a></td><td>Attested gVisor (runsc) tenants can&#x27;t reach the broker unix socket — n</td><td><code>staging-6</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/127">#127</a> <span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/121">#121</a></td><td>&quot;tenant&quot; is used for containers, but a tenant is a user — the word hid</td><td><code>staging-121</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/123">#123</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/120">#120</a></td><td>No per-tenant resource visibility: CPU, memory and network are unmeasu</td><td><code>staging-120</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/122">#122</a> <span class="badge b-open">open</span></td></tr>
@@ -335,7 +335,7 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/2">#2</a></td><td>isolation:container tenants have no outbound DNS under runsc</td><td><code>staging-2</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/108">#108</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/66">#66</a></td><td>RFC 0029: Attested apps with declared operator debug</td><td><code></code></td><td class="verify v-pass">pass</td><td>— </td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/57">#57</a></td><td>RFC 0017 (code slice): /_api/export + /_api/import + recover_all impor</td><td><code>staging-57</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/107">#107</a> <span class="badge b-merged">merged</span></td></tr></tbody></table><p class="cap">Each row is one ready-queue iteration from the result.json lane logs; verify = test_daemon.py / unit result recorded by that run.</p></div>
-<div class="sub "><span class="last-run" title="2026-08-27 23:18 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/127">#127</a></td><td>runsc: enable broker host Unix sockets</td><td><code>staging-6</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
+<div class="sub "><span class="last-run" title="2026-08-27 23:22 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/127">#127</a></td><td>runsc: enable broker host Unix sockets</td><td><code>staging-6</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/122">#122</a></td><td>per-tenant resource stats: /_api/stats + /_api/projects/&lt;name&gt;/s</td><td><code>staging-120</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/123">#123</a></td><td>docs(#121): say app/user, not &quot;tenant&quot; — name the boundary gViso</td><td><code>staging-121</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/117">#117</a></td><td>runsc-hostnet runtime + /_api/substrate reports Docker&#x27;s real ru</td><td><code>staging-116</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
@@ -349,7 +349,7 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/108">#108</a></td><td>runsc tenants: explicit Dns — Docker&#x27;s embedded 127.0.0.11 resol</td><td><code>staging-2</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/114">#114</a></td><td>RFC-0027 Phase 1: hardware-rooted per-app binding quote</td><td><code>feat/rfc0027-binding-quote</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/104">#104</a></td><td>staging-B: derive project-scoped oauth3 seal keys</td><td><code>staging-103</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
-<div class="sub "><span class="last-run" title="2026-08-27 23:18 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><ul class="asks"><li><span class="badge b-open">ready</span> <a href="https://github.com/amiller/dstack-webhost/issues/85">#85</a> — envoy-browser rig: screenshots degrade under Brave memory/process accumulation (root-caused, not &#x27;flaky&#x27;)</li></ul></div>
+<div class="sub "><span class="last-run" title="2026-08-27 23:22 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><ul class="asks"><li><span class="badge b-open">ready</span> <a href="https://github.com/amiller/dstack-webhost/issues/85">#85</a> — envoy-browser rig: screenshots degrade under Brave memory/process accumulation (root-caused, not &#x27;flaky&#x27;)</li></ul></div>
 </section>
 </div>
 </section>
