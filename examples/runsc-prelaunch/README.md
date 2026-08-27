@@ -79,6 +79,11 @@ socket or another project's broker. Set:
       - DAEMON_CONTAINER_RUNTIME=runsc-hostuds
 ```
 
+The per-project `oci_runtime: runc` opt-out in a deploy manifest pins one app
+back to runc. It remains available, but it is for **TRUSTED tenants only**: a
+runc app shares the host kernel, so it must be trusted against kernel-CVE-class
+bugs — exactly the exposure the runsc variants exist to remove.
+
 For apps that need outbound DNS, use `runsc-hostnet` instead (same runsc
 binary, registered with `--network=host`): Docker's embedded resolver at
 `127.0.0.11` is unreachable under plain runsc's netstack, and `HostConfig.Dns`
