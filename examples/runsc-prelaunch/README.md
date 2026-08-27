@@ -1,7 +1,7 @@
 # runsc-prelaunch
 
-A dstack prelaunch script that installs gVisor's `runsc` and registers it as a
-Docker runtime, without modifying the dstack base image. Validates the
+A dstack prelaunch script that installs gVisor's `runsc` and registers it as
+Docker runtimes, without modifying the dstack base image. Validates the
 "gVisor is provisionable on stock dstack today" claim from
 [isolation-probe](../../isolation-probe.md).
 
@@ -67,6 +67,22 @@ services:
 under gVisor; the [isolation-probe](https://github.com/amiller/dstack-webhost/tree/main/apps/isolation-probe)
 will show a different signature in `/proc/self/uid_map` and `user_ns` than
 sysbox-runc — gVisor synthesises those from its own Sentry process.
+
+For apps that need the daemon's broker socket, use `runsc-hostuds` (same runsc
+binary, registered with `--host-uds=open`). It permits gVisor to connect to
+host Unix sockets that the container explicitly mounts, without permitting it
+to create host sockets. The tee-daemon broker volume mounts only the
+project-scoped filtered socket, so the app still cannot reach the raw dstack
+socket or another project's broker. Set:
+
+```yaml
+      - DAEMON_CONTAINER_RUNTIME=runsc-hostuds
+```
+
+The per-project `oci_runtime: runc` opt-out in a deploy manifest pins one app
+back to runc. It remains available, but it is for **TRUSTED tenants only**: a
+runc app shares the host kernel, so it must be trusted against kernel-CVE-class
+bugs — exactly the exposure the runsc variants exist to remove.
 
 For apps that need outbound DNS, use `runsc-hostnet` instead (same runsc
 binary, registered with `--network=host`): Docker's embedded resolver at

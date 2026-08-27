@@ -1,0 +1,73 @@
+# Issue #6 acceptance evidence — captured 2026-08-27T22:24:27Z against deployed staging (webhost-staging CVM)
+
+```
+## GET /_api/version (public, RFC-0015)
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Access-Control-Allow-Origin: *
+Content-Length: 40
+Date: Thu, 27 Aug 2026 22:24:27 GMT
+Server: Python/3.11 aiohttp/3.14.3
+
+{"version": "dev", "commit": "0336a7b3"}```
+
+## GET /issue6-hostuds/ — in-tenant transcript (oci_runtime=runsc-hostuds, mode=attested, isolation=container)
+```
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 762
+Date: Thu, 27 Aug 2026 22:24:27 GMT
+Server: Python/3.11 aiohttp/3.14.3
+
+{
+  "ts": "2026-08-27T22:24:27.774Z",
+  "sock": "/run/broker/dstack.sock",
+  "getkey_name_mode": {
+    "status": 200,
+    "body": "{\"key\":\"fa9d4329fda3dd7ac0e40a590040c79a5f8071a52520d767c0e32e9eb34e49ca\",\"signature_chain\":[\"f6b7fe90beda6b41e3481c13353d160f65923d4d882f697399a55e7b5e953feb5f2061c4d911741c5858ea9ead304dfeebe1d431a0d4503e197894aa96377adc01\",\"3eda91c74da5f88885797a23c7fbc13b54700946451ea9af6f5110bcceff943b1e495fef7250250d6af6cd14ba6ab2e43f17eb6009cfbc668716e6feccf2283d01\"]}"
+  },
+  "getkey_path_mode": {
+    "status": 400,
+    "body": "{\"message\": \"GetKey requires a `name` (no '/', '\\\\', '..', or leading '.')\"}"
+  },
+  "denied_method": {
+    "status": 403,
+    "body": "{\"message\": \"Method DeriveKey not permitted\"}"
+  }
+}```
+
+## Contrast (captured 2026-08-27T22:15:11Z, before teardown): identical app under oci_runtime=runsc — no --host-uds
+```
+{
+  "ts": "2026-08-27T22:15:11.647Z",
+  "sock": "/run/broker/dstack.sock",
+  "getkey_name_mode": {
+    "status": 0,
+    "body": "",
+    "err": "ConnectionRefused: Connection refused (os error 111)"
+  },
+  "getkey_path_mode": {
+    "status": 0,
+    "body": "",
+    "err": "ConnectionRefused: Connection refused (os error 111)"
+  },
+  "denied_method": {
+    "status": 0,
+    "body": "",
+    "err": "ConnectionRefused: Connection refused (os error 111)"
+  }
+}
+HTTP 200
+```
+
+## GET /_api/projects/issue6-hostuds/audit (public for attested projects)
+```
+[{"timestamp": 1787868520.3234396, "action": "deploy", "container_id": "", "image": "denoland/deno:latest", "image_digest": "sha256:efd53a4aeff1bbe0f05180c628a02b78661d955f56219e2e932800e8e13e1982", "detail": "{\"name\": \"issue6-hostuds\", \"mode\": \"attested\", \"source\": \"tarball://issue6-probe\", \"ref\": \"pr127\", \"commit\": \"\", \"tree_hash\": \"97816f756f2542bc32588d5d6c10540227d653516aeffad26097d4c77d3a1f01\", \"cap_add\": [], \"devices\": [], \"operator_debug\": false}", "prev_hash": "", "entry_hash": "5000417cfa1fac16da45448591c8a523b7aa0e75556fd1a601a51f552b4f4c88"}]```
+
+## GET /_api/attest/issue6-hostuds — dstack-derived project key (RTMR signature chain)
+```
+{"signature_chain": ["7f2c77ea435dd29fdededd5485ed3690293ceca36e3230ee3e31ab648e6f72c3048ee1df6985e1908effe93508e16dd54c51edd1d76d0d563b413aa7675c5b5300", "3eda91c74da5f88885797a23c7fbc13b54700946451ea9af6f5110bcceff943b1e495fef7250250d6af6cd14ba6ab2e43f17eb6009cfbc668716e6feccf2283d01"], "pubkey": "03b7d626191e2c1ca08f73623fa4b5f01c68571883744d0a22885fb078619161e1"}```
+
+## GET /_api/substrate (public)
+```
+{"container_runtime": "runc", "effective_runtime": "runc", "isolation_modes": ["shared", "container"], "deno_entry_shim_sha256": "76f995f51b2b90adb60efaf12b7a97776513fc341493d75849671bc03cdc54a3", "networks": ["tee-apps-dev", "tee-apps-attested"]}```

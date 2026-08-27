@@ -46,7 +46,7 @@ class DockerClient:
         host_config: dict = {"Binds": binds}
         if runtime:
             host_config["Runtime"] = runtime
-        if runtime == "runsc":
+        if runtime.startswith("runsc"):
             host_config["Dns"] = GVISOR_DNS
         if restart_policy:
             host_config["RestartPolicy"] = restart_policy
