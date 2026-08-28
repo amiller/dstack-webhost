@@ -5,7 +5,8 @@
   "isolation": "container",
   "mode": "attested",
   "env": {
-    "POLL_INTERVAL_MIN": "30"
+    "POLL_INTERVAL_MIN": "30",
+    "GIT_SHA": "159a02d"
   },
   "env_passthrough": [
     "OAUTH3_OWNER_SECRET",

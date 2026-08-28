@@ -8,9 +8,10 @@ committed or copied through the manifest.
 From a checkout with the staging credentials loaded:
 
 ```sh
-source ~/.tee-daemon-staging.env
+set -a; source ~/.tee-daemon-staging.env; set +a
 OAUTH3_SERVER_DIR=~/projects/oauth3-server ./examples/oauth3-staging-b/deploy.sh
 ```
 
-Verify both routes and compare the returned `tree_hash` values before using `oauth3b` as a
-migration destination.
+The manifest pins the currently deployed staging core's `GIT_SHA`; update it when staging
+`/oauth3` moves to a new core version. Verify both routes and the returned image digest before
+using `oauth3b` as a migration destination.
