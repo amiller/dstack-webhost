@@ -769,6 +769,23 @@ class RuntimeManager:
 
         return result
 
+    def get_project_container(self, project) -> tuple[str, bool] | None:
+        """Container serving this project: (cid, shared). shared=True means the
+        container also serves co-tenants (shared runtime — one process), so its
+        stats are not attributable to this project alone. None when no
+        container serves the project (static projects have none by design)."""
+        if project.runtime == "static":
+            return None
+        if project.runtime == "dockerfile":
+            return (project.container_id, False) if project.container_id else None
+        if project.runtime == "image" or project.isolation == "container":
+            cid = self.image_cids.get(project.name)
+            return (cid, False) if cid else None
+        config_key = "deno" if project.runtime == "bun" else project.runtime
+        mode = project.mode if project.mode in ("dev", "attested") else "dev"
+        cid = self.runtime_cids.get((config_key, mode))
+        return (cid, True) if cid else None
+
     async def recover_all(self):
         await self._bootstrap_from_import_bundle()
         runtimes_needed = set()
