@@ -1,0 +1,17 @@
+--- ~/projects/envoy/neko/brave.conf (bind-mounted :ro into envoy-browser) ---
+--- /tmp/brave.conf.pre	2026-08-27 18:28:34.712326454 -0500
++++ /home/amiller/projects/envoy/neko/brave.conf	2026-08-27 18:13:43.873489530 -0500
+@@ -15,6 +15,7 @@
+   --force-dark-mode
+   --disable-gpu
+   --disable-software-rasterizer
++  --renderer-process-limit=4
+   --disable-dev-shm-usage
+ stopsignal=INT
+ autorestart=true
+--- ~/paseo-batch/smoke/apps-evidence-staging.sh (scheduled walk, cron 7:30/19:30) ---
+-BRIDGE="${BRIDGE:-http://localhost:3000/api/bridge}"
++BRIDGE="${BRIDGE:-http://localhost:3002/api/bridge}"
+--- ~/projects/envoy/neko/docker-compose.alt.yml (comment only) ---
+-      - "3002:3000"       # Envoy WebSocket bridge (host 3000 free after stopping vexa; matches controller default)
++      - "3002:3000"       # Envoy WebSocket bridge on host 3002 - 3000 is held by vexa (dstack-webhost#85)

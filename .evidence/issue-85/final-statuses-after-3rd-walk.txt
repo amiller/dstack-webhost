@@ -1,0 +1,24 @@
+FAIL signal='title "Calendar Share"' not satisfied on https://pod.dstack.soc1024.com/calendar-share/
+FAIL signal='title "feedling"' not satisfied on https://pod.dstack.soc1024.com/feedling-web/
+PASS signal='title "goodpoint-box"' shot=70975B
+PASS signal='title "Otter via OAuth3"' shot=39774B
+FAIL signal='title "Reddit Saved"' not satisfied on https://pod.dstack.soc1024.com/reddit-karma/
+FAIL signal='title "Router Member Dashboard"' not satisfied on https://pod.dstack.soc1024.com/router-dashboard/
+FAIL signal='title "screenshare-debug — screen → pod under consent"' not satisfied on https://pod.dstack.soc1024.com/screenshare-debug/
+FAIL signal='title "screenshare-pet — a PiP pet that watches your screen"' not satisfied on https://pod.dstack.soc1024.com/screenshare-pet/
+FAIL signal='title "share-kit"' not satisfied on https://pod.dstack.soc1024.com/share-kit/
+PASS signal='#souk "souk-dogfood"' shot=163665B
+FAIL signal='title "Timeline Peek"' not satisfied on https://pod.dstack.soc1024.com/timeline-peek/
+FAIL signal='title "GLM Usage"' not satisfied on https://pod.dstack.soc1024.com/zai-usage/
+PASS signal='title "Calendar Share"' shot=38878B
+PASS signal='title "feedling"' shot=31702B
+FAIL signal='title "goodpoint-box"' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/goodpoint-box/app
+FAIL signal='title "Otter via OAuth3"' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/otterscope/
+PASS signal='title "Reddit Saved"' shot=33460B
+FAIL signal='title "Router Member Dashboard"' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/router-dashboard/
+FAIL signal='title "screenshare-debug — screen → pod under consent"' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/screenshare-debug/
+PASS signal='title "screenshare-pet — a PiP pet that watches your screen"' shot=126739B
+PASS signal='title "share-kit"' shot=121933B
+FAIL signal='#souk "souk-dogfood"' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/souk-dogfood/board
+FAIL signal='title "Timeline Peek"' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/timeline-peek/
+PASS signal='title "GLM Usage"' shot=36779B
