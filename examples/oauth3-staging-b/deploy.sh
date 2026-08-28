@@ -13,7 +13,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 tar -C "$OAUTH3_SERVER_DIR/server" -czf "$tmp/oauth3b.tgz" .
 
-curl --fail-with-body -sS -X POST "$TEE_DAEMON_URL/_api/projects" \
+curl -f -sS -X POST "$TEE_DAEMON_URL/_api/projects" \
   -H "Authorization: Bearer $TEE_DAEMON_TOKEN" \
   -F "manifest=@$ROOT/examples/oauth3-staging-b/project.json;type=application/json" \
   -F "files=@$tmp/oauth3b.tgz;type=application/gzip"
