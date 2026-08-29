@@ -16,6 +16,20 @@ DEFAULT_TIMEOUT = 3600  # 1 hour in seconds
 
 
 @dataclass
+class DebugSession:
+    id: str
+    project: str
+    container_id: str
+    created_at: str
+    expires_at: str
+    revoked: bool = False
+
+    def is_expired(self) -> bool:
+        expires = datetime.fromisoformat(self.expires_at.replace('Z', '+00:00'))
+        return datetime.now(timezone.utc) >= expires
+
+
+@dataclass
 class Tunnel:
     id: str
     tid: str  # 256-bit secret for tunnel identification (not to be shared with visitors)
@@ -181,3 +195,64 @@ class TunnelStore:
                 log.warning("Failed to recover tunnel %s: %s", tunnel_id, e)
                 if os.path.exists(tunnel_path):
                     os.unlink(tunnel_path)
+
+
+class DebugSessionStore:
+    def __init__(self, base_dir: str):
+        self.base_dir = base_dir
+        self._sessions: dict[str, DebugSession] = {}
+        os.makedirs(base_dir, exist_ok=True)
+
+    def _session_path(self, session_id: str) -> str:
+        return os.path.join(self.base_dir, f"{session_id}.json")
+
+    def create(self, project: str, container_id: str, timeout: int) -> DebugSession:
+        if timeout <= 0 or timeout > MAX_TIMEOUT:
+            raise ValueError(f"Timeout must be between 1 and {MAX_TIMEOUT} seconds")
+        session_id = f"d-{secrets.token_urlsafe(16)}"
+        now = datetime.now(timezone.utc)
+        session = DebugSession(
+            id=session_id, project=project, container_id=container_id,
+            created_at=now.isoformat(),
+            expires_at=(now + timedelta(seconds=timeout)).isoformat())
+        self._sessions[session_id] = session
+        self._save(session)
+        return session
+
+    def get(self, session_id: str) -> DebugSession | None:
+        session = self._sessions.get(session_id)
+        if not session or session.revoked or session.is_expired():
+            return None
+        return session
+
+    def find(self, session_id: str) -> DebugSession | None:
+        return self._sessions.get(session_id)
+
+    def revoke(self, session_id: str) -> DebugSession | None:
+        session = self._sessions.get(session_id)
+        if not session or session.revoked:
+            return None
+        session.revoked = True
+        self._save(session)
+        return session
+
+    def cleanup_expired(self):
+        for session in self._sessions.values():
+            if session.is_expired() and not session.revoked:
+                session.revoked = True
+                self._save(session)
+
+    def recover(self):
+        for fname in os.listdir(self.base_dir):
+            if not fname.endswith('.json'):
+                continue
+            with open(os.path.join(self.base_dir, fname)) as f:
+                session = DebugSession(**json.load(f))
+            self._sessions[session.id] = session
+
+    def list(self) -> list[DebugSession]:
+        return [s for s in self._sessions.values() if not s.revoked and not s.is_expired()]
+
+    def _save(self, session: DebugSession):
+        with open(self._session_path(session.id), "w") as f:
+            json.dump(asdict(session), f, indent=2)

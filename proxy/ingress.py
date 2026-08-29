@@ -22,7 +22,7 @@ from .audit import AuditLogManager, AuditEntry
 from .deploy import deploy, teardown, promote, unpromote, import_bundle
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
-from .tunnel import TunnelStore, TunnelResponse
+from .tunnel import TunnelStore, TunnelResponse, DebugSessionStore
 from .tokens import DEFAULT_TTL, TokenStore
 from .broker import BrokerStore
 from .browser_pool import BrowserPool, LeaseTimeout
@@ -88,7 +88,8 @@ class Ingress:
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
                  rtm: RuntimeManager, tunnel_store: TunnelStore,
                  token_store: TokenStore, broker_store: BrokerStore | None = None,
-                 browser_pool: BrowserPool | None = None):
+                 browser_pool: BrowserPool | None = None,
+                 debug_session_store: DebugSessionStore | None = None):
         self.store = store
         self.docker = docker
         self.audit_manager = audit_manager
@@ -98,6 +99,7 @@ class Ingress:
         self.token_store = token_store
         self.broker_store = broker_store
         self.browser_pool = browser_pool
+        self.debug_session_store = debug_session_store
         self.port_map: dict[int, str] = {}  # port -> project_name
 
     async def handle(self, request: web.Request) -> web.Response:
@@ -634,6 +636,21 @@ class Ingress:
             tunnel_id = path.split("/")[1]
             return await self._api_delete_tunnel(tunnel_id)
 
+        if path.startswith("projects/") and path.endswith("/debug") and method == "POST":
+            name = path.split("/")[1]
+            return await self._api_create_debug(request, name)
+        if path.startswith("debug/"):
+            parts = path.split("/")
+            session_id = parts[1]
+            if len(parts) == 2 and method == "DELETE":
+                return await self._api_revoke_debug(session_id)
+            if len(parts) == 3 and method == "POST" and parts[2] == "exec":
+                return await self._api_debug_exec(request, session_id)
+            if len(parts) == 3 and method == "GET" and parts[2] == "logs":
+                return await self._api_debug_logs(request, session_id)
+            if len(parts) == 3 and method == "GET" and parts[2] == "data":
+                return await self._api_debug_data(request, session_id)
+
         # Grant API endpoints (RFC 0018 credential broker)
         if path == "grants" and method == "POST":
             return await self._api_create_grant(request)
@@ -1093,6 +1110,123 @@ class Ingress:
         if self.tunnel_store.delete(tunnel_id):
             return web.json_response({"ok": True})
         return web.json_response({"error": "tunnel not found"}, status=404)
+
+    async def _debug_session(self, session_id: str):
+        if self.debug_session_store is None:
+            raise RuntimeError("debug sessions are not configured")
+        session = self.debug_session_store.find(session_id)
+        if session is None:
+            return None
+        if session.revoked:
+            return None
+        if session.is_expired():
+            await self.audit_manager.get_audit_log(session.project).record(AuditEntry(
+                timestamp=time.time(), action="debug_expired", detail=session_id,
+                container_id=session.container_id))
+            return None
+        return session
+
+    async def _debug_container(self, session):
+        project = self.store.load(session.project)
+        container_id = self.rtm.get_debug_container(project)
+        if container_id != session.container_id or not self.tracker.is_allowed(container_id):
+            raise RuntimeError("debug container is no longer managed for this project")
+        inspected = await self.docker.inspect(container_id)
+        labels = inspected.get("Config", {}).get("Labels", {})
+        if labels.get(f"tee-daemon.project.{project.name}") != "true":
+            raise RuntimeError("debug container is not owned by this project")
+        return project, container_id
+
+    async def _api_create_debug(self, request: web.Request, name: str) -> web.Response:
+        if self.debug_session_store is None:
+            return web.json_response({"error": "debug sessions are not configured"}, status=503)
+        try:
+            project = self.store.load(name)
+        except FileNotFoundError:
+            return web.json_response({"error": "project not found"}, status=404)
+        container_id = self.rtm.get_debug_container(project)
+        if not container_id or not self.tracker.is_allowed(container_id):
+            return web.json_response({"error": "project has no isolated managed container"}, status=409)
+        try:
+            data = await request.json()
+            if not isinstance(data, dict):
+                return web.json_response({"error": "request body must be an object"}, status=400)
+            timeout = int(data.get("ttl", 3600))
+            session = self.debug_session_store.create(name, container_id, timeout)
+        except (TypeError, ValueError) as e:
+            return web.json_response({"error": str(e)}, status=400)
+        await self.audit_manager.get_audit_log(name).record(AuditEntry(
+            timestamp=time.time(), action="debug_mint", container_id=container_id,
+            detail=json.dumps({"session": session.id, "expires_at": session.expires_at})))
+        return web.json_response(asdict(session), status=201)
+
+    async def _api_revoke_debug(self, session_id: str) -> web.Response:
+        if self.debug_session_store is None:
+            return web.json_response({"error": "debug sessions are not configured"}, status=503)
+        session = self.debug_session_store.revoke(session_id)
+        if session is None:
+            return web.json_response({"error": "debug session not found"}, status=404)
+        await self.audit_manager.get_audit_log(session.project).record(AuditEntry(
+            timestamp=time.time(), action="debug_revoke", container_id=session.container_id,
+            detail=session.id))
+        return web.json_response({"ok": True})
+
+    async def _require_debug(self, session_id: str):
+        session = await self._debug_session(session_id)
+        if session is None:
+            return None, web.json_response({"error": "debug session not found, expired, or revoked"}, status=404)
+        try:
+            project, container_id = await self._debug_container(session)
+        except (FileNotFoundError, RuntimeError) as e:
+            return None, web.json_response({"error": str(e)}, status=409)
+        return (session, project, container_id), None
+
+    async def _api_debug_exec(self, request: web.Request, session_id: str) -> web.Response:
+        result, error = await self._require_debug(session_id)
+        if error:
+            return error
+        session, project, container_id = result
+        data = await request.json()
+        if not isinstance(data, dict) or "cmd" not in data:
+            return web.json_response({"error": "cmd is required"}, status=400)
+        output = await self.docker.exec(container_id, data["cmd"])
+        await self.audit_manager.get_audit_log(project.name).record(AuditEntry(
+            timestamp=time.time(), action="debug_exec", container_id=container_id,
+            detail=json.dumps({"session": session.id, "cmd": data["cmd"]})))
+        return web.json_response({"output": output})
+
+    async def _api_debug_logs(self, request: web.Request, session_id: str) -> web.Response:
+        result, error = await self._require_debug(session_id)
+        if error:
+            return error
+        session, project, container_id = result
+        try:
+            tail = int(request.query.get("tail", "100"))
+        except ValueError:
+            return web.json_response({"error": "tail must be an integer"}, status=400)
+        output = await self.docker.logs(container_id, tail)
+        await self.audit_manager.get_audit_log(project.name).record(AuditEntry(
+            timestamp=time.time(), action="debug_logs", container_id=container_id,
+            detail=json.dumps({"session": session.id, "tail": tail})))
+        return web.json_response({"logs": output})
+
+    async def _api_debug_data(self, request: web.Request, session_id: str) -> web.Response:
+        result, error = await self._require_debug(session_id)
+        if error:
+            return error
+        session, project, container_id = result
+        if project.isolation != "container":
+            return web.json_response({"error": "project has no dataDir"}, status=409)
+        relative_path = request.query.get("path")
+        if relative_path is None:
+            return web.json_response({"error": "path is required"}, status=400)
+        data = await self.docker.read_data_file(container_id, relative_path)
+        if len(data) > 1024 * 1024:
+            raise ValueError("dataDir file exceeds 1 MiB")
+        await self.audit_manager.get_audit_log(project.name).record(AuditEntry(
+            timestamp=time.time(), action="debug_data", container_id=container_id,
+            detail=json.dumps({"session": session.id, "path": relative_path})))
+        return web.Response(body=data, content_type="application/octet-stream")
 
     async def _api_create_token(self, request: web.Request) -> web.Response:
         try:
