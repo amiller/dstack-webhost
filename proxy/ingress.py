@@ -1158,7 +1158,10 @@ class Ingress:
         await self.audit_manager.get_audit_log(name).record(AuditEntry(
             timestamp=time.time(), action="debug_mint", container_id=container_id,
             detail=json.dumps({"session": session.id, "expires_at": session.expires_at})))
-        return web.json_response(asdict(session), status=201)
+        return web.json_response({
+            "id": session.id, "project": session.project,
+            "created_at": session.created_at, "expires_at": session.expires_at,
+        }, status=201)
 
     async def _api_revoke_debug(self, session_id: str) -> web.Response:
         if self.debug_session_store is None:
