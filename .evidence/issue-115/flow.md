@@ -215,3 +215,53 @@ The overseer suite still gates the branch (nothing in it touches prelaunch).
   operator steps; paste-ready text in the swarm home (`~/issue115/issue-115-comment.md`).
 - Pod-side acceptance (§5) remains token/shell-gated, unchanged.
 
+## 9. Third spawn (2026-08-29 ~18:00 UTC): matrix re-verified first-hand; suite + gh blockers pinned
+
+Independently re-ran the §7 stub matrix from scratch (fresh stub toolchain, `bash:latest`
+container, `RUNSC_SHA512` patched to the stub payload's real hash so the integrity gate
+actually runs; `bash -n` clean on both versions). Same result table:
+
+| scenario | staging tip | `staging-115` |
+|---|---|---|
+| all three runsc runtimes registered | `done`, exit 0 | `done`, exit 0 |
+| `runsc` missing from Docker | **`done`, exit 0 (silent)** | `runtime 'runsc' not registered with Docker after restart (Runtimes:…)`, exit 1 |
+| docker daemon broken post-restart | **`done`, exit 0, stderr discarded** | docker's own stderr, exit 1 |
+| both restart methods fail | **`done`, exit 0** | aborts at the restart line, exit 1 |
+
+Merge-gate suite attempted, cannot run as `swarm`: `test_daemon.py` hard-codes
+`DOCKER_SOCKET=/var/run/docker.sock` in the daemon env (test_daemon.py:115) and
+`/var/run` is root-owned, while this account's docker is rootless
+(`/run/user/1018/docker.sock`; `docker context ls` → `rootless *`). The daemon dies in
+`ensure_network()` with `UnixClientConnectorError … /var/run/docker.sock … Permission
+denied` and the suite exits `RuntimeError: Daemon failed to start`. Dependencies were not
+the blocker (3.11 venv with aiohttp/requests/playwright + headless chromium built at
+`/tmp/suite-venv`; the four suite images pre-pulled). The suite references `prelaunch.sh`
+nowhere (grep: 0 hits), so for this branch it is a regression gate only — the overseer
+run (root docker) still applies.
+
+GitHub side, pinned with exact commands:
+
+```
+$ gh issue view 115 -R amiller/dstack-webhost
+repo 'amiller/dstack-webhost' not in the swarm set
+$ gh api repos/amiller/dstack-webhost/compare/staging...dcaad9c9 --jq .ahead_by
+repo 'dstack-webhost' not in the swarm set
+```
+
+while `git push` through the broker succeeds — its repo key is the clone directory
+basename (`tee-daemon`), which the grant matches; gh derives the slug from the git remote
+(`amiller/dstack-webhost`), which it does not. The gate is keyed on a name the GitHub repo
+does not have (the git_remotes.md lesson, in the gate itself). Local-git equivalent of the
+containment proof, since the gh form is unreachable: `git merge-base --is-ancestor
+dcaad9c9 origin/staging` → yes; `c7270819` (what the pod serves, re-verified live this
+spawn: `/_api/version` → `c7270819`, `/_api/substrate` → `available_runtimes` incl.
+`runsc`, `runsc-hostnet`) is on `origin/main`, not staging.
+
+Consequence: PR create, the label swap, and the evidence comment are operator steps until
+the swarm set carries `dstack-webhost`. `ready` is still on the issue with no open PR, so
+the router re-spawns it every tick — three spawns on this issue today, all after `ready`
+was applied at 14:00 UTC, two of them after the branch was already pushed. §8's
+"Relabeled `needs-triage`" was aspirational, not performed; the paste-ready text at
+`~/issue115/issue-115-comment.md` has been corrected accordingly, and a copy of the
+operator handoff dropped in `/srv/swarm-outbox/`.
+
