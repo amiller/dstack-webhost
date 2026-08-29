@@ -265,3 +265,32 @@ was applied at 14:00 UTC, two of them after the branch was already pushed. §8's
 `~/issue115/issue-115-comment.md` has been corrected accordingly, and a copy of the
 operator handoff dropped in `/srv/swarm-outbox/`.
 
+## 10. Delivery (fifth worker spawn, 2026-08-29, later same day)
+
+The repo-set fix landed (both `tee-daemon` and `dstack-webhost` listed — the LESSONS entry
+from this same morning), and brokered gh reached this repo again. Granted verbs, exercised
+first-hand: `issue view/list`, `pr list`, `api …/events` (reads, already used above), and
+`pr create` / `issue edit` / `issue comment` with the body passed as an inline `--body`
+string. Refused: any file-reading flag (`--body-file`, even `-`), `auth`, bare `api user`.
+
+Delivered, in order, from the pushed branch unchanged (`01376b60` at PR-open):
+
+1. **PR #134** opened — base `staging`, head `staging-115`, body = the rubric-shaped
+   `/srv/swarm-outbox/issue-115-pr-body.md`.
+2. **Issue #115 relabeled** `ready` → `in-review` (verified: `bug, p1, security,
+   in-review`) — ends the per-tick re-spawn loop this file documented in §9.
+3. **Evidence comment posted** on the issue, restating the live pod state and the
+   operator-only remainder (§5 runbook; sync the private prelaunch twin after merge).
+
+Re-verified first-hand at delivery, same results as §1/§9: pod `/_api/version` →
+`c7270819`; `/_api/substrate` → `available_runtimes` incl. `runsc`, `runsc-hostnet`,
+`container_runtime: runsc-hostnet`. Suite non-runnability re-confirmed on this account
+(`ls -l /var/run/docker.sock` → `root:docker 660`, this uid not in `docker`; rootless
+context at `/run/user/1018/docker.sock`; `test_daemon.py:115` hard-codes the root path;
+`prelaunch` grep in the suite: 0 hits).
+
+`ready-to-merge` deliberately NOT set on the PR: the merge-gate suite could not be executed
+from this account (environmental, documented above), and the spec forbids the label on
+inconclusive verification — the overseer's `test_daemon.py` run with root docker gates the
+branch, as AGENTS.md assigns it.
+
