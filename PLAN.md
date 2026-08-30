@@ -117,3 +117,57 @@ PLAN — checkboxes derived from the issue's `## Acceptance`.
       start path exists, so `probe-121` never left "runtime not running"; the walk serves the
       branch's probe.py + index.html verbatim behind a handle() adapter);
       ghcr probe-image rebuild for hermes-staging remains the named operator step.
+
+---
+
+# Issue #133 — /_api/status reports a dead container as healthy
+
+PLAN — checkboxes derived from the issue's `## Acceptance`.
+
+## Root cause
+`RuntimeManager.get_project_liveness` was synchronous, so it could only read the
+daemon's own bookkeeping: `image_routes`/`runtime_ips` (populated at deploy time
+and never cleared when a container dies on its own) and `Project.container_id`
+(which nothing in the tree ever writes — it is `""` for every project). RFC 0016
+already required "stopping a runtime container flips that project to running:
+false on the next call"; the in-memory maps cannot deliver that.
+
+## Diff
+- [x] `proxy/docker_client.py`: `container_state(name)` — one engine read by
+      container *name* (never the stored id). 404 is the only "missing"; any
+      other engine error raises.
+- [x] `proxy/runtimes.py`: `_project_container_name` (the container that serves a
+      project: `tee-image-*`, `tee-isolated-*`, `tee-runtime-*`, none for static);
+      `get_project_liveness` is now async and returns
+      `{running, container_id, backend, container_state, exit_code, restart_count}`.
+      The dockerfile branch (running := bool(stored container_id)) is gone: nothing
+      ever creates a container for a dockerfile project, so it reports `missing`.
+- [x] `proxy/ingress.py`: `_api_routes` and `_api_aggregate_status` await the
+      helper; status joins all six liveness fields.
+- [x] `proxy/test_docker_client.py`: unit tests for the inspect → status mapping
+      and for "only a 404 means missing".
+- [x] `test_daemon.py::test_status_live_container_state`: running / exited
+      (an app whose entry throws at module load → `exit_code: 1`) / missing
+      (container removed, project still listed), plus shared-runtime and static.
+- [x] Existing tests unchanged and green.
+
+## Evidence (Tier 1 — API behavior, no UI)
+- [x] `.evidence/issue-133/transcript.txt`: local daemon at this commit
+      (`/_api/version` → `e1becbf6`), real docker. Two apps deployed through the
+      API; `docker kill` / `docker rm -f` under the daemon; `/_api/status` shows
+      `running` → `exited`+`exit_code 137` → `missing`, while
+      `GET /_api/projects/<name>` still returns the healthy-looking manifest the
+      issue quotes. Also shows a shared-runtime project dying with its runtime
+      container.
+- [x] Full `test_daemon.py` green (49 tests incl. the new one) on real docker.
+
+## Not done here (operator-gated / out of scope)
+- Deploying the built image to webhost-staging: `ship-fix.sh staging` needs a ghcr
+  write credential this box does not have (`docker push` → unauthorized), so the
+  `/_api/version` pin above is a local daemon, not the staging CVM. Same gate as
+  PRs #127/#141/#142.
+- In-container healthchecks (the `egress-vpn` case) — explicitly out of scope in
+  the issue.
+- `GET /_api/projects/<name>` still returns the manifest only; the issue's Fix
+  section names `/_api/status` and the acceptance matches, so the per-project
+  endpoint is left alone.
