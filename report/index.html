@@ -87,7 +87,7 @@
   <h1>What the swarm can show you, walked and dated</h1>
   <div class="fresh">
     <span class="oldest">oldest evidence on this page: 0m ago</span>
-    <span class="assembled">html assembled 2026-08-29 19:33 CDT (assembly time is not evidence freshness)</span>
+    <span class="assembled">html assembled 2026-08-30 07:33 CDT (assembly time is not evidence freshness)</span>
   </div>
 <section class="block"><h2>Your asks</h2>
 <p class="cap">Open <code>operator-ask</code> issues across the repos — the things you asked to see, each with its current flow status. This section leads the report so an evaporated plan is visible, not forgotten.</p>
@@ -218,10 +218,11 @@
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://pod.dstack.soc1024.com/souk-dogfood/board" target="_blank" rel="noopener">souk-dogfood</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">souk-mini run as a posted service — a group pools private evidence and the protocol kernel settles who gets paid. /board is the group view (public tier without a token), /debug the operator view with a tier cut-line. Signal is a selector, not title: the title is static markup and would green on a dead API, whereas #souk is filled from GET /api/board, so it greens only if the app answered. Source is not in this repo — sxysun/souk, branch amiller-notes, amiller-notes/dogfood/ — so the daemon record carries source: &quot;&quot; and it is not promotable. State lives on /daemon-data/souk-dogfood/ and survives redeploy (verified 2026-08-09).</p>
 <p class="signal">signal: <code>#souk &quot;souk-dogfood&quot;</code></p>
+<p class="note">prod: FAIL signal='#souk &quot;souk-dogfood&quot;' not satisfied on https://pod.dstack.soc1024.com/souk-dogfood/board</p>
 <p class="note">staging: FAIL signal='#souk &quot;souk-dogfood&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/souk-dogfood/board</p>
 </div></div>
 </div></section>
@@ -254,14 +255,16 @@
 </ul>
 <h3>Lane health over time</h3>
 <table class="swarm-table"><tr><th>lane</th><th>runs logged</th><th>pass rate</th><th>latest</th></tr>
-<tr><td><b>browser-pool</b></td><td>346</td><td>346/346</td><td style="color:#00838a">08-30T00:33 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
-<tr><td><b>e2e-verifier</b></td><td>346</td><td>17/346</td><td style="color:#c2185b">08-30T00:33 — FAIL: e2e-flow engine exited 1</td></tr>
-<tr><td><b>login-with-everything</b></td><td>346</td><td>202/346</td><td style="color:#00838a">08-30T00:33 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
+<tr><td><b>browser-pool</b></td><td>347</td><td>347/347</td><td style="color:#00838a">08-30T12:33 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
+<tr><td><b>e2e-verifier</b></td><td>347</td><td>17/347</td><td style="color:#c2185b">08-30T12:33 — FAIL: e2e-flow engine exited 1</td></tr>
+<tr><td><b>login-with-everything</b></td><td>347</td><td>203/347</td><td style="color:#00838a">08-30T12:33 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
 </table>
 <p class="cap" style="color:#57606a">History collection started 2026-07-06; each 30-min refresh appends a snapshot.</p>
-<h3>Agent census</h3><p>1 running, 1 idle/stopped on the paseo daemon right now.</p>
+<h3>Agent census</h3><p>2 running, 0 idle/stopped on the paseo daemon right now.</p>
 <h3>Next — open <code>ready</code> work</h3>
-<p>No open ready-labeled issues — the queue is empty.</p>
+<ul class="swarm-list">
+<li><b>dstack-webhost</b> — <a href="https://github.com/amiller/dstack-webhost/issues/131" target="_blank">isolated (deno/bun) containers get no restart policy — a crashed app stays dead forever</a></li>
+</ul>
 
 section.work{ margin-top:14px; }
 section.work h2{ font-size:16px; border-bottom:1px solid var(--rule,#d8d4cc); padding-bottom:4px; }
@@ -295,7 +298,12 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/22">#22</a></td><td>Implement RFC 0019 — Managed Hosting via TeeSQL / AttestMesh</td><td><code>staging-22</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/110">#110</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/13">#13</a></td><td>Promote isolation-probe to attested + feature it as the worked example</td><td><code>staging-13</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/109">#109</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/2">#2</a></td><td>isolation:container tenants have no outbound DNS under runsc</td><td><code>staging-2</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/108">#108</a> <span class="badge b-merged">merged</span></td></tr></tbody></table><p class="cap">Each row is one ready-queue iteration from the result.json lane logs; verify = test_daemon.py / unit result recorded by that run.</p></div>
-<div class="sub "><span class="last-run" title="2026-08-30 00:33 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/135">#135</a></td><td>RFC 0026: add scoped per-project debug sessions</td><td><code>staging-58</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<div class="sub "><span class="last-run" title="2026-08-30 12:33 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/140">#140</a></td><td>deploy: never destroy files_dir on a failed or non-git clone (#1</td><td><code>staging-130</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/139">#139</a></td><td>docs(#119): a project is one container — multi-process workloads</td><td><code>staging-119</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/138">#138</a></td><td>feat: atomically deploy and promote with tree pin</td><td><code>staging-105</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/137">#137</a></td><td>browser parity e2e suite + published board — the cutover gate (#</td><td><code>staging-77</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/136">#136</a></td><td>rfcs: add 0023 — staging CVM roles (webhost-staging vs hermes-st</td><td><code>staging-59</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/135">#135</a></td><td>RFC 0026: add scoped per-project debug sessions</td><td><code>staging-58</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/134">#134</a></td><td>prelaunch: abort on failed docker restart or unregistered runsc </td><td><code>staging-115</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/122">#122</a></td><td>per-tenant resource stats: /_api/stats + /_api/projects/&lt;name&gt;/s</td><td><code>staging-120</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/129">#129</a></td><td>Complete staging-B oauth3 migration destination</td><td><code>staging-103</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
@@ -303,13 +311,8 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/127">#127</a></td><td>runsc: enable broker host Unix sockets</td><td><code>staging-6</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/123">#123</a></td><td>docs(#121): say app/user, not &quot;tenant&quot; — name the boundary gViso</td><td><code>staging-121</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/117">#117</a></td><td>runsc-hostnet runtime + /_api/substrate reports Docker&#x27;s real ru</td><td><code>staging-116</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/118">#118</a></td><td>feat: durable per-app version ledger (#61)</td><td><code>staging-61</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/111">#111</a></td><td>feat(landing): per-project description line on the card (#43)</td><td><code>staging-43</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/113">#113</a></td><td>version identity: bake GIT_COMMIT via compose args, assert at bu</td><td><code>staging-106</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/107">#107</a></td><td>RFC 0017 code slice: /_api/export + /_api/import + recover_all i</td><td><code>staging-57</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/96">#96</a></td><td>td-0020-2: verify TDX quotes with dcap-qvl</td><td><code>staging-93</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/100">#100</a></td><td>chore(#83): drop invalid console-83 screenshots (console landed </td><td><code>staging-83</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
-<div class="sub "><span class="last-run" title="2026-08-30 00:33 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><p class="none">No ready or operator-ask issues — the queue is empty.</p></div>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/118">#118</a></td><td>feat: durable per-app version ledger (#61)</td><td><code>staging-61</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
+<div class="sub "><span class="last-run" title="2026-08-30 12:33 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><ul class="asks"><li><span class="badge b-open">ready</span> <a href="https://github.com/amiller/dstack-webhost/issues/131">#131</a> — isolated (deno/bun) containers get no restart policy — a crashed app stays dead forever</li></ul></div>
 </section>
 </div>
 </section>
