@@ -1,0 +1,211 @@
+# Tier 1 transcript — /_api/status reports live container state (issue #133)
+
+Daemon under test: a local daemon started from this branch's checkout at commit
+`e1becbf6`, pinned below by `GET /_api/version`. Docker is the real engine on this
+box (rootless), reached through `/var/run/docker.sock`; the daemon talks to it the
+way it does in production (DockerClient over the unix socket).
+
+Driver: `reproduce.py` (same directory). Verbatim stdout+stderr below, including
+the ingress traceback from `GET /status-demo/` — that 500 is the point: the app
+is dead, only the status surface says so.
+
+Sequence:
+1. two apps deployed through the real API (an nginx image app, a shared-runtime
+   deno app) — both report `container_state: running`;
+2. `docker kill` the image app's container, without telling the daemon —
+   `/_api/status` flips to `exited` + `exit_code: 137`, while
+   `GET /_api/projects/status-demo` (the manifest-only view the issue quotes)
+   still shows a healthy pin and `container_id: ""`;
+3. `docker rm -f` it — the project is still listed, as `missing`;
+4. `docker kill` the *shared* deno runtime container — the deno project dies with
+   it, which the old route-map-based liveness could not see at all.
+
+[proxy.docker_proxy] Created network tee-apps-dev: 201
+[proxy.docker_proxy] Created network tee-apps-attested: 201
+[tee-daemon] Recovered 0 tracked containers
+[tee-daemon] Connected self (a725c14cb63b) to tee-apps-dev network
+[tee-daemon] Connected self (a725c14cb63b) to tee-apps-attested network
+[tee-daemon] Docker proxy listening on /tmp/tee-daemon-test-ofa073fy/proxy/docker.sock
+[tee-daemon] dstack socket not found — dstack proxy + broker disabled
+[tee-daemon] Recovered 0 active tunnels
+[tee-daemon] Recovered 0 scoped API tokens
+[tee-daemon] Ingress + API listening on :18080 (default)
+[tee-daemon] tee-daemon running
+[proxy.browser_pool] Pulling browser image denoland/deno:latest...
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:31 +0000] "GET / HTTP/1.1" 200 220 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:31 +0000] "GET /_api/version HTTP/1.1" 200 231 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling nginx:alpine for project status-demo...
+[proxy.browser_pool] Browser slot 0 -> 7edab81e37ed (10.212.2.3:3000)
+[proxy.browser_pool] Browser pool ready: 1 slot(s)
+[proxy.runtimes] Image project status-demo -> aa760e90f5d7 (10.212.3.3:80)
+[proxy.audit] AUDIT deploy project=status-demo container=- image=nginx:alpine
+[proxy.deploy] Deployed image project status-demo from nginx:alpine (digest sha256:7bc5ba2f958a)
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:31 +0000] "POST /_api/projects HTTP/1.1" 201 889 "-" "python-requests/2.34.2"
+[proxy.runtimes] Pulling denoland/deno:latest...
+[proxy.runtimes] Runtime deno-dev -> 1688012d78fe (10.212.1.3), serving 1 projects
+[proxy.runtimes] No attested deno projects, skipping runtime container
+[proxy.audit] AUDIT deploy project=status-deno container=- image=denoland/deno:latest
+[proxy.deploy] Deployed status-deno from /tmp/tee-daemon-test-ofa073fy/repos/status-deno.git@HEAD (141003cd5749)
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:46 +0000] "POST /_api/projects HTTP/1.1" 201 983 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:50 +0000] "GET /_api/status HTTP/1.1" 200 2291 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:50 +0000] "GET /_api/status HTTP/1.1" 200 2291 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:50 +0000] "GET /_api/status HTTP/1.1" 200 2291 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:50 +0000] "GET /_api/status HTTP/1.1" 200 2291 "-" "python-requests/2.34.2"
+tee-image-status-demo-dev
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:52 +0000] "GET /_api/status HTTP/1.1" 200 2296 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:52 +0000] "GET /_api/projects/status-demo HTTP/1.1" 200 884 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/connector.py", line 1301, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohappyeyeballs/impl.py", line 124, in start_connection
+    raise first_exception
+  File "/usr/local/lib/python3.12/dist-packages/aiohappyeyeballs/impl.py", line 75, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohappyeyeballs/impl.py", line 210, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "/usr/lib/python3.12/asyncio/selector_events.py", line 651, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/selector_events.py", line 691, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+OSError: [Errno 113] Connect call failed ('10.212.3.3', 80)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-133/proxy/ingress.py", line 187, in handle
+    return await self._proxy(request, ip, port, routed_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rw-133/proxy/ingress.py", line 289, in _proxy
+    async with session.request(request.method, url,
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/client.py", line 1693, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/client.py", line 858, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/client.py", line 812, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/connector.py", line 1620, in _create_direct_connection
+    raise last_exc
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/aiohttp/connector.py", line 1324, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host 10.212.3.3:80 ssl:default [Connect call failed ('10.212.3.3', 80)]
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:52 +0000] "GET /status-demo/ HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+tee-image-status-demo-dev
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:56 +0000] "GET /_api/status HTTP/1.1" 200 2239 "-" "python-requests/2.34.2"
+tee-runtime-deno-dev
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:57 +0000] "GET /_api/status HTTP/1.1" 200 2242 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=status-demo container=- image=-
+[proxy.deploy] Torn down status-demo
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:57 +0000] "DELETE /_api/projects/status-demo HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=status-deno container=- image=-
+[proxy.runtimes] No dev deno projects, skipping runtime container
+[proxy.runtimes] No attested deno projects, skipping runtime container
+[proxy.deploy] Torn down status-deno
+[aiohttp.access] 127.0.0.1 [30/Aug/2026:16:39:57 +0000] "DELETE /_api/projects/status-deno HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[tee-daemon] Shutting down
+
+== GET /_api/version
+{
+ "commit": "e1becbf6",
+ "version": "dev"
+}
+
+== POST /_api/projects (nginx image app) -> HTTP 201
+== POST /_api/projects (shared-runtime deno app) -> HTTP 201
+
+== GET /_api/status  [both up]
+{
+ "status-demo (image)": {
+  "backend": "10.212.3.3:80",
+  "commit_sha": "demo-133",
+  "container_id": "aa760e90f5d77b96495101e475ed43de340c1fc30b3fd60ac07cc46c5f983e26",
+  "container_state": "running",
+  "exit_code": null,
+  "restart_count": 0,
+  "running": true
+ },
+ "status-deno (shared deno)": {
+  "backend": "10.212.1.3:3000",
+  "commit_sha": "141003cd5749",
+  "container_id": "1688012d78fed151ba4f20460dcf7ac090f84c4af5fd1173553156bb6418f7a7",
+  "container_state": "running",
+  "exit_code": null,
+  "restart_count": 0,
+  "running": true
+ }
+}
+
+== docker kill tee-image-status-demo-dev   (the daemon is not told)
+
+== GET /_api/status  [image container dead]
+{
+ "backend": "runtime not running",
+ "commit_sha": "demo-133",
+ "container_id": "aa760e90f5d77b96495101e475ed43de340c1fc30b3fd60ac07cc46c5f983e26",
+ "container_state": "exited",
+ "exit_code": 137,
+ "restart_count": 0,
+ "running": false
+}
+
+== GET /_api/projects/status-demo  [same moment, manifest-only view]
+{
+ "commit_sha": "demo-133",
+ "container_id": "",
+ "deployed_at": "2026-08-30T16:39:31.852532+00:00",
+ "image_digest": "sha256:7bc5ba2f958a043e123135f456af857350673b64eaddcf811698239f3a53d6e6",
+ "tree_hash": "demo-133"
+}
+
+== GET /status-demo/  [ingress to the dead container]
+{
+ "http_status": 500
+}
+
+== docker rm -f tee-image-status-demo-dev   (container gone entirely)
+
+== GET /_api/status  [no container]
+{
+ "backend": "runtime not running",
+ "commit_sha": "demo-133",
+ "container_id": null,
+ "container_state": "missing",
+ "exit_code": null,
+ "restart_count": null,
+ "running": false
+}
+
+== docker kill tee-runtime-deno-dev  (shared runtime container; every
+   deno project served by it dies with it)
+
+== GET /_api/status  [status-deno, shared runtime dead]
+{
+ "backend": "runtime not running",
+ "commit_sha": "141003cd5749",
+ "container_id": "1688012d78fed151ba4f20460dcf7ac090f84c4af5fd1173553156bb6418f7a7",
+ "container_state": "exited",
+ "exit_code": 137,
+ "restart_count": 0,
+ "running": false
+}
