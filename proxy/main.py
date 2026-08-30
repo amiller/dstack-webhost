@@ -15,7 +15,7 @@ from .dstack_proxy import DstackProxyManager
 from .docker_client import DockerClient
 from .projects import ProjectStore
 from .runtimes import RuntimeManager, verify_configured_runtime
-from .tunnel import TunnelStore
+from .tunnel import TunnelStore, DebugSessionStore
 from .tokens import TokenStore
 from .broker import BrokerStore, BrokerProxy
 from .browser_pool import BrowserPool, parse_binds
@@ -35,6 +35,7 @@ DSTACK_SOCK = os.environ.get("DSTACK_SOCKET", "/var/run/dstack.sock")
 DATA_DIR = os.environ.get("DAEMON_DATA_DIR", "/var/lib/tee-daemon/projects")
 AUDIT_DIR = os.environ.get("DAEMON_AUDIT_DIR", "/var/lib/tee-daemon/audit")
 TUNNEL_DIR = os.environ.get("DAEMON_TUNNEL_DIR", "/var/lib/tee-daemon/tunnels")
+DEBUG_SESSION_DIR = os.environ.get("DAEMON_DEBUG_SESSION_DIR", "/var/lib/tee-daemon/debug-sessions")
 TOKEN_DIR = os.environ.get("DAEMON_TOKEN_DIR", "/var/lib/tee-daemon/tokens")
 BROKER_DIR = os.environ.get("DAEMON_BROKER_DIR", "/var/lib/tee-daemon/broker")
 CREDS_DIR = os.environ.get("DAEMON_CREDS_DIR", "/var/lib/tee-daemon/creds")
@@ -84,6 +85,7 @@ async def start():
     store = ProjectStore(DATA_DIR)
     rtm = RuntimeManager(docker, store, tracker, audit_manager)
     tunnel_store = TunnelStore(TUNNEL_DIR)
+    debug_session_store = DebugSessionStore(DEBUG_SESSION_DIR)
     token_store = TokenStore(TOKEN_DIR)
 
     # Broker store for sealed credential grants (only when dstack is available)
@@ -159,6 +161,8 @@ async def start():
     tunnel_store.recover()
     log.info("Recovered %d active tunnels", len(tunnel_store.list()))
 
+    debug_session_store.recover()
+
     # Recovery: restore scoped API tokens from disk
     token_store.recover()
     log.info("Recovered %d scoped API tokens", len(token_store.list()))
@@ -183,7 +187,8 @@ async def start():
         log.info("BROWSER_POOL_IMAGE unset — browser pool disabled")
 
     # Ingress + API on TCP port(s)
-    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store, token_store, broker_store, browser_pool)
+    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store, token_store,
+                  broker_store, browser_pool, debug_session_store)
 
     # Check for port conflicts. The default ingress port (INGRESS_PORT) and the
     # reserved path-based port (8080 — see deploy() and update_port_map()) are
@@ -256,6 +261,7 @@ async def start():
         while True:
             await asyncio.sleep(60)  # Check every minute
             tunnel_store.cleanup_expired()
+            debug_session_store.cleanup_expired()
             token_store.cleanup_expired()
             if dstack_sock:
                 broker_store.cleanup_expired()

@@ -690,6 +690,13 @@ class RuntimeManager:
     def get_image_route(self, name: str) -> tuple[str, int] | None:
         return self.image_routes.get(name)
 
+    def get_debug_container(self, project) -> str | None:
+        if project.runtime == "dockerfile":
+            return project.container_id or None
+        if project.runtime == "image" or project.isolation == "container":
+            return self.image_cids.get(project.name)
+        return None
+
     def set_broker_store(self, broker_store):
         """Set the broker store (called by main.py after init)."""
         self.broker_store = broker_store

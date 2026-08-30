@@ -1,6 +1,10 @@
 """Thin async Docker Engine client over Unix socket."""
 
+import io
 import logging
+import posixpath
+import tarfile
+from urllib.parse import quote
 
 import aiohttp
 
@@ -93,8 +97,57 @@ class DockerClient:
         return data
 
     async def logs(self, cid: str, tail: int = 100) -> str:
-        _, body = await self._raw_request("GET", f"/containers/{cid}/logs?stdout=true&stderr=true&tail={tail}")
+        if tail <= 0 or tail > 1000:
+            raise ValueError("tail must be between 1 and 1000")
+        status, body = await self._raw_request("GET", f"/containers/{cid}/logs?stdout=true&stderr=true&tail={tail}")
+        if status >= 400:
+            raise RuntimeError(f"logs failed ({status}): {body!r}")
         return body.decode("utf-8", errors="replace")
+
+    async def exec(self, cid: str, cmd: list[str]) -> str:
+        if not cmd or len(cmd) > 32 or any(not isinstance(arg, str) or not arg or len(arg) > 4096 for arg in cmd):
+            raise ValueError("cmd must contain 1 to 32 non-empty strings of at most 4096 characters")
+        status, data = await self._json_request(
+            "POST", f"/containers/{cid}/exec",
+            json={"AttachStdout": True, "AttachStderr": True, "Tty": False, "Cmd": cmd})
+        if status >= 400:
+            raise RuntimeError(f"exec create failed ({status}): {data}")
+        exec_id = data["Id"]
+        status, body = await self._raw_request(
+            "POST", f"/exec/{exec_id}/start", json={"Detach": False, "Tty": False})
+        if status >= 400:
+            raise RuntimeError(f"exec start failed ({status}): {body!r}")
+        output = bytearray()
+        offset = 0
+        while offset + 8 <= len(body):
+            size = int.from_bytes(body[offset + 4:offset + 8], "big")
+            end = offset + 8 + size
+            if end > len(body):
+                raise RuntimeError("exec returned a truncated stream")
+            output.extend(body[offset + 8:end])
+            offset = end
+        if offset != len(body):
+            raise RuntimeError("exec returned an invalid stream")
+        return bytes(output).decode("utf-8", errors="replace")
+
+    async def read_data_file(self, cid: str, relative_path: str) -> bytes:
+        if not relative_path or relative_path.startswith("/"):
+            raise ValueError("path must be relative to dataDir")
+        path = posixpath.normpath(relative_path)
+        if path == "." or path == ".." or path.startswith("../"):
+            raise ValueError("path must stay within dataDir")
+        status, body = await self._raw_request(
+            "GET", f"/containers/{cid}/archive?path={quote('/data/' + path, safe='')}")
+        if status >= 400:
+            raise RuntimeError(f"dataDir read failed ({status}): {body!r}")
+        with tarfile.open(fileobj=io.BytesIO(body), mode="r:") as archive:
+            members = archive.getmembers()
+            if len(members) != 1 or not members[0].isreg():
+                raise RuntimeError("dataDir path is not a regular file")
+            extracted = archive.extractfile(members[0])
+            if extracted is None:
+                raise RuntimeError("dataDir file could not be opened")
+            return extracted.read(1024 * 1024 + 1)
 
     async def pull(self, image: str):
         status, body = await self._raw_request("POST", f"/images/create?fromImage={image}")

@@ -5,6 +5,8 @@ is dead under the gVisor netstack (issue #2). Every other runtime must stay
 untouched so runc apps keep Docker's embedded resolver."""
 
 import asyncio
+import io
+import tarfile
 
 from .docker_client import GVISOR_DNS, DockerClient
 
@@ -48,3 +50,28 @@ def test_runc_and_shared_creates_keep_embedded_dns():
         _create(dc, runtime)
         hc = captured["body"]["HostConfig"]
         assert "Dns" not in hc, f"runtime={runtime!r} must keep the embedded resolver"
+
+
+def test_exec_decodes_docker_multiplexed_output():
+    dc = DockerClient("/nonexistent/docker.sock")
+    async def create(*args, **kwargs):
+        return 200, {"Id": "exec-id"}
+    async def start(*args, **kwargs):
+        return 200, b"\x01\x00\x00\x00\x00\x00\x00\x03out"
+    dc._json_request = create
+    dc._raw_request = start
+    assert asyncio.run(dc.exec("deadbeef", ["cat", "/data/a"])) == "out"
+
+
+def test_read_data_file_extracts_one_regular_file():
+    body = io.BytesIO()
+    with tarfile.open(fileobj=body, mode="w:") as archive:
+        data = b"value"
+        info = tarfile.TarInfo("a.txt")
+        info.size = len(data)
+        archive.addfile(info, io.BytesIO(data))
+    dc = DockerClient("/nonexistent/docker.sock")
+    async def raw(*args, **kwargs):
+        return 200, body.getvalue()
+    dc._raw_request = raw
+    assert asyncio.run(dc.read_data_file("deadbeef", "a.txt")) == b"value"
