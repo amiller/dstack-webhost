@@ -1109,6 +1109,39 @@ def test_env_redaction():
     print("  deploy/status/list/promote all redact env \u2713")
 
 
+def test_env_redaction_roundtrip_rejected():
+    """Issue #132: a client that GETs a project and POSTs the redacted env
+    back (what deploy-prod-core.sh did on 2026-08-24) must be refused, not
+    silently overwrite real secrets with the sentinel."""
+    print("\n--- Test: deploy carrying <redacted> env is rejected (issue #132) ---")
+    repo = create_test_repo("test-redact-rt", {"index.html": b"roundtrip"})
+    secret_env = {"POLL_INTERVAL_MIN": "5", "GITHUB_CLIENT_SECRET": "super-secret-value-xyz"}
+    resp = api_post("/projects", json={
+        "name": "test-redact-rt", "source": repo, "runtime": "static",
+        "env": secret_env,
+    })
+    assert resp.status_code == 201, f"clean deploy failed: {resp.text}"
+    stored_path = os.path.join(tmpdir, "projects", "test-redact-rt", "project.json")
+    with open(stored_path) as f:
+        stored = json.load(f)
+    assert stored["env"] == secret_env, f"real env not stored: {stored['env']}"
+
+    # Round-trip: POST the GET response back verbatim — sentinel env, 400.
+    fetched = api_get("/projects/test-redact-rt").json()
+    assert fetched["env"] == dict.fromkeys(secret_env, "<redacted>"), fetched["env"]
+    resp = api_post("/projects", json=fetched)
+    assert resp.status_code == 400, f"sentinel deploy accepted: {resp.status_code}"
+    assert "GITHUB_CLIENT_SECRET" in resp.text and "POLL_INTERVAL_MIN" in resp.text, resp.text
+    print(f"  round-tripped manifest rejected ({resp.status_code}), keys named \u2713")
+
+    # The stored manifest is untouched: real secrets still in effect.
+    with open(stored_path) as f:
+        assert json.load(f) == stored, "rejected deploy mutated the stored manifest"
+    assert api_get("/projects/test-redact-rt").json()["env"] == \
+        dict.fromkeys(secret_env, "<redacted>")
+    print("  stored manifest unchanged, real env still in effect \u2713")
+
+
 def test_root_listing_layers():
     """The public root listing drives the 3-layer console: anonymous sees only the
     attested surface plus a `hidden` count (the #43 pointer); an owner bearer sees
@@ -1666,7 +1699,7 @@ def test_rfc0017_bootstrap():
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-redact-rt", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -1714,6 +1747,7 @@ def main():
         test_audit_log()
         test_list_projects()
         test_env_redaction()
+        test_env_redaction_roundtrip_rejected()
         test_root_listing_layers()
         test_landing_cards()
         test_landing_descriptions()

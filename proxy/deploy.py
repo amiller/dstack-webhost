@@ -28,6 +28,11 @@ NETWORK_ATTESTED = "tee-apps-attested"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 VALID_RUNTIMES = set(RUNTIME_CONFIG.keys()) | {"static", "dockerfile", "image"}
 
+# Sentinel ingress substitutes for every env value in project responses (issue
+# #67). Nothing legitimately deploys it: a client POSTing it back is round-
+# tripping a redacted GET and would overwrite real secrets (issue #132).
+REDACTED = "<redacted>"
+
 DEFAULT_ENTRY = {
     "deno": "server.ts", "bun": "index.ts", "node": "index.js",
     "python": "app.py", "static": ".", "dockerfile": "Dockerfile",
@@ -274,6 +279,13 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
 
     if not name or not NAME_RE.match(name):
         raise ValueError(f"Invalid project name: {name!r}")
+
+    redacted_keys = sorted(
+        k for k, v in (manifest.get("env") or {}).items() if v == REDACTED)
+    if redacted_keys:
+        raise ValueError(
+            f"env keys {', '.join(redacted_keys)} carry the redaction sentinel "
+            f"{REDACTED!r} — refusing to overwrite stored secrets with it")
 
     if manifest.get("runtime") == "image":
         return await _deploy_image(store, docker, audit_manager, rtm, manifest)
