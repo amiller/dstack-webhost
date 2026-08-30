@@ -603,6 +603,7 @@ class RuntimeManager:
         cid = await self.docker.create_container(
             cname, image, cmd, binds, labels, network,
             runtime=(project.oci_runtime or CONTAINER_RUNTIME),
+            restart_policy=IMAGE_APP_RESTART_POLICY,
             cap_add=caps, devices=devs)
         await self.docker.start(cid)
         self.tracker.add(cid)

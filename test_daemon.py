@@ -15,6 +15,7 @@ import requests
 from playwright.sync_api import sync_playwright
 
 from proxy.docker_client import GVISOR_DNS
+from proxy.runtimes import IMAGE_APP_RESTART_POLICY
 
 DAEMON_PORT = 18080
 TEST_TOKEN = "test-secret-token-12345"
@@ -721,6 +722,41 @@ export default (_req: Request, ctx: {env: Record<string,string>}) => {
     assert r.json() == {"foo": "isolated-deno-passthrough"}, r.text
     print("  Handler saw FOO from daemon env via ctx.env ✓")
     api_delete("/projects/test-iso-passthru")
+
+
+def test_isolated_restart_policy():
+    print("\n--- Test: isolated container restart policy (issue #131) ---")
+    repo = create_test_repo("iso-restart", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container",
+                                    "listen": {"port": 8080, "protocol": "http"}}).encode(),
+        # Top-level throw: the entry shim's import rejects, deno exits 1 —
+        # without a restart policy this container stays Exited forever.
+        "server.ts": b'throw new Error("crash on load");\n',
+    })
+    resp = api_post("/projects", json={"name": "iso-restart", "source": repo})
+    assert resp.status_code == 201, f"Deploy failed: {resp.text}"
+
+    cname = "tee-isolated-iso-restart-dev"
+    policy = json.loads(subprocess.run(
+        ["docker", "inspect", cname, "--format", "{{json .HostConfig.RestartPolicy}}"],
+        capture_output=True, text=True, check=True).stdout)
+    assert policy == IMAGE_APP_RESTART_POLICY, \
+        f"isolated container policy {policy} != image apps' {IMAGE_APP_RESTART_POLICY}"
+    print(f"  RestartPolicy={policy} (same as image apps) ✓")
+
+    # docker's on-failure backoff retries within seconds; a permanently
+    # broken app stops after MaximumRetryCount, which is the intended bound.
+    restarts = 0
+    for _ in range(40):
+        restarts = int(subprocess.run(
+            ["docker", "inspect", cname, "--format", "{{.RestartCount}}"],
+            capture_output=True, text=True, check=True).stdout)
+        if restarts > 0:
+            break
+        time.sleep(0.5)
+    assert restarts > 0, "docker never restarted the crashed isolated container"
+    print(f"  docker retried the crashed app: RestartCount={restarts} ✓")
+    api_delete("/projects/iso-restart")
 
 
 def test_dns_probe():
@@ -1702,6 +1738,7 @@ def main():
         test_isolated_per_project_data_volume()
         test_env_passthrough()
         test_isolated_deno_env_passthrough()
+        test_isolated_restart_policy()
         test_dns_probe()
         test_image_redeploy()
         test_substrate_endpoint()
