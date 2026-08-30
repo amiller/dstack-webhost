@@ -1306,9 +1306,12 @@ class Ingress:
         url = data.get("url", "")
         if not url:
             return web.json_response({"error": "url is required"}, status=400)
+        op = data.get("op") or None
+        if op is not None and not isinstance(op, dict):
+            return web.json_response({"error": "op must be an object"}, status=400)
         timeout = float(data.get("timeout") or 0) or None
         try:
-            result = await self.browser_pool.render(domain, jar, url, timeout=timeout)
+            result = await self.browser_pool.render(domain, jar, url, timeout=timeout, op=op)
         except LeaseTimeout as e:
             return web.json_response({"error": "lease timeout", "detail": str(e)},
                                      status=503)
