@@ -843,9 +843,7 @@ class Ingress:
                 denied = self._check_provision(tok, manifest.get("name", ""))
                 if denied:
                     return denied
-            project = await deploy(
-                self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
-                manifest, files_data=files_data)
+            project = await self._deploy_request(manifest, files_data)
             body = _redact_env(asdict(project))
             if provisioned:
                 # RFC 0034: the new project is pending and gets its own scoped token.
@@ -883,6 +881,33 @@ class Ingress:
             return web.json_response({"error": "not pending"}, status=400)
         await pending.approve(project, self.store, self.rtm, self.audit_manager)
         return web.json_response(_redact_env(asdict(project)))
+
+    async def _deploy_request(self, manifest: dict,
+                              files_data: bytes | None = None):
+        promote_requested = manifest.get("promote", False)
+        if not isinstance(promote_requested, bool):
+            raise ValueError("promote must be a boolean")
+        expected = manifest.get("expect_tree_hash")
+        if promote_requested and (not isinstance(expected, str) or not expected):
+            raise ValueError("promote requires a non-empty expect_tree_hash")
+
+        deploy_manifest = dict(manifest)
+        if promote_requested:
+            deploy_manifest["mode"] = "dev"
+        project = await deploy(
+            self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
+            deploy_manifest, files_data=files_data,
+            operation="deploy_and_promote" if promote_requested else "")
+        if promote_requested:
+            if project.approval:
+                raise ValueError("pending approval")
+            if project.tree_hash != expected:
+                raise ValueError(
+                    f"tree_hash mismatch: expected {expected}, actual {project.tree_hash}")
+            project = await promote(
+                self.store, self.audit_manager, self.rtm, project.name,
+                DSTACK_SOCK, operation="deploy_and_promote")
+        return project
 
     async def _api_export(self) -> web.Response:
         """RFC 0017 §1: pin bundle for every project + audit refs. Raw env
