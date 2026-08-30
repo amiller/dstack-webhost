@@ -267,7 +267,8 @@ async def run_build_step(docker: DockerClient, runtime: str, entry: str, files_d
 
 async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
                  tracker: ContainerTracker, rtm: RuntimeManager,
-                 manifest: dict, files_data: bytes | None = None) -> Project:
+                 manifest: dict, files_data: bytes | None = None,
+                 operation: str = "") -> Project:
     source = manifest.get("source", "")
     ref = manifest.get("ref", "")
     name = manifest.get("name", "")
@@ -276,7 +277,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         raise ValueError(f"Invalid project name: {name!r}")
 
     if manifest.get("runtime") == "image":
-        return await _deploy_image(store, docker, audit_manager, rtm, manifest)
+        return await _deploy_image(store, docker, audit_manager, rtm, manifest,
+                                    operation=operation)
 
     files_dir = store.files_dir(name)
     git_tree_sha = ""
@@ -403,6 +405,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         timestamp=time.time(), action="deploy", image=image, image_digest=digest,
         detail=json.dumps({"name": name, "mode": mode, "source": source, "ref": ref,
                            "commit": commit_sha, "tree_hash": tree_hash,
+                           "operation": operation,
                            "cap_add": cap_add, "devices": devices,
                            "operator_debug": operator_debug})))
 
@@ -412,7 +415,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
 
 async def _deploy_image(store: ProjectStore, docker: DockerClient,
                         audit_manager, rtm: RuntimeManager,
-                        manifest: dict) -> Project:
+                        manifest: dict, operation: str = "") -> Project:
     name = manifest["name"]
     image = manifest.get("image", "")
     image_port = int(manifest.get("image_port", 0))
@@ -490,6 +493,7 @@ async def _deploy_image(store: ProjectStore, docker: DockerClient,
                            "image_digest": digest, "commit": manifest.get("commit_sha", ""),
                            "tree_hash": manifest.get("tree_hash", ""),
                            "mode": mode,
+                           "operation": operation,
                            "cap_add": cap_add, "devices": devices,
                            "operator_debug": operator_debug})))
 
@@ -521,7 +525,7 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
 
 
 async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
-                  name: str) -> Project:
+                  name: str, operation: str = "") -> Project:
     """Promote a project from dev mode to attested mode."""
     project = store.load(name)
 
@@ -586,6 +590,7 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
             "commit": project.commit_sha,
             "tree_hash": project.tree_hash,
             "attestation_kind": project.attestation_kind,
+            "operation": operation,
         }),
         image=project.image_digest,
         image_digest=project.image_digest,

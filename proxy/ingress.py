@@ -768,13 +768,10 @@ class Ingress:
                     return web.json_response({"error": "missing 'manifest' field"}, status=400)
                 if files_data is None:
                     return web.json_response({"error": "missing 'files' field"}, status=400)
-                project = await deploy(
-                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
-                    manifest, files_data=files_data)
+                project = await self._deploy_request(manifest, files_data)
             else:
                 manifest = await request.json()
-                project = await deploy(
-                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+                project = await self._deploy_request(manifest)
             return web.json_response(_redact_env(asdict(project)), status=201)
         except ValueError as e:
             # Bad manifest / port conflict etc. — the message is safe to return.
@@ -783,6 +780,31 @@ class Ingress:
             import traceback
             log.error("deploy failed: %s", traceback.format_exc())
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _deploy_request(self, manifest: dict,
+                              files_data: bytes | None = None):
+        promote_requested = manifest.get("promote", False)
+        if not isinstance(promote_requested, bool):
+            raise ValueError("promote must be a boolean")
+        expected = manifest.get("expect_tree_hash")
+        if promote_requested and (not isinstance(expected, str) or not expected):
+            raise ValueError("promote requires a non-empty expect_tree_hash")
+
+        deploy_manifest = dict(manifest)
+        if promote_requested:
+            deploy_manifest["mode"] = "dev"
+        project = await deploy(
+            self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
+            deploy_manifest, files_data=files_data,
+            operation="deploy_and_promote" if promote_requested else "")
+        if promote_requested:
+            if project.tree_hash != expected:
+                raise ValueError(
+                    f"tree_hash mismatch: expected {expected}, actual {project.tree_hash}")
+            project = await promote(
+                self.store, self.audit_manager, self.rtm, project.name,
+                operation="deploy_and_promote")
+        return project
 
     async def _api_export(self) -> web.Response:
         """RFC 0017 §1: pin bundle for every project + audit refs. Raw env

@@ -608,6 +608,46 @@ def test_redeploy():
     print("  Content updated ✓")
 
 
+def test_deploy_and_promote():
+    print("\n--- Test: atomic deploy and promote ---")
+    repo = create_test_repo("test-atomic", {
+        "index.html": b"<html><body><h1>Atomic</h1></body></html>",
+    })
+    manifest = {"name": "test-atomic", "source": repo, "runtime": "static"}
+    resp = api_post("/projects", json=manifest)
+    assert resp.status_code == 201
+    expected = resp.json()["tree_hash"]
+
+    resp = api_post("/projects", json={
+        **manifest, "expect_tree_hash": expected, "promote": True,
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["mode"] == "attested"
+    audit = api_get("/projects/test-atomic/audit")
+    assert audit.status_code == 200
+    details = [json.loads(e["detail"]) for e in audit.json()]
+    assert [d["operation"] for d in details[-2:]] == [
+        "deploy_and_promote", "deploy_and_promote",
+    ]
+    print("  Matching hash promoted and audit marked ✓")
+
+    resp = api_post("/projects", json=manifest)
+    assert resp.status_code == 201
+    assert resp.json()["mode"] == "dev"
+    print("  Ordinary deploy still resets mode to dev ✓")
+
+    mismatch_manifest = {
+        "name": "test-atomic-mismatch", "source": repo, "runtime": "static",
+        "expect_tree_hash": "0" * 64, "promote": True,
+    }
+    resp = api_post("/projects", json=mismatch_manifest)
+    assert resp.status_code == 400
+    error = resp.json()["error"]
+    assert "expected" in error and "actual" in error
+    assert api_get("/projects/test-atomic-mismatch").json()["mode"] == "dev"
+    print("  Mismatch named expected/actual and stayed dev ✓")
+
+
 def test_deploy_image():
     print("\n--- Test: deploy image-runtime project (nginx) ---")
     manifest = {
@@ -1666,7 +1706,7 @@ def test_rfc0017_bootstrap():
 
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp", "test-atomic", "test-atomic-mismatch"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -1711,6 +1751,7 @@ def main():
         test_deploy_multipart_missing_manifest()
         test_deploy_multipart_bad_json()
         test_redeploy()
+        test_deploy_and_promote()
         test_audit_log()
         test_list_projects()
         test_env_redaction()
