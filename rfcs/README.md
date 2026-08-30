@@ -26,6 +26,7 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0020](0020-attestation-evidence-for-consumers.md) | Machine-Verifiable Attestation Evidence for App Consumers | Draft |
 | [0021](0021-app-self-improvement-evidence-spend.md) | App Self-Improvement via Attestation-Evidence Spend | Draft |
 | [0022](0022-spec-based-appraisal-curated-list.md) | Spec-Based Appraisal and Curated App List | Draft |
+| [0023](0023-staging-cvm-autonomous-dev.md) | Staging CVM Roles — webhost-staging vs hermes-staging | Draft |
 
 ## Conventions
 
