@@ -294,3 +294,63 @@ from this account (environmental, documented above), and the spec forbids the la
 inconclusive verification — the overseer's `test_daemon.py` run with root docker gates the
 branch, as AGENTS.md assigns it.
 
+## 11. Sixth spawn (rework lane, 2026-08-30 ~01:00 UTC): PR #134 — criterion 3 verified live
+
+The auto-merge gate's verdict on #134 (2026-08-29T22:25Z): "evidence PASSES, but no worker
+asserts issue #115's `## Acceptance` is demonstrated." This spawn is the rework lane
+consuming that verdict. Everything below was run first-hand this spawn (nothing inherited).
+
+Live pod, unchanged from §1 and re-verified now: `/_api/version` → `c7270819`;
+`/_api/substrate` → `available_runtimes` `[io.containerd.runc.v2, runc, runsc, runsc-hostnet,
+sysbox-runc]`, `container_runtime: runsc-hostnet` (read live from Docker `/info`,
+ingress.py:531). Containment re-verified by merge-base: `51f63b91` (prelaunch wired into every
+pod deploy) and `dcaad9c9` (#117 boot guard) are both ancestors of the pod's `c7270819`.
+
+**Criterion 3 upgraded from SKIP (§4) to verified live on the pod**, no credentials needed:
+
+- `egress-vpn` (explicit `oci_runtime: runc`, public project view) carries
+  `deployed_at: 2026-08-29T19:22:17Z` — i.e. an explicit-runc image tenant was deployed
+  successfully **after** the 2026-08-27 registration redeploy. A stored `deployed_at` means
+  create+start succeeded: `_deploy_image` only reaches `store.save()` after
+  `rtm.start_isolated()` (proxy/deploy.py) — the original failure mode (create rejected with
+  `unknown or invalid runtime name`) raises before any record is kept.
+- `twitter-debug` (explicit `runc`) is **serving through the public path-based ingress right
+  now**: `GET /twitter-debug/` → HTTP 200, 15 068 bytes, the app's own page (title "OAuth3
+debug console · Twitter"). The daemon's dead-container signature is 503
+  `{"error": "image container not running"}` (no live `get_image_route`); a 200 with app
+  HTML can only come from a running container.
+- `browser-spi` (explicit `runc`) answers `401 {"error":"unauthorized"}` — the neko app's
+  own auth response (the daemon emits `missing token` for missing auth and never the string
+  `unauthorized`; proxy/ grep: 0 hits), again not the 503 dead-route signature.
+
+Public listing (root path, `Accept: application/json`): 13 visible projects, 3 image-runtime
+(the three above, all explicit `runc`), 24 hidden — no no-override image tenant exists on the
+public surface to inspect for criterion 2.
+
+Stub matrix re-run from scratch this spawn (fresh `bash:latest` container, real branch script
+with only `RUNSC_SHA512` patched to the stub payload's real sha512 so the integrity gate
+executes; stub `curl`/`systemctl`/`service`/`docker`; `bash -n` clean):
+
+| scenario | `staging-115` |
+|---|---|
+| all three runsc runtimes registered | `done`, exit 0 |
+| `runsc-hostuds`/`runsc-hostnet` missing from Docker's `Runtimes:` | `runtime 'runsc-hostuds' not registered with Docker after restart`, exit 1 |
+
+(Staging-tip behavior — `done`, exit 0 in both — is unchanged from §7/§9's tables.)
+
+Admin wall re-confirmed today, as documented: `POST /_api/projects` without token →
+`401 {"error": "missing token"}`; SETUP-ZED.md §"No credentials" records that this machine
+deliberately holds no `TEE_DAEMON_TOKEN` for the pod and no Phala/dstack CVM key, so
+criterion 2's on-pod create and criterion 1b's binary-path check are structurally
+operator-only (§5 runbook, one command each). Suite non-runnability unchanged
+(`/var/run/docker.sock` root:docker 660, uid not in `docker`).
+
+**Acceptance ledger after this spawn** (the ceiling of what a credentialless worker can
+demonstrate): 1a ✔; 1b docker-info half ✔ live / binary-path half ✘ operator; 2 precondition
+✔ live + local analog ✔ (§3c) / on-pod create ✘ operator; 3 ✔ live on the pod. Because
+criterion 2's on-pod create has never been executed, a worker cannot honestly assert the
+issue's acceptance is *demonstrated*, so `ready-to-merge` is not added and the `rework`
+label stays — the honest-stop rule (a green label over missing evidence is the failure this
+rig exists to prevent). One comment on the PR states this and names the operator's two
+remaining commands.
+
