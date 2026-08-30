@@ -732,42 +732,48 @@ class RuntimeManager:
             return None
         return (ip, RUNTIME_CONFIG[config_key]["port"])
 
-    def get_project_liveness(self, project) -> dict:
-        """Return liveness info for a project: {running, container_id, backend}.
-
-        This is the single source of truth for project liveness, used by both
-        GET /_api/routes and GET /_api/status to ensure consistent reporting.
-        """
-        result = {"running": False, "container_id": None, "backend": None}
-
+    def _project_container_name(self, project) -> str | None:
+        """Name of the container that serves this project. None when the daemon
+        serves it itself (static) or when nothing ever creates one for it."""
         if project.runtime == "static":
-            result["running"] = True
-            result["backend"] = "static files"
-        elif project.runtime == "dockerfile":
-            cid = project.container_id
-            result["container_id"] = cid
-            result["running"] = bool(cid)
-            result["backend"] = f"container:{cid or 'unknown'}"
-        elif project.runtime == "image" or project.isolation == "container":
-            # Image runtime or isolated container (deno/bun with isolation:container)
-            route = self.image_routes.get(project.name)
-            cid = self.image_cids.get(project.name)
-            result["container_id"] = cid
-            if route:
-                result["running"] = True
-                result["backend"] = f"{route[0]}:{route[1]}"
-            else:
-                result["backend"] = "runtime not running"
-        else:
-            # Shared runtime (deno/bun/node/python)
-            route = self.get_route(project.runtime, project.mode)
-            if route:
-                result["running"] = True
-                result["backend"] = f"{route[0]}:{route[1]}"
-            else:
-                result["backend"] = "runtime not running"
+            return None
+        if project.runtime == "image":
+            return f"tee-image-{project.name}-{project.mode}"
+        if project.isolation == "container":
+            return f"tee-isolated-{project.name}-{project.mode}"
+        config_key = "deno" if project.runtime == "bun" else project.runtime
+        if config_key not in RUNTIME_CONFIG:
+            return None
+        return f"tee-runtime-{config_key}-{project.mode}"
 
-        return result
+    async def get_project_liveness(self, project) -> dict:
+        """Liveness for a project: {running, container_id, backend,
+        container_state, exit_code, restart_count} — the single source of truth
+        for GET /_api/routes and GET /_api/status.
+
+        The container half is read from the engine at request time: the stored
+        `container_id` and the in-memory route maps both outlive a container
+        that died on its own, which is exactly the outage this exists to expose
+        (#133). `container_state` is docker's own word for it, None for static
+        projects (the daemon serves them, nothing to inspect) and "missing"
+        when no container exists. `backend` is the in-memory route, so it only
+        names an address while that container is actually running.
+        """
+        if project.runtime == "static":
+            return {"running": True, "container_id": None, "backend": "static files",
+                    "container_state": None, "exit_code": None, "restart_count": None}
+        cname = self._project_container_name(project)
+        live = await self.docker.container_state(cname) if cname else None
+        if live is None:
+            return {"running": False, "container_id": None, "backend": "runtime not running",
+                    "container_state": "missing", "exit_code": None, "restart_count": None}
+        if project.runtime == "image" or project.isolation == "container":
+            route = self.image_routes.get(project.name)
+        else:
+            route = self.get_route(project.runtime, project.mode)
+        live["backend"] = (f"{route[0]}:{route[1]}"
+                           if route and live["running"] else "runtime not running")
+        return live
 
     async def recover_all(self):
         await self._bootstrap_from_import_bundle()

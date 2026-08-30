@@ -732,7 +732,7 @@ class Ingress:
             if project.listen and project.listen.port:
                 port = project.listen.port
                 protocol = project.listen.protocol or "http"
-                liveness = self.rtm.get_project_liveness(project)
+                liveness = await self.rtm.get_project_liveness(project)
                 routes.append({
                     "host_port": port,
                     "protocol": protocol,
@@ -1255,17 +1255,15 @@ class Ingress:
     async def _api_aggregate_status(self) -> web.Response:
         """RFC 0016: Aggregate status for all projects with liveness.
 
-        Returns manifest fields + live liveness (running, container_id, backend).
+        Returns manifest fields + live liveness (running, container_id, backend,
+        container_state, exit_code, restart_count).
         For attested projects, includes the public verification URL.
         """
         projects = []
         for project in self.store.list():
             data = _redact_env(asdict(project))
             # Add liveness info
-            liveness = self.rtm.get_project_liveness(project)
-            data["running"] = liveness["running"]
-            data["container_id"] = liveness["container_id"]
-            data["backend"] = liveness["backend"]
+            data.update(await self.rtm.get_project_liveness(project))
             data["ladder"] = ladder_hint(data)
             # For attested projects, include public verification URL
             if project.mode == "attested":

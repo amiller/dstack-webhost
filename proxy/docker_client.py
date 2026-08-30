@@ -153,3 +153,24 @@ class DockerClient:
         if status == 200:
             return data["Id"]
         return None
+
+    async def container_state(self, name: str) -> dict | None:
+        """Live state for a container by name, for the status surface (#133).
+        None only when the engine says there is no such container; any other
+        error raises rather than reading as "missing"."""
+        status, data = await self._json_request("GET", f"/containers/{name}/json")
+        if status == 404:
+            return None
+        if status >= 400:
+            raise RuntimeError(f"container_state failed ({status}): {data}")
+        state = data["State"]
+        running = bool(state["Running"])
+        return {
+            "running": running,
+            "container_id": data["Id"],
+            "container_state": state["Status"],
+            # ExitCode is 0 (or the previous run's) while running, so it only
+            # says something once the container has stopped.
+            "exit_code": None if running else state["ExitCode"],
+            "restart_count": data["RestartCount"],
+        }
