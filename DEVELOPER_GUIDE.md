@@ -108,6 +108,26 @@ curl -X POST $CVM/_api/projects \
 
 The container runs under the daemon's configured OCI runtime (see `/_api/substrate`). On a CVM with `DAEMON_CONTAINER_RUNTIME=sysbox-runc`, all image-runtime apps get user-namespace remap and virtualised `/proc` for free. The container is placed on a per-project Docker network — sibling apps are not reachable by IP or hostname; only the daemon proxies traffic in and out. See the [isolation probe](isolation-probe.md) for a worked example.
 
+### Multi-process workloads: fold them into one image
+
+A project is **one container** — one handler for the language runtimes, one image for `runtime: "image"`. There is no manifest field for a second container, a sidecar, or a compose file; the daemon has no way to express one project spanning several containers. A workload of several cooperating services still deploys as one project by folding the services under a single supervisor **inside the image**, with one listening port for `image_port`.
+
+The worked case is Port Call (`amiller/port-call`), a meeting bot whose rig is four services: `postgres`, a transcription shim, a TTS shim, and `vexa-lite` — itself already a supervisor monolith (redis, Xvfb, fluxbox, pulseaudio, x11vnc, websockify, and its APIs). **All four fold.** Nothing needs its own container for isolation: the substrate isolates projects *from each other*, and processes inside one project share one trust boundary anyway. The fold happens at image-build time because the manifest has no `command:` override — the supervisor must be the image's `ENTRYPOINT` — and `vexa-lite` already runs under a supervisor, so `postgres` and the two shims are three more programs in its config, not a new deployment unit.
+
+What the fold owes the daemon:
+
+| | |
+|---|---|
+| Durable data → named `volumes` | A redeploy stops and removes the container and starts a fresh one; anything not on a named volume is lost. (Port Call's recordings lived in the container's `/tmp` and were lost on every recreate — port-call#26.) Put the postgres data directory and the recordings on `volumes: [{name, mount}]`; volumes are adopted idempotently, so data survives both recreate and redeploy. |
+| One port for `image_port` | Ingress proxies `/<name>/` to a single `image_port`. Services reach each other on container-internal ports; only the ingress-facing service needs to listen on `image_port`. |
+| Crash handling | The container restarts on non-zero exit (`on-failure`, 5 retries); the supervisor restarts an individual crashed service without the container being replaced. |
+| VPN routing | Two mechanisms, on different lines of this repo — see below. |
+| Resource envelope | None: the daemon sets no per-container memory or CPU limits, so a folded stack shares the CVM's whole envelope with every other project. That is the honest cost of the fold, and the point at which to consider a dedicated CVM instead. |
+
+**VPN routing.** Where the pod has a shared VPN egress network, set `egress: true` and the daemon joins the container to it and injects `EGRESS_PROXY_URL` / `ALL_PROXY` (`socks5://egress-vpn:1080`), so the app's outbound traffic routes through the pod's VPN. The VPN itself is another project — an attested image with `egress_provider: true` plus `cap_add: ["NET_ADMIN"]` and `devices: ["/dev/net/tun"]`. Caveat: this field landed on the `main` line (`d7fe947b`, 2026-07-03) and is not on the `staging` branch at the time of writing — a daemon built from `staging` silently ignores `egress`, so check `GET /_api/version` against your daemon before relying on it. The alternative every build carries: put your own VPN client in the image — `mode: "attested"` with the same `cap_add`/`devices` grant (rejected in dev mode; see RFC 0025).
+
+What does *not* fold is not a service but the concerns around it: separate lifecycles, separate resource envelopes, and CVM-level isolation between the services themselves. When a workload genuinely needs those — or already has a compose file it wants to keep — run it on a dedicated CVM under compose instead (Port Call's `docker-compose.cvm.yml`, in its own repo, is that shape). That burns a whole CVM on one app, which is exactly what folding avoids; treat it as the escape hatch, not the default.
+
 ## Promote to attested
 
 Promotion is the trust claim. The daemon records the source hash, opens the audit log, binds the hash into the TEE quote, and exposes the public verifier endpoints.
