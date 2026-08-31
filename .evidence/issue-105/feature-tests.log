@@ -1,0 +1,74 @@
+[proxy.docker_proxy] Recovered tracked container 57f90362b4c3
+[tee-daemon] Recovered 1 tracked containers
+[tee-daemon] Docker proxy listening on /tmp/tee-daemon-test-2w6l5yhd/proxy/docker.sock
+[tee-daemon] dstack socket not found — dstack proxy + broker disabled
+[tee-daemon] Recovered 0 active tunnels
+[tee-daemon] Recovered 0 scoped API tokens
+[tee-daemon] Ingress + API listening on :18080 (default)
+[tee-daemon] tee-daemon running
+[proxy.browser_pool] Pulling browser image denoland/deno:latest...
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET / HTTP/1.1" 200 220 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /_api/version HTTP/1.1" 200 231 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /_api/projects HTTP/1.1" 401 195 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /_api/projects HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /_api/projects HTTP/1.1" 200 160 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET / HTTP/1.1" 200 220 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-static container=- image=static
+[proxy.deploy] Deployed test-static from /tmp/tee-daemon-test-2w6l5yhd/repos/test-static.git@HEAD (632df09f1ab7)
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "POST /_api/projects HTTP/1.1" 201 915 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /test-static/ HTTP/1.1" 200 210 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /test-static/.git/HEAD HTTP/1.1" 403 118 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /_api/projects/test-static HTTP/1.1" 200 910 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-static container=- image=static
+[proxy.deploy] Deployed test-static from /tmp/tee-daemon-test-2w6l5yhd/repos/test-static.git@HEAD (150c6e557734)
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "POST /_api/projects/test-static/redeploy HTTP/1.1" 200 927 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /test-static/ HTTP/1.1" 200 179 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-atomic container=- image=static
+[proxy.deploy] Deployed test-atomic from /tmp/tee-daemon-test-2w6l5yhd/repos/test-atomic.git@HEAD (c0af855d8145)
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "POST /_api/projects HTTP/1.1" 201 915 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-atomic container=- image=static
+[proxy.deploy] Deployed test-atomic from /tmp/tee-daemon-test-2w6l5yhd/repos/test-atomic.git@HEAD (c0af855d8145)
+[proxy.deploy] dstack not available - cannot get app pubkey
+[proxy.deploy] Failed to get app pubkey for test-atomic - promotion without binding quote
+[proxy.audit] AUDIT promote project=test-atomic container=- image=-
+[proxy.deploy] Promoted test-atomic to attested mode (commit: c0af855d8145, tree_hash: c735422e0af8, kind: none)
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "POST /_api/projects HTTP/1.1" 201 920 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /_api/projects/test-atomic/audit HTTP/1.1" 200 2025 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-atomic container=- image=static
+[proxy.deploy] Deployed test-atomic from /tmp/tee-daemon-test-2w6l5yhd/repos/test-atomic.git@HEAD (c0af855d8145)
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "POST /_api/projects HTTP/1.1" 201 915 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-atomic-mismatch container=- image=static
+[proxy.deploy] Deployed test-atomic-mismatch from /tmp/tee-daemon-test-2w6l5yhd/repos/test-atomic.git@HEAD (c0af855d8145)
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "POST /_api/projects HTTP/1.1" 400 324 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /_api/projects/test-atomic-mismatch HTTP/1.1" 200 919 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [31/Aug/2026:05:19:49 -0500] "GET /_api/audit HTTP/1.1" 200 4380 "-" "python-requests/2.34.2"
+[tee-daemon] Shutting down
+
+--- Test: version endpoint ---
+  Version: dev commit: da82d265 ✓
+
+--- Test: API auth ---
+  Auth: 401/403/200/200 ✓
+
+--- Test: deploy static from git ---
+  Deployed: commit=632df09f1ab7 tree=4671cbe7cdd0
+
+--- Test: static serving ---
+  Content verified
+
+--- Test: .git path blocked ---
+  .git blocked ✓
+
+--- Test: redeploy after git push ---
+  Redeploy: changed=True, new commit=150c6e557734
+  Content updated ✓
+
+--- Test: atomic deploy and promote ---
+  Matching hash promoted and audit marked ✓
+  Ordinary deploy still resets mode to dev ✓
+  Mismatch named expected/actual and stayed dev ✓
+
+--- Test: audit log ---
+  6 deploys, all have commit + tree_hash ✓
+
+=== FEATURE TESTS PASSED ===
