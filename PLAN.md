@@ -117,3 +117,37 @@ PLAN — checkboxes derived from the issue's `## Acceptance`.
       start path exists, so `probe-121` never left "runtime not running"; the walk serves the
       branch's probe.py + index.html verbatim behind a handle() adapter);
       ghcr probe-image rebuild for hermes-staging remains the named operator step.
+
+---
+
+# Issue #130 — redeploy deletes a project's files when source is not a git URL
+
+PLAN — checkboxes derived from the issue's `## Acceptance`.
+
+## Root cause (verified in this tree at staging 3c4f1bb7)
+`git_clone()` rmtree's `dest` before the clone runs (deploy.py:56-57). `_api_redeploy`
+rebuilds a manifest carrying `source` (e.g. `tarball://feedling-web`) and calls `deploy()`
+with no `files_data` → git path → files erased, clone of `https://tarball://...` fails,
+`store.save()` never reached so the manifest still describes the deploy it just destroyed.
+`_api_redeploy` had no ValueError handler, so nothing returned a 4xx either.
+
+## Where the fix goes (deliberate deviation from the pre-spawn plan)
+The pre-planned approach put a source guard in `_api_redeploy` (ingress.py). I put it in
+`git_clone()` next to the URL-mangling that creates `https://tarball://...` in the first
+place, so the same fail-fast protects every caller: pinned import (RFC 0017), boot
+import-bootstrap, and a JSON `POST /_api/projects` over an existing project. The staging
+also lives in `git_clone` (clone into `dest + ".clone"`, swap only on success), so
+`deploy()` needs no changes — the existing `.pin` path composes unchanged. `_api_redeploy`
+gets only the ValueError→400 handler (mirroring `_api_deploy`).
+
+## Diff
+- [x] `proxy/deploy.py::git_clone`: reject a non-http(s) `://` source scheme before touching
+      the filesystem; clone + pinned checkout + rev-parses run in a staging sibling;
+      `dest` is replaced only after all of it succeeded; stage cleaned on every failure.
+- [x] `proxy/ingress.py::_api_redeploy`: ValueError → 400 with the message.
+- [x] `test_daemon.py::test_tarball_redeploy_preserves_project`: deploy tarball project →
+      POST redeploy → 4xx naming the reason, entry file present, stored manifest
+      byte-identical.
+- [x] `test_daemon.py::test_git_clone_failure_preserves_dest`: unclonable URL leaves a
+      pre-existing dest untouched, no `.clone` stage left behind.
+- [x] Existing `test_daemon.py` passes unchanged.

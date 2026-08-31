@@ -59,40 +59,54 @@ async def git_clone(source: str, ref: str, dest: str,
 
     With commit_sha set (RFC 0017 pinned import), the full history is cloned
     and checked out at exactly that commit; a sha that no longer exists raises.
+
+    The clone lands in a staging sibling and replaces dest only after it
+    succeeded, so a failed clone never destroys what is already deployed (#130).
     """
-    if os.path.exists(dest):
-        shutil.rmtree(dest)
+    if "://" in source and not source.startswith(("https://", "http://")):
+        raise ValueError(
+            f"cannot re-clone source {source!r}: not a fetchable git URL — "
+            "a tarball-deployed project has no source to redeploy from; "
+            "deploy new files via multipart upload")
+    stage = dest + ".clone"
+    if os.path.exists(stage):
+        shutil.rmtree(stage)
     url = source if source.startswith(("https://", "http://", "/")) else f"https://{source}"
     cmd = ["git", "clone"]
     if not commit_sha:
         cmd += ["--depth", "1"]
         if ref:
             cmd += ["--branch", ref]
-    cmd += [url, dest]
+    cmd += [url, stage]
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
+        shutil.rmtree(stage, ignore_errors=True)
         raise ValueError(f"git clone failed: {stderr.decode().strip()}")
     if commit_sha:
         proc = await asyncio.create_subprocess_exec(
-            "git", "-C", dest, "checkout", "--detach", commit_sha,
+            "git", "-C", stage, "checkout", "--detach", commit_sha,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
+            shutil.rmtree(stage, ignore_errors=True)
             raise ValueError(
                 f"pinned commit {commit_sha} not found in {source}: "
                 f"{stderr.decode().strip()}")
     proc2 = await asyncio.create_subprocess_exec(
-        "git", "-C", dest, "rev-parse", "HEAD",
+        "git", "-C", stage, "rev-parse", "HEAD",
         stdout=asyncio.subprocess.PIPE)
     stdout, _ = await proc2.communicate()
     commit_sha = stdout.decode().strip()
     proc3 = await asyncio.create_subprocess_exec(
-        "git", "-C", dest, "rev-parse", "HEAD^{tree}",
+        "git", "-C", stage, "rev-parse", "HEAD^{tree}",
         stdout=asyncio.subprocess.PIPE)
     stdout, _ = await proc3.communicate()
     git_tree_sha = stdout.decode().strip()
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    shutil.move(stage, dest)
     return commit_sha, git_tree_sha
 
 

@@ -588,6 +588,46 @@ def test_deploy_multipart_bad_json():
     print(f"  Got expected 400: {resp.json()}")
 
 
+def test_tarball_redeploy_preserves_project():
+    print("\n--- Test: tarball redeploy fails fast, preserves files + manifest (#130) ---")
+    proj_dir = os.path.join(tmpdir, "projects", "test-tarball")
+    with open(os.path.join(proj_dir, "project.json"), "rb") as f:
+        manifest_before = f.read()
+
+    resp = api_post("/projects/test-tarball/redeploy")
+    assert 400 <= resp.status_code < 500, \
+        f"expected 4xx, got {resp.status_code}: {resp.text}"
+    err = resp.json()["error"]
+    assert "not a fetchable git URL" in err and "tarball" in err, err
+    print(f"  Redeploy rejected: {err}")
+
+    assert os.path.isfile(os.path.join(proj_dir, "files", "index.html")), \
+        "entry file was deleted by the failed redeploy"
+    with open(os.path.join(proj_dir, "project.json"), "rb") as f:
+        assert f.read() == manifest_before, "stored manifest changed"
+    print("  entry file + stored manifest byte-identical \u2713")
+
+
+def test_git_clone_failure_preserves_dest():
+    print("\n--- Test: failed git_clone leaves an existing dest untouched (#130) ---")
+    import asyncio
+    from proxy.deploy import git_clone
+
+    dest = os.path.join(tmpdir, "clone-dest")
+    os.makedirs(dest)
+    with open(os.path.join(dest, "index.html"), "wb") as f:
+        f.write(b"<html>survivor</html>")
+    try:
+        asyncio.run(git_clone(os.path.join(tmpdir, "repos", "no-such-repo.git"), "", dest))
+        raise AssertionError("clone from a nonexistent repo should have failed")
+    except ValueError as e:
+        assert "git clone failed" in str(e), e
+    with open(os.path.join(dest, "index.html"), "rb") as f:
+        assert f.read() == b"<html>survivor</html>", "dest was destroyed"
+    assert not os.path.exists(dest + ".clone"), "staging dir left behind"
+    print("  dest untouched, no stage left behind \u2713")
+
+
 def test_redeploy():
     print("\n--- Test: redeploy after git push ---")
     old = api_get("/projects/test-static").json()
@@ -1710,6 +1750,8 @@ def main():
         test_deploy_multipart_missing_files()
         test_deploy_multipart_missing_manifest()
         test_deploy_multipart_bad_json()
+        test_tarball_redeploy_preserves_project()
+        test_git_clone_failure_preserves_dest()
         test_redeploy()
         test_audit_log()
         test_list_projects()

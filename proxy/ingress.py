@@ -843,8 +843,12 @@ class Ingress:
                 "port": project.listen.port,
                 "protocol": project.listen.protocol,
             }
-        project = await deploy(
-            self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+        try:
+            project = await deploy(
+                self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+        except ValueError as e:
+            # Bad source / port conflict etc. — the message is safe to return.
+            return web.json_response({"error": str(e)}, status=400)
         result = _redact_env(asdict(project))
         if project.runtime == "image":
             result["changed"] = project.image_digest != old_digest
