@@ -117,3 +117,21 @@ PLAN — checkboxes derived from the issue's `## Acceptance`.
       start path exists, so `probe-121` never left "runtime not running"; the walk serves the
       branch's probe.py + index.html verbatim behind a handle() adapter);
       ghcr probe-image rebuild for hermes-staging remains the named operator step.
+
+---
+
+# Issue #132 plan — reject a deploy whose env carries the literal <redacted>
+
+PLAN — checkboxes derived from the issue's `## Acceptance`.
+
+- [x] `POST /_api/projects` with a manifest whose env contains a `<redacted>` value returns
+      400 naming the offending key(s) and leaves the stored manifest unchanged (regression
+      test asserts the on-disk project.json is byte-identical after the rejected deploy).
+- [x] A deploy whose env carries no sentinel is unaffected (same test deploys real env first).
+- [x] The sentinel is defined once (`deploy.REDACTED`), referenced by both the ingress
+      redactor and the validator in `deploy()` (covers json, multipart, redeploy and import
+      — every env write goes through `deploy()`).
+- [x] Existing `test_daemon.py` passes unchanged — full suite green on real rootless docker;
+      the only test-file additions are the new test and its teardown entry.
+- [ ] webhost-staging image deploy (`ship-fix.sh staging`) — operator-gated: ghcr push
+      credentials are not on this box; local daemon pinned to this commit instead (PR body).
