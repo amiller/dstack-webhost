@@ -158,6 +158,7 @@ class AuditLog:
                 "ref": detail.get("ref", ""),
                 "commit_sha": detail.get("commit", ""),
                 "tree_hash": detail.get("tree_hash", ""),
+                "operation": detail.get("operation", ""),
                 "image": detail.get("image", entry.image),
                 "image_digest": detail.get("image_digest", entry.image_digest),
                 "current": (
