@@ -1,0 +1,43 @@
+# Issue #130 / PR #140 — Tier 1 evidence (rework worker, 2026-08-31)
+
+Driver: one daemon + one multipart tarball project (source=tarball://demo), then
+POST /_api/projects/bugdemo/redeploy — the issue's ## Acceptance exercised over HTTP.
+BEFORE = origin/staging 3c4f1bb7 (PR base); AFTER = PR head 4b1d40cd. Both pinned via
+GET /_api/version. Daemon run from the checkout (identity from git, issue #106) with real
+docker (rootless, this box) inside the tee-test-runner container; files_dir and the stored
+manifest are read off disk, not off the API.
+
+===== BEFORE: origin/staging 3c4f1bb7 =====
+GET /_api/version -> 200 {'version': 'dev', 'commit': '3c4f1bb7'}
+POST /_api/projects (multipart tarball, source=tarball://demo) -> 201
+files_dir after deploy: ['index.html']
+stored manifest sha256[:12]: 2392d95727d6
+POST /_api/projects/bugdemo/redeploy -> 500 500 Internal Server Error
+
+Server got itself in trouble
+files_dir after redeploy: []
+stored manifest byte-identical: True (sha 2392d95727d6)
+GET /bugdemo/ after failed redeploy -> 404 ''
+DELETE /_api/projects/bugdemo -> 200 {"ok": true}
+
+===== AFTER: PR head 4b1d40cd =====
+GET /_api/version -> 200 {'version': 'dev', 'commit': '4b1d40cd'}
+POST /_api/projects (multipart tarball, source=tarball://demo) -> 201
+files_dir after deploy: ['index.html']
+stored manifest sha256[:12]: 58bf76c868d3
+POST /_api/projects/bugdemo/redeploy -> 400 {"error": "cannot re-clone source 'tarball://demo': not a fetchable git URL \u2014 a tarball-deployed project has no source to redeploy from; deploy new files via multipart upload"}
+files_dir after redeploy: ['index.html']
+stored manifest byte-identical: True (sha 58bf76c868d3)
+GET /bugdemo/ after failed redeploy -> 200 '<html><body><h1>Tarball deploy</h1></body></html>'
+DELETE /_api/projects/bugdemo -> 200 {"ok": true}
+
+## Full e2e suite at 4b1d40cd
+
+--- Test: tarball redeploy fails fast, preserves files + manifest (#130) ---
+  Redeploy rejected: cannot re-clone source 'tarball://local': not a fetchable git URL — a tarball-deployed project has no source to redeploy from; deploy new files via multipart upload
+  entry file + stored manifest byte-identical ✓
+--- Test: failed git_clone leaves an existing dest untouched (#130) ---
+  dest untouched, no stage left behind ✓
+=== ALL TESTS PASSED ===
+
+50 --- Test: blocks, exit 0. Full log: test-daemon-full.log (same directory on the box).
