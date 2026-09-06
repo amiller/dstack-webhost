@@ -87,7 +87,7 @@
   <h1>What the swarm can show you, walked and dated</h1>
   <div class="fresh">
     <span class="oldest">oldest evidence on this page: 0m ago</span>
-    <span class="assembled">html assembled 2026-09-05 07:33 CDT (assembly time is not evidence freshness)</span>
+    <span class="assembled">html assembled 2026-09-05 19:34 CDT (assembly time is not evidence freshness)</span>
   </div>
 <section class="block"><h2>Your asks</h2>
 <p class="cap">Open <code>operator-ask</code> issues across the repos — the things you asked to see, each with its current flow status. This section leads the report so an evaporated plan is visible, not forgotten.</p>
@@ -117,50 +117,49 @@
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://pod.dstack.soc1024.com/otterscope/" target="_blank" rel="noopener">otterscope</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">Otter.ai transcript viewer via oauth3 otter plugin. SDK connect() (RFC 0008): extension provider-preferred, web-approve fallback via the signed-in pod room — works mobile/same-pod.</p>
 <p class="signal">signal: <code>title &quot;Otter via OAuth3&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;Otter via OAuth3&quot;' not satisfied on https://pod.dstack.soc1024.com/otterscope/</p>
 <p class="note">staging: FAIL signal='title &quot;Otter via OAuth3&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/otterscope/</p>
 </div></div>
 <div class="card">
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://pod.dstack.soc1024.com/feedling-web/" target="_blank" rel="noopener">feedling-web</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">Doomscroll notifier; reads YouTube via oauth3 youtube plugin (user-approved token, NOT owner). Set TZ. Today-filtering blocked on per-item dates (oauth3-server).</p>
 <p class="signal">signal: <code>title &quot;feedling&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;feedling&quot;' not satisfied on https://pod.dstack.soc1024.com/feedling-web/</p>
 </div></div>
 <div class="card">
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/calendar-share/" target="_blank" rel="noopener">calendar-share</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">edit-on-behalf demo (write-side sibling of timeline-peek). Owner mints a write:event:&lt;id&gt; share code; recipient edits ONE Google Calendar event. Thin server.ts serves public/index.html at /calendar-share/. Per-app deploy.sh.</p>
 <p class="signal">signal: <code>title &quot;Calendar Share&quot;</code></p>
-<p class="note">prod: FAIL signal='title &quot;Calendar Share&quot;' not satisfied on https://pod.dstack.soc1024.com/calendar-share/</p>
 </div></div>
 <div class="card">
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/reddit-karma/" target="_blank" rel="noopener">reddit-karma</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">sample OAuth3 app for the app+plugin story. Connect → reads the Reddit account's saved posts through a scoped reddit:read token (GET /oauth3/api/reddit/items; the /account karma route was never shipped and 404s — #64). Static index.html, rendered title Reddit Saved; same shape as timeline-peek. Motivated the post-merge deploy lane (sat at 404 after merge until hand-deployed).</p>
 <p class="signal">signal: <code>title &quot;Reddit Saved&quot;</code></p>
-<p class="note">prod: FAIL signal='title &quot;Reddit Saved&quot;' not satisfied on https://pod.dstack.soc1024.com/reddit-karma/</p>
 </div></div>
 <div class="card">
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/share-kit/" target="_blank" rel="noopener">share-kit</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">shared UI for the suite: the journey-labeled Share button, capability receipt (link + TRUE scope sentence + Revoke + status pill), and recipient banner (honest end-states). inline.sh inlines the one file into an app's index.html.</p>
 <p class="signal">signal: <code>title &quot;share-kit&quot;</code></p>
-<p class="note">prod: FAIL signal='title &quot;share-kit&quot;' not satisfied on https://pod.dstack.soc1024.com/share-kit/</p>
 </div></div>
 <div class="card">
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
@@ -177,20 +176,20 @@
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/zai-usage/" target="_blank" rel="noopener">zai-usage</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">z.ai Coding Plan usage app (issue #76). Reads GLM quotas through a scoped zai:usage-read token via the zai cookie-jar plugin (oauth3-server, pending). Static index.html, uses the shared ShareKit.oauth3Connect helper. Render path proven with a labeled SAMPLE until the plugin + owner jar-sync land.</p>
 <p class="signal">signal: <code>title &quot;GLM Usage&quot;</code></p>
-<p class="note">prod: FAIL signal='title &quot;GLM Usage&quot;' not satisfied on https://pod.dstack.soc1024.com/zai-usage/</p>
 </div></div>
 <div class="card">
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/goodpoint-box/app" target="_blank" rel="noopener">goodpoint-box</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">Live Otter transcript + good-point detector steering the interleave brainrot canvas. No mic/STT path and no demo data path.</p>
 <p class="signal">signal: <code>title &quot;goodpoint-box&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;goodpoint-box&quot;' not satisfied on https://pod.dstack.soc1024.com/goodpoint-box/app</p>
 <p class="note">staging: FAIL signal='title &quot;goodpoint-box&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/goodpoint-box/app</p>
 </div></div>
 <div class="card">
@@ -208,11 +207,10 @@
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
 <div class="meta">
 <div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/screenshare-pet/" target="_blank" rel="noopener">screenshare-pet</a></h3>
-<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
 <p class="walkline">last walked 0m ago</p>
 <p class="cap">change-signals demo consumer (sibling of screenshare-debug, issue #73). Picture-in-Picture pet reactive to signals derived from the screen (changedPct + hot region + still/local/scene), with rare budgeted OCR/VLM escalation. All auth machinery out; frames never leave the browser unless the dev-only mirror toggle is on. Desktop-only (getDisplayMedia); in-page fallback where Document PiP is unavailable.</p>
 <p class="signal">signal: <code>title &quot;screenshare-pet — a PiP pet that watches your screen&quot;</code></p>
-<p class="note">prod: FAIL signal='title &quot;screenshare-pet — a PiP pet that watches your screen&quot;' not satisfied on https://pod.dstack.soc1024.com/screenshare-pet/</p>
 </div></div>
 <div class="card">
 <div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
@@ -234,9 +232,9 @@
 <p>Nothing merged this week.</p>
 <h3>Lane health over time</h3>
 <table class="swarm-table"><tr><th>lane</th><th>runs logged</th><th>pass rate</th><th>latest</th></tr>
-<tr><td><b>browser-pool</b></td><td>359</td><td>359/359</td><td style="color:#00838a">09-05T12:33 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
-<tr><td><b>e2e-verifier</b></td><td>359</td><td>17/359</td><td style="color:#c2185b">09-05T12:33 — FAIL: e2e-flow engine exited 1</td></tr>
-<tr><td><b>login-with-everything</b></td><td>359</td><td>215/359</td><td style="color:#00838a">09-05T12:33 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
+<tr><td><b>browser-pool</b></td><td>360</td><td>360/360</td><td style="color:#00838a">09-06T00:34 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
+<tr><td><b>e2e-verifier</b></td><td>360</td><td>17/360</td><td style="color:#c2185b">09-06T00:34 — FAIL: e2e-flow engine exited 1</td></tr>
+<tr><td><b>login-with-everything</b></td><td>360</td><td>216/360</td><td style="color:#00838a">09-06T00:34 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
 </table>
 <p class="cap" style="color:#57606a">History collection started 2026-07-06; each 30-min refresh appends a snapshot.</p>
 <h3>Agent census</h3><p>0 running, 0 idle/stopped on the paseo daemon right now.</p>
@@ -263,7 +261,7 @@ section.work .none{ color:var(--faint,#6e6a62); font-style:italic; }
 section.work .cap{ color:var(--faint,#6e6a62); font-size:12px; margin:6px 0 0; }
 section.work a{ color:#1f6feb; }
 <section class="work"><h2 id="work">Work — the autonomous loop</h2><p class="cap">What the loop is doing: recent runs (issue → branch → verify → PR), PR merge + pass/fail state, and the ready/operator-ask queue. Sourced live from <code>gh</code> + <code>~/paseo-batch/out</code>; any section whose substance is &gt;24h old or absent turns RED.</p>
-<div class="sub stale"><span class="last-run" title="2026-08-28 00:13 UTC">last run 8d ago</span><h3>Recent runs — STALE</h3><table class="smoke-tbl"><thead><tr><th>issue</th><th>title</th><th>branch</th><th>verify</th><th>PR · merge</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/issues/103">#103</a></td><td>staging-B: second oauth3 core instance as migration destination</td><td><code>staging-103</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/104">#104</a> <span class="badge b-merged">merged</span></td></tr>
+<div class="sub stale"><span class="last-run" title="2026-08-28 00:13 UTC">last run 9d ago</span><h3>Recent runs — STALE</h3><table class="smoke-tbl"><thead><tr><th>issue</th><th>title</th><th>branch</th><th>verify</th><th>PR · merge</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/issues/103">#103</a></td><td>staging-B: second oauth3 core instance as migration destination</td><td><code>staging-103</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/104">#104</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/85">#85</a></td><td>envoy-browser rig: screenshots degrade under Brave memory/process accu</td><td><code>staging-85</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/128">#128</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/38">#38</a></td><td>Otter demo: activity log noisy with frequent poll entries — coalesce +</td><td><code></code></td><td class="verify v-unknown">unknown</td><td>— </td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/6">#6</a></td><td>Attested gVisor (runsc) tenants can&#x27;t reach the broker unix socket — n</td><td><code>staging-6</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/127">#127</a> <span class="badge b-merged">merged</span></td></tr>
@@ -275,7 +273,7 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/22">#22</a></td><td>Implement RFC 0019 — Managed Hosting via TeeSQL / AttestMesh</td><td><code>staging-22</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/110">#110</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/13">#13</a></td><td>Promote isolation-probe to attested + feature it as the worked example</td><td><code>staging-13</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/109">#109</a> <span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/issues/2">#2</a></td><td>isolation:container tenants have no outbound DNS under runsc</td><td><code>staging-2</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/108">#108</a> <span class="badge b-merged">merged</span></td></tr></tbody></table><p class="cap">Each row is one ready-queue iteration from the result.json lane logs; verify = test_daemon.py / unit result recorded by that run.</p></div>
-<div class="sub "><span class="last-run" title="2026-09-05 12:33 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/143">#143</a></td><td>status: read live container state from docker at request time (#</td><td><code>staging-133</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<div class="sub "><span class="last-run" title="2026-09-06 00:34 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/143">#143</a></td><td>status: read live container state from docker at request time (#</td><td><code>staging-133</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/142">#142</a></td><td>deploy: refuse an env that carries the redaction sentinel (#132)</td><td><code>staging-132</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/141">#141</a></td><td>runtimes: give isolated (deno/bun) containers the same restart p</td><td><code>staging-131</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/140">#140</a></td><td>deploy: never destroy files_dir on a failed or non-git clone (#1</td><td><code>staging-130</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
@@ -289,7 +287,7 @@ section.work a{ color:#1f6feb; }
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/129">#129</a></td><td>Complete staging-B oauth3 migration destination</td><td><code>staging-103</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/128">#128</a></td><td>envoy rig (#85): renderer cap + bridge port — 3 consecutive walk</td><td><code>staging-85</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
 <tr><td><a href="https://github.com/amiller/dstack-webhost/pull/127">#127</a></td><td>runsc: enable broker host Unix sockets</td><td><code>staging-6</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
-<div class="sub "><span class="last-run" title="2026-09-05 12:33 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><p class="none">No ready or operator-ask issues — the queue is empty.</p></div>
+<div class="sub "><span class="last-run" title="2026-09-06 00:34 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><p class="none">No ready or operator-ask issues — the queue is empty.</p></div>
 </section>
 </div>
 </section>
