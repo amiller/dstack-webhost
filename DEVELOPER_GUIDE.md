@@ -99,10 +99,12 @@ curl -X POST $CVM/_api/projects \
 
 | Field | Purpose |
 |---|---|
-| `image` | OCI reference. Pin by digest for attestable deploys. |
+| `image` | OCI reference. Pin by digest for attestable deploys. Public registries pull anonymously; for a **private** image, give the daemon registry creds (below) — no need to flip the package to public. |
 | `image_port` | Port the container listens on internally; ingress proxies path-based at `/<name>/`. |
 | `volumes` | Optional `[{name, mount}]`. Named volumes are referenced by name and adopted idempotently — pre-existing data survives. |
 | `env_passthrough` | Optional list of env-var names; the daemon forwards values from its own environment, keeping secrets out of `project.json`. |
+
+**Private registry pulls.** Set registry creds in the daemon's own environment and it sends them as `X-Registry-Auth` on pulls — a private image works without ever making the package public. Either `GHCR_USERNAME` + `GHCR_TOKEN` (a token with `read:packages`) for `ghcr.io`, or the general `REGISTRY_AUTHS` = a JSON map of `{"<registry-host>": {"username": "...", "password": "..."}}`. Creds live in the sealed CVM env, never in `project.json`. Public pulls are unchanged.
 
 The container runs under the daemon's configured OCI runtime (see `/_api/substrate`). On a CVM with `DAEMON_CONTAINER_RUNTIME=sysbox-runc`, all image-runtime tenants get user-namespace remap and virtualised `/proc` for free. The container is placed on a per-project Docker network — sibling tenants are not reachable by IP or hostname; only the daemon proxies traffic in and out. See the [isolation probe](isolation-probe.md) for a worked example.
 
