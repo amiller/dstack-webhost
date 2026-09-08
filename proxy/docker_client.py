@@ -1,10 +1,40 @@
 """Thin async Docker Engine client over Unix socket."""
 
+import base64
+import json
 import logging
+import os
 
 import aiohttp
 
 log = logging.getLogger(__name__)
+
+
+def _registry_host(image: str) -> str:
+    first = image.split("/", 1)[0]
+    return first if ("." in first or ":" in first) else "docker.io"
+
+
+def _registry_auth(image: str) -> str | None:
+    """X-Registry-Auth header value (base64 JSON) for a private pull, from daemon env.
+
+    Two sources, in order: REGISTRY_AUTHS (JSON map host -> {username, password}), then the
+    GHCR_USERNAME/GHCR_TOKEN convenience pair for ghcr.io. Returns None if no creds match the
+    image's registry, so public pulls are unchanged."""
+    host = _registry_host(image)
+    creds = None
+    raw = os.environ.get("REGISTRY_AUTHS")
+    if raw:
+        try:
+            creds = json.loads(raw).get(host)
+        except (ValueError, AttributeError):
+            log.warning("REGISTRY_AUTHS is not valid JSON; ignoring")
+    if not creds and host == "ghcr.io" and os.environ.get("GHCR_USERNAME") and os.environ.get("GHCR_TOKEN"):
+        creds = {"username": os.environ["GHCR_USERNAME"], "password": os.environ["GHCR_TOKEN"]}
+    if not creds:
+        return None
+    auth = {"username": creds["username"], "password": creds["password"], "serveraddress": host}
+    return base64.b64encode(json.dumps(auth).encode()).decode()
 
 # Docker's embedded resolver (127.0.0.11, forced on user-defined bridge
 # networks) is dead under gVisor: the Sentry netstack never applies the host
@@ -121,8 +151,18 @@ class DockerClient:
     PULL_TIMEOUT = 120
 
     async def pull(self, image: str):
+        # Digest refs (repo@sha256:...) must be split into fromImage + tag for the engine.
+        if "@" in image:
+            repo, _, digest = image.partition("@")
+            query = f"fromImage={repo}&tag={digest}"
+        else:
+            query = f"fromImage={image}"
+        headers = {}
+        auth = _registry_auth(image)  # private registry (e.g. ghcr) creds from daemon env, if any
+        if auth:
+            headers["X-Registry-Auth"] = auth
         status, body = await self._raw_request(
-            "POST", f"/images/create?fromImage={image}", timeout=self.PULL_TIMEOUT)
+            "POST", f"/images/create?{query}", timeout=self.PULL_TIMEOUT, headers=headers)
         if status >= 400:
             # Registry unreachable / rate-limited is fine if the image is already
             # cached locally — use the cached image rather than blocking the deploy.
