@@ -77,3 +77,9 @@ given a properly-scoped jar, so 0018 is the gating dependency.
   hides it but costs memory. Autoscale on queue depth?
 - **Egress binding** — each lease's egress should be locked to the target domain (the jar's cookie
   domains), consistent with RFC 0003's egress-lock default.
+
+## Cutover (issue #77)
+The bespoke twitter-debug Brave retires — and the browserFeed/browserScreenshot flag flips — only
+when the parity board (`browser_parity.py` → published `parity/index.html`) is all-green on every
+capability row, including isolation. Parity is the gate, not a date: NOT-YET rows name their exact
+missing dependency and red rows are the remaining work.

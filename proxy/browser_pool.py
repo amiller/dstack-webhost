@@ -207,11 +207,25 @@ class BrowserPool:
         self._free.put_nowait(lease.slot)
 
     async def render(self, domain: str, jar: str, url: str,
-                     timeout: float = DEFAULT_ACQUIRE_TIMEOUT) -> dict:
-        """One-shot lease → drive → release. The common browser-path read."""
+                     timeout: float = DEFAULT_ACQUIRE_TIMEOUT,
+                     op: dict | None = None) -> dict:
+        """One-shot lease → drive → release. The common browser-path read.
+        `op` merges into the drive payload alongside `url`, so a caller can ask
+        the bridge for more than a plain render (a driven task, a capture).
+        The bridge's response is returned with the lease result attached
+        ("lease": id/slot/domain/render_ms) so callers record what actually
+        served them, not just that a render happened."""
         lease = await self.acquire(domain, jar, timeout)
+        started = time.monotonic()
         try:
-            return await self.drive(lease, {"url": url})
+            payload = {"url": url}
+            if op:
+                payload.update(op)
+            result = await self.drive(lease, payload)
+            result["lease"] = {"id": lease.id, "slot": lease.slot,
+                               "domain": lease.domain,
+                               "render_ms": round((time.monotonic() - started) * 1000)}
+            return result
         finally:
             await self.release(lease)
 

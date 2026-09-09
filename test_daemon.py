@@ -15,6 +15,7 @@ import requests
 from playwright.sync_api import sync_playwright
 
 from proxy.docker_client import GVISOR_DNS
+from proxy.runtimes import IMAGE_APP_RESTART_POLICY
 from proxy.ingress import _derive_stats
 
 DAEMON_PORT = 18080
@@ -29,9 +30,15 @@ tmpdir = None
 # RFC 0028 fake browser-bridge: a Deno stdlib HTTP server implementing the
 # pool's contract (/health, /session, /render, /reset). /render sleeps so
 # concurrency is observable and reports max_active so the test can prove the
-# pool serializes leases. State is in-memory; /reset clears it.
+# pool serializes (1 slot) or overlaps (2 slots) leases. State is in-memory;
+# /reset clears it. The parity board (#77) also drives ops through /render:
+#   op:"post"   -> lands a (dry-run) post on the injected jar's account
+#   op:"drive"  -> executes a scripted task, reports steps_done
+#   url /timeline -> returns the account's posts as entries
+# Posts are keyed by jar, not domain: a different account must never read them.
 FAKE_BROWSER_BRIDGE = r"""
-const sessions = new Map();
+const domainCookies = new Map();
+const posts = new Map();
 let active = 0, maxActive = 0;
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj),
@@ -43,18 +50,33 @@ Deno.serve({port: 3000}, async (req) => {
   if (req.method === "POST") {
     let body = {};
     try { body = await req.json(); } catch (_) {}
+    const domain = String(body.domain || "");
     if (u.pathname === "/session") {
-      sessions.set(String(body.domain || ""), String(body.cookies ?? ""));
+      domainCookies.set(domain, String(body.cookies ?? ""));
       return json({ok: true});
     }
     if (u.pathname === "/render") {
       active++; if (active > maxActive) maxActive = active;
       await new Promise((r) => setTimeout(r, 400));
-      const v = sessions.get(String(body.domain || "")) ?? "";
+      const jar = domainCookies.get(domain) ?? "";
+      const out = {body: jar, max_active: maxActive};
+      if (body.op === "post") {
+        const mine = posts.get(jar) || [];
+        mine.push(String(body.text ?? ""));
+        posts.set(jar, mine);
+        out.end_state = {posted: body.text, dry_run: !!body.dry_run};
+        out.entries = mine.map((t) => ({text: t}));
+      }
+      if (body.op === "drive") {
+        out.end_state = {steps_done: (body.steps || []).length};
+      }
+      if (String(body.url || "") === "/timeline") {
+        out.entries = (posts.get(jar) || []).map((t) => ({text: t}));
+      }
       active--;
-      return json({body: v, max_active: maxActive});
+      return json(out);
     }
-    if (u.pathname === "/reset") { sessions.clear(); return json({ok: true}); }
+    if (u.pathname === "/reset") { domainCookies.clear(); posts.clear(); return json({ok: true}); }
   }
   return json({error: "not found"}, 404);
 });
@@ -101,7 +123,7 @@ def push_update(name: str, files: dict[str, bytes]):
     subprocess.run(["git", "-C", work_dir, "push"], capture_output=True, check=True)
 
 
-def start_daemon(reuse_tmpdir: bool = False):
+def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
     global daemon_proc, tmpdir
     if not reuse_tmpdir:
         tmpdir = tempfile.mkdtemp(prefix="tee-daemon-test-")
@@ -132,7 +154,7 @@ def start_daemon(reuse_tmpdir: bool = False):
         "BROWSER_POOL_IMAGE": "denoland/deno:latest",
         "BROWSER_POOL_CMD": "deno run --allow-net /app/server.ts",
         "BROWSER_POOL_BINDS": f"{fake_dir}:/app:ro",
-        "BROWSER_POOL_SIZE": "1",
+        "BROWSER_POOL_SIZE": str(browser_pool_size),
         "BROWSER_POOL_PORT": "3000",
         "BROWSER_POOL_LEASE_TTL": "5",
     })
@@ -781,6 +803,41 @@ export default (_req: Request, ctx: {env: Record<string,string>}) => {
     assert r.json() == {"foo": "isolated-deno-passthrough"}, r.text
     print("  Handler saw FOO from daemon env via ctx.env ✓")
     api_delete("/projects/test-iso-passthru")
+
+
+def test_isolated_restart_policy():
+    print("\n--- Test: isolated container restart policy (issue #131) ---")
+    repo = create_test_repo("iso-restart", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container",
+                                    "listen": {"port": 8080, "protocol": "http"}}).encode(),
+        # Top-level throw: the entry shim's import rejects, deno exits 1 —
+        # without a restart policy this container stays Exited forever.
+        "server.ts": b'throw new Error("crash on load");\n',
+    })
+    resp = api_post("/projects", json={"name": "iso-restart", "source": repo})
+    assert resp.status_code == 201, f"Deploy failed: {resp.text}"
+
+    cname = "tee-isolated-iso-restart-dev"
+    policy = json.loads(subprocess.run(
+        ["docker", "inspect", cname, "--format", "{{json .HostConfig.RestartPolicy}}"],
+        capture_output=True, text=True, check=True).stdout)
+    assert policy == IMAGE_APP_RESTART_POLICY, \
+        f"isolated container policy {policy} != image apps' {IMAGE_APP_RESTART_POLICY}"
+    print(f"  RestartPolicy={policy} (same as image apps) ✓")
+
+    # docker's on-failure backoff retries within seconds; a permanently
+    # broken app stops after MaximumRetryCount, which is the intended bound.
+    restarts = 0
+    for _ in range(40):
+        restarts = int(subprocess.run(
+            ["docker", "inspect", cname, "--format", "{{.RestartCount}}"],
+            capture_output=True, text=True, check=True).stdout)
+        if restarts > 0:
+            break
+        time.sleep(0.5)
+    assert restarts > 0, "docker never restarted the crashed isolated container"
+    print(f"  docker retried the crashed app: RestartCount={restarts} ✓")
+    api_delete("/projects/iso-restart")
 
 
 def test_dns_probe():
@@ -1889,6 +1946,28 @@ def test_teardown():
     print("  All projects removed ✓")
 
 
+def test_browser_parity():
+    """Issue #77: run the browser-parity board (bespoke twitter-debug vs the
+    RFC 0028 pool) against this daemon. FAIL rows abort the suite; NOT-YET rows
+    (missing live jar / broker / bespoke engine) are recorded states, not
+    failures — never green by default."""
+    import browser_parity
+    print("\n--- Test: issue #77 browser parity board (2-slot pool) ---")
+    out_dir = os.path.join(tmpdir, "parity")
+    board = browser_parity.run_parity(INGRESS, TEST_TOKEN, out_dir=out_dir)
+    for f in ("board.json", "index.html"):
+        path = os.path.join(out_dir, f)
+        assert os.path.getsize(path) > 0, f"{f} not written"
+    n_green = sum(1 for r in board["rows"] if r["green"])
+    assert len(board["rows"]) == 8, "one board row per capability"
+    iso = next(r for r in board["rows"] if r["capability"].startswith("isolation"))
+    own = next(c for c in iso["pool"]["checks"]
+               if c["name"] == "each read contains only its own account")
+    assert own["status"] == "PASS", iso
+    assert any(c["status"] == "CANNOT" for c in iso["bespoke"]["checks"]), iso
+    print(f"  parity board: {n_green}/8 rows green, board written to {out_dir} \u2713")
+
+
 def main():
     cleanup_containers()
     start_daemon()
@@ -1917,6 +1996,7 @@ def main():
         test_isolated_per_project_data_volume()
         test_env_passthrough()
         test_isolated_deno_env_passthrough()
+        test_isolated_restart_policy()
         test_dns_probe()
         test_image_redeploy()
         test_substrate_endpoint()
@@ -1944,6 +2024,11 @@ def main():
         test_rfc0017_bootstrap()
         test_provisioner_flow()
         test_teardown()
+        # Issue #77 parity board runs on its own daemon with a 2-slot pool so the
+        # isolation row holds two genuinely concurrent leases.
+        stop_daemon()
+        start_daemon(browser_pool_size=2)
+        test_browser_parity()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:
         raise

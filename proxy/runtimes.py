@@ -663,6 +663,7 @@ class RuntimeManager:
         cid = await self.docker.create_container(
             cname, image, cmd, binds, labels, network,
             runtime=(project.oci_runtime or CONTAINER_RUNTIME),
+            restart_policy=IMAGE_APP_RESTART_POLICY,
             cap_add=caps, devices=devs)
         await self.docker.start(cid)
         await self._attach_egress(cid, project)
@@ -834,6 +835,21 @@ class RuntimeManager:
 
         return result
 
+    async def get_container_id(self, project) -> str | None:
+        """Resolve a project's live container id for logs/inspect. Prefers the
+        in-memory map (populated on deploy/recover); falls back to resolving by
+        the deterministic container name so it still works right after a daemon
+        restart before recover_all has run."""
+        cid = self.image_cids.get(project.name)
+        if cid:
+            return cid
+        if project.runtime == "image" or project.isolation == "container":
+            prefix = "tee-image" if project.runtime == "image" else "tee-isolated"
+            return await self.docker.container_exists(f"{prefix}-{project.name}-{project.mode}")
+        if project.runtime in ("dockerfile",):
+            return project.container_id or None
+        return None
+
     def get_project_container(self, project) -> tuple[str, bool] | None:
         """Container serving this project: (cid, shared). shared=True means the
         container also serves co-tenants (shared runtime — one process), so its
@@ -850,21 +866,6 @@ class RuntimeManager:
         mode = project.mode if project.mode in ("dev", "attested") else "dev"
         cid = self.runtime_cids.get((config_key, mode))
         return (cid, True) if cid else None
-
-    async def get_container_id(self, project) -> str | None:
-        """Resolve a project's live container id for logs/inspect. Prefers the
-        in-memory map (populated on deploy/recover); falls back to resolving by
-        the deterministic container name so it still works right after a daemon
-        restart before recover_all has run."""
-        cid = self.image_cids.get(project.name)
-        if cid:
-            return cid
-        if project.runtime == "image" or project.isolation == "container":
-            prefix = "tee-image" if project.runtime == "image" else "tee-isolated"
-            return await self.docker.container_exists(f"{prefix}-{project.name}-{project.mode}")
-        if project.runtime in ("dockerfile",):
-            return project.container_id or None
-        return None
 
     async def recover_all(self):
         await self._bootstrap_from_import_bundle()
