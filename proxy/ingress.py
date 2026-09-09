@@ -88,8 +88,12 @@ def _derive_stats(raw: dict) -> dict:
         out["net_rx"] = out["net_tx"] = None
     blk = (raw.get("blkio_stats") or {}).get("io_service_bytes_recursive")
     if blk:
-        out["blk_read"] = sum(e["value"] for e in blk if e.get("op") == "Read")
-        out["blk_write"] = sum(e["value"] for e in blk if e.get("op") == "Write")
+        # op casing is cgroup-version dependent: "Read"/"Write" on v1, lowercase
+        # on v2 (moby#45739); ops that match neither are unreported, not zero
+        reads = [e["value"] for e in blk if e.get("op", "").lower() == "read"]
+        writes = [e["value"] for e in blk if e.get("op", "").lower() == "write"]
+        out["blk_read"] = sum(reads) if reads else None
+        out["blk_write"] = sum(writes) if writes else None
     else:
         out["blk_read"] = out["blk_write"] = None
     out["pids"] = (raw.get("pids_stats") or {}).get("current")
@@ -983,15 +987,21 @@ class Ingress:
         row["container_id"] = cid
         if shared:
             row["shared"] = True  # stats cover co-tenants too
-        info = await self.docker.inspect(cid)
-        if not info.get("State", {}).get("Running"):
-            return row
-        row["running"] = True
-        row["oci_runtime"] = info.get("HostConfig", {}).get("Runtime") or "runc"
-        started = info.get("State", {}).get("StartedAt")
-        if started:
-            row["uptime_s"] = round(_uptime_s(started), 1)
-        row.update(_derive_stats(await self.docker.stats(cid)))
+        try:
+            info = await self.docker.inspect(cid)
+            if not info.get("State", {}).get("Running"):
+                return row
+            row["running"] = True
+            row["oci_runtime"] = info.get("HostConfig", {}).get("Runtime") or "runc"
+            started = info.get("State", {}).get("StartedAt")
+            if started:
+                row["uptime_s"] = round(_uptime_s(started), 1)
+            row.update(_derive_stats(await self.docker.stats(cid)))
+        except RuntimeError as e:
+            # A container removed between resolve and read is "not running"
+            # (#120 criterion 3), not a fleet-wide 500; other errors raise.
+            if "(404)" not in str(e):
+                raise
         return row
 
     async def _api_project_stats(self, name: str) -> web.Response:

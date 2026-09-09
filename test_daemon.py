@@ -15,6 +15,7 @@ import requests
 from playwright.sync_api import sync_playwright
 
 from proxy.docker_client import GVISOR_DNS
+from proxy.ingress import _derive_stats
 
 DAEMON_PORT = 18080
 TEST_TOKEN = "test-secret-token-12345"
@@ -674,11 +675,23 @@ def test_stats_endpoints():
     assert row["pids"] and row["pids"] >= 1, row
     assert row["uptime_s"] >= 0, row
     assert row["net_rx"] is not None and row["net_tx"] is not None, row
-    # Docker reports blkio ops capitalized ("Read"/"Write"); a zero here means
-    # the op-name match broke again, not that the container read nothing
+    # blkio counters must be real: this engine reports some; a zero would mean
+    # the op-name match broke, not that the container read nothing
     assert row["blk_read"] > 0, row
     assert row["blk_write"] is not None, row
     assert "shared" not in row, row
+    # op casing is cgroup-version dependent (v1 "Read"/"Write", v2 lowercase —
+    # moby#45739) and this host may be either, so exercise both shapes directly
+    v1 = _derive_stats({"blkio_stats": {"io_service_bytes_recursive": [
+        {"op": "Read", "value": 7}, {"op": "Write", "value": 3}]}})
+    v2 = _derive_stats({"blkio_stats": {"io_service_bytes_recursive": [
+        {"op": "read", "value": 7}, {"op": "write", "value": 3}]}})
+    assert v1["blk_read"] == v2["blk_read"] == 7, (v1, v2)
+    assert v1["blk_write"] == v2["blk_write"] == 3, (v1, v2)
+    # ops that match neither casing are unreported (None), never an invented 0
+    odd = _derive_stats({"blkio_stats": {"io_service_bytes_recursive": [
+        {"op": "Total", "value": 10}]}})
+    assert odd["blk_read"] is None and odd["blk_write"] is None, odd
     # shared-runtime tenant: served by a container it shares with co-tenants
     srow = fleet["test-deno"]
     assert srow["running"] is True and srow.get("shared") is True, srow
