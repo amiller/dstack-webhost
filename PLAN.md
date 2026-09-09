@@ -117,3 +117,32 @@ PLAN — checkboxes derived from the issue's `## Acceptance`.
       start path exists, so `probe-121` never left "runtime not running"; the walk serves the
       branch's probe.py + index.html verbatim behind a handle() adapter);
       ghcr probe-image rebuild for hermes-staging remains the named operator step.
+
+---
+
+# Issue #119 plan — a project is one container; multi-service workloads fold into one image
+
+PLAN — checkboxes derived from the issue's `## Acceptance`. Tier 0: documentation only, no
+behavior change — no code touched.
+
+- [x] DEVELOPER_GUIDE.md, new "Multi-process workloads" subsection under Image runtime:
+      states plainly that a project is one container (no sidecar/compose/second-container
+      manifest field exists), and prescribes the supported path — fold processes under one
+      supervisor inside the image, one listening port for `image_port`.
+- [x] Written against Port Call's rig (postgres + transcription shim + TTS shim + vexa-lite):
+      says all four fold (vexa-lite is already a supervisor monolith; the manifest has no
+      `command:` override, so the supervisor must be the image's ENTRYPOINT) and names what
+      does NOT fold — separate lifecycles, separate resource envelopes, CVM-level isolation —
+      with the dedicated-CVM-under-compose path as the escape hatch.
+- [x] Durable data → named `volumes` (adopted idempotently, survive recreate AND redeploy;
+      port-call#26 recordings-in-/tmp as the failure case); crash handling (`on-failure`, 5
+      retries, supervisor restarts children without container replacement); no per-container
+      memory/CPU limits exists.
+- [x] VPN routing documented accurately per repo line: `egress`/`egress_provider` landed on
+      `main` (d7fe947b) — verified live on the prod7 daemon (`/_api/version` = fd0113fd,
+      which contains egress) — but NOT on `staging`, where `deploy_from_image` silently
+      ignores the flag; the guide says to check `/_api/version` before relying on it, and
+      documents the every-build alternative (attested `cap_add: ["NET_ADMIN"]` +
+      `devices: ["/dev/net/tun"]`, RFC 0025). Deliberate deviation from the issue's
+      "egress: true where VPN routing is needed": documented as deployed-real (main line)
+      rather than unconditionally, because this branch's code would silently no-op it.
