@@ -88,8 +88,8 @@ def _derive_stats(raw: dict) -> dict:
         out["net_rx"] = out["net_tx"] = None
     blk = (raw.get("blkio_stats") or {}).get("io_service_bytes_recursive")
     if blk:
-        out["blk_read"] = sum(e["value"] for e in blk if e.get("op") == "read")
-        out["blk_write"] = sum(e["value"] for e in blk if e.get("op") == "write")
+        out["blk_read"] = sum(e["value"] for e in blk if e.get("op") == "Read")
+        out["blk_write"] = sum(e["value"] for e in blk if e.get("op") == "Write")
     else:
         out["blk_read"] = out["blk_write"] = None
     out["pids"] = (raw.get("pids_stats") or {}).get("current")

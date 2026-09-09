@@ -674,6 +674,10 @@ def test_stats_endpoints():
     assert row["pids"] and row["pids"] >= 1, row
     assert row["uptime_s"] >= 0, row
     assert row["net_rx"] is not None and row["net_tx"] is not None, row
+    # Docker reports blkio ops capitalized ("Read"/"Write"); a zero here means
+    # the op-name match broke again, not that the container read nothing
+    assert row["blk_read"] > 0, row
+    assert row["blk_write"] is not None, row
     assert "shared" not in row, row
     # shared-runtime tenant: served by a container it shares with co-tenants
     srow = fleet["test-deno"]
