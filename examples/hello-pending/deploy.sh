@@ -4,7 +4,7 @@
 set -euo pipefail
 BASE=${BASE:-https://pod.dstack.soc1024.com}
 NAME=${NAME:-hello-pending}
-PROV=~/.config/dstack-webhost/provisioner
+PROV=${PROV:-~/.config/dstack-webhost/provisioner}
 HERE=$(cd "$(dirname "$0")" && pwd)
 TOKFILE=$HERE/.webhost-token
 
