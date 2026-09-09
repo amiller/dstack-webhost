@@ -25,6 +25,7 @@ AUTH = {"Authorization": f"Bearer {TEST_TOKEN}"}
 
 daemon_proc = None
 tmpdir = None
+NOTIFY_HOOK = None
 
 # RFC 0028 fake browser-bridge: a Deno stdlib HTTP server implementing the
 # pool's contract (/health, /session, /render, /reset). /render sleeps so
@@ -101,8 +102,43 @@ def push_update(name: str, files: dict[str, bytes]):
     subprocess.run(["git", "-C", work_dir, "push"], capture_output=True, check=True)
 
 
+class HookRecorder:
+    """Captures DAEMON_NOTIFY_HOOK deliveries so tests can assert the RFC 0034
+    envelope the daemon actually emits (fire-and-forget; deliveries land async)."""
+
+    def __init__(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        self.bodies = []
+        rec = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                rec.bodies.append(json.loads(body))
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
+
+    def wait_for(self, pred, timeout=10):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            for b in self.bodies:
+                if pred(b):
+                    return b
+            time.sleep(0.2)
+        return None
+
+
 def start_daemon(reuse_tmpdir: bool = False):
-    global daemon_proc, tmpdir
+    global daemon_proc, tmpdir, NOTIFY_HOOK
+    NOTIFY_HOOK = HookRecorder()
     if not reuse_tmpdir:
         tmpdir = tempfile.mkdtemp(prefix="tee-daemon-test-")
     env = {
@@ -118,6 +154,7 @@ def start_daemon(reuse_tmpdir: bool = False):
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
         "DAEMON_PENDING_TTL": "8",
         "DAEMON_SWEEP_INTERVAL": "1",
+        "DAEMON_NOTIFY_HOOK": NOTIFY_HOOK.url,
         "FOO": "isolated-deno-passthrough",
     }
     # RFC 0028: enable a 1-slot browser pool driven by a fake browser-bridge
@@ -1856,9 +1893,87 @@ def test_provisioner_flow():
     print("  approved, unfrozen, promotable; audit has create/freeze/approve ✓")
 
 
+MATRIX_STUB = r"""
+// RFC 0034 test double for a Matrix homeserver room-send endpoint: records every
+// POSTed message in memory; GET /messages returns them.
+const messages: { body: string }[] = [];
+export default async function handler(req: Request) {
+  if (req.method === "GET" && new URL(req.url).pathname === "/messages") {
+    return Response.json({ messages });
+  }
+  if (req.method === "POST" || req.method === "PUT") {
+    const e: any = await req.json();
+    messages.push({ body: e.body ?? "" });
+    return Response.json({ event_id: `$stub${messages.length}` });
+  }
+  return new Response("not found", { status: 404 });
+}
+"""
+
+
+def test_notify_receiver():
+    """RFC 0034 notify path: the daemon emits the envelope, the receiver turns it
+    into exactly one Matrix message (examples/notify-receiver/)."""
+    print("\n--- Test: DAEMON_NOTIFY_HOOK envelope + Matrix receiver ---")
+
+    # Daemon-side contract: the provisioner flow emitted create/approve/freeze envelopes.
+    create_env = NOTIFY_HOOK.wait_for(lambda b: b.get("event") == "create" and b["project"] == "hello-pending")
+    assert create_env, NOTIFY_HOOK.bodies
+    assert create_env["created_by"].startswith("tok-") and isinstance(create_env["deadline"], float), create_env
+    assert NOTIFY_HOOK.wait_for(lambda b: b.get("event") == "freeze" and b["project"] == "hello-pending")
+    assert NOTIFY_HOOK.wait_for(lambda b: b.get("event") == "approve" and b["project"] == "hello-pending")
+    print(f"  hook got create/freeze/approve for hello-pending ({len(NOTIFY_HOOK.bodies)} envelopes) ✓")
+
+    # The receiver, deployed as a project, posting to an in-daemon Matrix stub.
+    matrix_stub = make_tarball({"server.ts": MATRIX_STUB.encode()})
+    resp = api_post("/projects", files={
+        "manifest": (None, json.dumps({"name": "matrix-stub", "runtime": "deno"}), "application/json"),
+        "files": ("app.tar.gz", matrix_stub, "application/gzip")})
+    assert resp.status_code == 201, resp.text
+
+    def deploy_receiver(env):
+        src = open(os.path.join(os.path.dirname(__file__), "examples", "notify-receiver", "server.ts"), "rb").read()
+        tarball = make_tarball({"server.ts": src})
+        return api_post("/projects", files={
+            "manifest": (None, json.dumps({"name": "notify-receiver", "runtime": "deno", "env": env}), "application/json"),
+            "files": ("app.tar.gz", tarball, "application/gzip")})
+
+    resp = deploy_receiver({"MATRIX_URL": "http://localhost:3000/matrix-stub/send"})
+    assert resp.status_code == 201, resp.text
+    time.sleep(4)
+
+    def messages():
+        return requests.get(f"{INGRESS}/matrix-stub/messages").json()["messages"]
+
+    envelope = {"event": "create", "project": "hooked-proj", "status": "pending",
+                "deadline": time.time() + 3600, "created_by": "tok-abc123"}
+    r = requests.post(f"{INGRESS}/notify-receiver/", json=envelope)
+    assert r.status_code == 200, r.text
+    r.raise_for_status()
+    deadline = envelope["deadline"]
+    want = (f"project hooked-proj created by tok-abc123, "
+            f"pending until {time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(deadline))}; "
+            f"approve: POST /_api/projects/hooked-proj/approve")
+    msgs = messages()
+    assert msgs == [{"body": want}], msgs
+    print(f"  receiver → exactly one Matrix message: {want!r} ✓")
+
+    assert requests.post(f"{INGRESS}/notify-receiver/", json=envelope).status_code == 409, "duplicate not rejected"
+    assert requests.post(f"{INGRESS}/notify-receiver/", data="not json").status_code == 400
+    assert requests.post(f"{INGRESS}/notify-receiver/", json={"event": "boom", "project": "x"}).status_code == 400
+    assert requests.post(f"{INGRESS}/notify-receiver/", json={"event": "create", "project": "x"}).status_code == 400
+    print("  duplicate → 409, malformed/incomplete envelope → 400 ✓")
+
+    r = requests.post(f"{INGRESS}/notify-receiver/", json={"event": "approve", "project": "hooked-proj"})
+    assert r.status_code == 200 and messages()[-1]["body"] == "project hooked-proj approved", r.text
+    r = requests.post(f"{INGRESS}/notify-receiver/", json={"event": "freeze", "project": "hooked-proj"})
+    assert r.status_code == 200 and messages()[-1]["body"] == "project hooked-proj frozen (pending expired)", r.text
+    print("  approve/freeze messages ✓")
+
+
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-keepenv", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp", "hello-pending", "hello-pending-2"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-keepenv", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp", "hello-pending", "hello-pending-2", "matrix-stub", "notify-receiver"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -1921,6 +2036,7 @@ def main():
         test_rfc0017_export_import()
         test_rfc0017_bootstrap()
         test_provisioner_flow()
+        test_notify_receiver()
         test_teardown()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:

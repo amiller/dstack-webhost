@@ -159,6 +159,30 @@ A create token can hold at most `max_pending` unapproved projects (default 5); t
 create returns 429. Set `DAEMON_NOTIFY_HOOK` (an executable, or an `http…` URL) on the
 daemon to receive a JSON envelope on `create`, `approve`, and `freeze`.
 
+### The notify envelope, and where to point the hook
+
+The daemon POSTs one JSON envelope per event, fire-and-forget with a ten-second
+timeout (a hook failure is logged and never blocks the request):
+
+```json
+{"event": "create", "project": "hello-pending", "status": "pending",
+ "deadline": 1789632000.0, "created_by": "tok-3f…"}
+```
+
+`approve` and `freeze` carry the same envelope with the event renamed (`status`
+reflects the change). Point the hook at a deployed receiver to get told, e.g.
+`DAEMON_NOTIFY_HOOK=https://<cvm>/notify-receiver/` — `examples/notify-receiver/`
+is one: it validates the envelope, rejects duplicates, and posts one message to a
+Matrix room given `MATRIX_URL` in its manifest env (the full room-send endpoint,
+credentials included; keep it in `env`, never in source — the API redacts `env`):
+
+```bash
+tar czf app.tgz -C examples/notify-receiver .
+curl -X POST $CVM/_api/projects -H "Authorization: Bearer $TOKEN" \
+  -F 'manifest={"name":"notify-receiver","runtime":"deno","env":{"MATRIX_URL":"https://matrix.example/_matrix/client/v3/rooms/!room@example/…"}};type=application/json' \
+  -F "files=@app.tgz"
+```
+
 ## API surface
 
 Public (no auth required), only for **attested** projects:
