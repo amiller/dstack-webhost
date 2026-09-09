@@ -53,3 +53,20 @@ End-to-end tests: `test_daemon.py`.
 - **Never commit credentials.** No `deploy/` dir, no tokens, no `.env*`. This repo is public.
 - One branch per machine; never force-push or touch another machine's branch. Push only when
   explicitly asked. (See SETUP-ZED.md for the convention.)
+)
+
+## Definition of Done for delegated work (review = read a report, not a diff)
+
+A task is NOT reviewable until all of these exist. Do not ask a human to review without them:
+
+1. **Deployed to staging** (webhost-staging daemon, `POST /_api/projects`). If you cannot
+   deploy (no token — deploy tokens live only on the operator's laptop), say so explicitly
+   and hand off to the orchestrator for the deploy+report step; do not skip to "please review".
+2. **Acceptance suite green against the staging URL** — the RFC's numbered criteria run
+   remotely, with explicit SKIP-notices for anything unreachable over HTTP. Exit-code semantics.
+3. **A published report page** on staging (static app, single self-contained HTML) stating:
+   why merge (pass/fail table), what you get (one paragraph), live endpoint samples,
+   reviewer checklist + known deferred items. Example: `caps-accept-report` (RFC 0032).
+
+The human reviews the report and the merge into main/prod — never raw work-in-progress.
+Prod deploys always remain human-directed.

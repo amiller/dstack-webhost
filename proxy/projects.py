@@ -55,16 +55,18 @@ class Project:
     # for an in-container OpenVPN sidecar (CAP_NET_ADMIN + /dev/net/tun).
     cap_add: List[str] = field(default_factory=list)
     devices: List[str] = field(default_factory=list)
+    egress: bool = False           # route this project's outbound through the shared VPN egress network
+    egress_provider: bool = False  # this project PROVIDES the egress (the VPN); joins tee-egress as alias "egress-vpn"
     # RFC 0029: a declared, measured operator-debug door (full trust, audited). Honored
     # ONLY for mode=="attested" (see deploy gate), so the door is always on the verifiable
     # surface — its existence is part of the measurement, never a hidden side channel.
     operator_debug: bool = False
-    # RFC 0025 per-app attestation fields
-    app_id: str = ""  # TDX workload app_id (from TDX_WORKLOAD_ID env var or GetKey response)
-    app_pubkey: str = ""  # KMS-derived per-path compressed public key (hex)
-    binding_quote: str = ""  # TDX quote binding app_id/name/tree_hash/app_pubkey (hex)
-    report_data: str = ""  # SHA-512 of preimage (64 bytes, hex)
-    attestation_kind: str = ""  # "daemon-vouched" or "app-cvm"
+    approval: Optional[dict] = None  # RFC 0034: {status: pending|frozen, deadline, created_by}
+    # RFC 0027 per-app binding block, built at promote by deploy.build_app_binding: carries
+    # the quote, the report_data and the preimage that produced it. Supersedes the flat
+    # RFC 0025 fields (app_id/app_pubkey/binding_quote/report_data/attestation_kind), which
+    # were set at promote and never read back.
+    binding: dict = field(default_factory=dict)
 
     def export_dict(self) -> dict:
         """RFC 0017 pin projection — every EXPORT_FIELDS key, never env."""

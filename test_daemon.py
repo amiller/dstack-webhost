@@ -115,6 +115,8 @@ def start_daemon(reuse_tmpdir: bool = False):
         "DOCKER_SOCKET": "/var/run/docker.sock",
         "DSTACK_SOCKET": "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
+        "DAEMON_PENDING_TTL": "8",
+        "DAEMON_SWEEP_INTERVAL": "1",
         "FOO": "isolated-deno-passthrough",
     }
     # RFC 0028: enable a 1-slot browser pool driven by a fake browser-bridge
@@ -1101,11 +1103,15 @@ def test_audit_log():
     resp = api_get("/audit")
     entries = resp.json()
     deploy_entries = [e for e in entries if e["action"] == "deploy"]
+    git_deploys = 0
     for e in deploy_entries:
         detail = json.loads(e["detail"])
+        if "image_digest" in detail:  # image deploys have no git source
+            continue
         assert "commit" in detail
         assert "tree_hash" in detail
-    print(f"  {len(deploy_entries)} deploys, all have commit + tree_hash ✓")
+        git_deploys += 1
+    print(f"  {len(deploy_entries)} deploys ({git_deploys} git-sourced with commit + tree_hash) ✓")
 
 
 def test_list_projects():
@@ -1148,6 +1154,84 @@ def test_env_redaction():
     assert resp.status_code == 200, f"promote failed: {resp.text}"
     assert resp.json()["env"] == {"GITHUB_CLIENT_SECRET": "<redacted>"}, resp.json()["env"]
     print("  deploy/status/list/promote all redact env \u2713")
+
+    # The other half of the same rule: a redaction must never be STORED. Round-tripping the
+    # manifest we just fetched is exactly what a deploy script does, and before this guard it
+    # replaced the live secret with the string "<redacted>" (prod GitHub/Google login, 2026-08-24).
+    fetched = api_get("/projects/test-redact").json()
+    fetched["source"] = repo
+    resp = api_post("/projects", json=fetched)
+    assert resp.status_code == 400, f"round-tripping a redacted manifest must be refused: {resp.status_code} {resp.text}"
+    assert "GITHUB_CLIENT_SECRET" in resp.text and "<redacted>" in resp.text, resp.text
+    api_delete("/projects/test-redact")
+
+    # And the escape hatch that makes the refusal usable: omit env entirely and the stored values
+    # carry forward, so a caller can change oci_runtime (the gVisor migration) without re-supplying
+    # secrets it is not allowed to read. Proven by a handler that echoes its own env back.
+    repo2 = create_test_repo("test-keepenv", {
+        "project.json": json.dumps({"runtime": "deno"}).encode(),
+        "server.ts": b"""
+export default (_req: Request, ctx: {env: Record<string,string>}) => {
+  return new Response(JSON.stringify({secret: ctx.env.APP_SECRET || ""}),
+    {headers: {"content-type": "application/json"}});
+};
+""",
+    })
+    resp = api_post("/projects", json={
+        "name": "test-keepenv", "source": repo2, "env": {"APP_SECRET": "real-value-42"}})
+    assert resp.status_code == 201, f"deploy failed: {resp.text}"
+    for _ in range(20):
+        r = requests.get(f"{INGRESS}/test-keepenv/")
+        if r.status_code == 200:
+            break
+        time.sleep(0.5)
+    assert r.json() == {"secret": "real-value-42"}, r.text
+
+    resp = api_post("/projects", json={"name": "test-keepenv", "source": repo2, "oci_runtime": "runc"})
+    assert resp.status_code == 201, f"env-omitted redeploy failed: {resp.text}"
+    assert resp.json()["oci_runtime"] == "runc"
+    assert resp.json()["env"] == {"APP_SECRET": "<redacted>"}, resp.json()["env"]
+    for _ in range(20):
+        r = requests.get(f"{INGRESS}/test-keepenv/")
+        if r.status_code == 200 and r.json().get("secret"):
+            break
+        time.sleep(0.5)
+    assert r.json() == {"secret": "real-value-42"}, \
+        f"omitting env must PRESERVE the stored secret, got {r.text}"
+    api_delete("/projects/test-keepenv")
+    print("  a redacted env is refused; omitting env preserves the stored secrets \u2713")
+
+
+def test_project_network_reclaim():
+    """The subnet a torn-down project used must go back to Docker's pool.
+
+    Docker hands each bridge network a subnet from default-address-pools — about
+    thirty of them. One network per project that is never released means a daemon
+    eventually fails EVERY new tenant at create_network, with a 404 that names an
+    address pool and not the cause. webhost-staging hit exactly that on 2026-08-24
+    with 52 projects deployed."""
+    print("\n--- Test: a torn-down project gives its subnet back ---")
+    repo = create_test_repo("net-reclaim", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container",
+                                    "listen": {"port": 8080, "protocol": "http"}}).encode(),
+        "server.ts": b'export default () => new Response("ok");',
+    })
+    resp = api_post("/projects", json={"name": "net-reclaim", "source": repo})
+    assert resp.status_code == 201, f"deploy failed: {resp.text}"
+    nets = subprocess.run(["docker", "network", "ls", "--format", "{{.Name}}"],
+                          capture_output=True, text=True).stdout.split()
+    assert "tee-proj-net-reclaim-dev" in nets, "per-project network was never created"
+
+    api_delete("/projects/net-reclaim")
+    for _ in range(20):
+        nets = subprocess.run(["docker", "network", "ls", "--format", "{{.Name}}"],
+                              capture_output=True, text=True).stdout.split()
+        if "tee-proj-net-reclaim-dev" not in nets:
+            break
+        time.sleep(0.5)
+    assert "tee-proj-net-reclaim-dev" not in nets, \
+        "teardown left the project network (and its subnet) behind"
+    print("  network created on deploy, released on teardown \u2713")
 
 
 def test_root_listing_layers():
@@ -1687,7 +1771,16 @@ def test_rfc0017_bootstrap():
     with open(os.path.join(data_dir, "import-bundle.json"), "w") as f:
         json.dump(bundle, f)
     start_daemon(reuse_tmpdir=True)
-    restored = {p["name"]: p for p in api_get("/projects").json()}
+    # The ingress now binds BEFORE recovery finishes (one slow image pull must not hold the
+    # whole pod dark — oauth3-prod7, 2026-08-25), so the bundle import lands shortly after
+    # the daemon answers rather than before it. Poll for the fleet instead of assuming boot
+    # already did the work.
+    want = {p["name"] for p in bundle["projects"]}
+    for _ in range(120):
+        restored = {p["name"]: p for p in api_get("/projects").json()}
+        if want <= set(restored):
+            break
+        time.sleep(0.5)
     for p in bundle["projects"]:
         restorable = (p.get("runtime") == "image"
                       or p.get("source", "").startswith(("https://", "http://", "/")))
@@ -1705,9 +1798,72 @@ def test_rfc0017_bootstrap():
     print(f"  Bootstrap: {len(bundle['projects'])} projects restored at their pins \u2713")
 
 
+def test_provisioner_flow():
+    """RFC 0034: a create-scoped token provisions a pending project and gets a per-project token."""
+    print("\n--- Test: RFC 0034 provisioner token + pending approval ---")
+    resp = api_post("/tokens", json={"scope": "create", "ttl": 600, "max_pending": 2})
+    assert resp.status_code == 201, resp.text
+    prov = {"Authorization": f"Bearer {resp.json()['token']}"}
+    assert resp.json()["scope"] == "create" and resp.json()["max_pending"] == 2
+
+    assert requests.get(f"{API}/projects", headers=prov).status_code == 403
+    assert requests.post(f"{API}/projects/test-tarball/redeploy", headers=prov).status_code == 403
+
+    def create(name, body):
+        return requests.post(f"{API}/projects", headers=prov, files={
+            "manifest": (None, json.dumps({"name": name, "runtime": "static", "source": "tarball://local"}), "application/json"),
+            "files": ("app.tar.gz", make_tarball({"index.html": body}), "application/gzip")})
+    resp = create("hello-pending", b"v1")
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["approval"]["status"] == "pending" and body["approval"]["created_by"].startswith("tok-")
+    proj = {"Authorization": f"Bearer {body['token']}"}
+    assert requests.get(f"{API}/projects/hello-pending", headers=prov).status_code == 403
+    print(f"  created hello-pending, deadline in {body['approval']['deadline'] - time.time():.0f}s")
+
+    assert create("hello-pending", b"v1").status_code == 409
+    assert create("hello-pending-2", b"x").status_code == 201
+    assert create("hello-pending-3", b"x").status_code == 429
+    assert create("create", b"x").status_code == 400
+    print("  409 on existing name, 429 past max_pending, 400 on reserved name ✓")
+
+    assert requests.get(f"{API}/projects/hello-pending", headers=proj).status_code == 200
+    assert requests.post(f"{API}/projects/hello-pending/promote", headers=proj).status_code == 403
+    assert requests.post(f"{API}/projects/hello-pending/approve", headers=proj).status_code == 403
+    pending = api_get("/projects?pending=1").json()
+    assert {p["name"] for p in pending} == {"hello-pending", "hello-pending-2"}, pending
+    assert requests.get(f"{INGRESS}/hello-pending/").text == "v1"
+    print("  per-project token works, promote/approve refused while pending ✓")
+
+    # redeploy with a tarball keeps the approval state (no laundering)
+    resp = requests.post(f"{API}/projects/hello-pending/redeploy", headers=proj,
+                         files={"files": ("app.tar.gz", make_tarball({"index.html": b"v2"}), "application/gzip")})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["approval"]["status"] == "pending"
+    assert requests.get(f"{INGRESS}/hello-pending/").text == "v2"
+    print("  redeploy with tarball via per-project token ✓")
+
+    deadline = body["approval"]["deadline"]
+    time.sleep(max(0, deadline - time.time()) + 3)
+    r = requests.get(f"{INGRESS}/hello-pending/")
+    assert r.status_code == 503 and r.json()["error"] == "pending expired", r.text
+    assert api_get("/projects/hello-pending").json()["approval"]["status"] == "frozen"
+    print("  frozen after deadline ✓")
+
+    assert api_post("/projects/hello-pending/approve").status_code == 200
+    assert api_get("/projects/hello-pending").json()["approval"] is None
+    assert requests.get(f"{INGRESS}/hello-pending/").text == "v2"
+    assert api_post("/projects/hello-pending/approve").status_code == 400
+    assert requests.post(f"{API}/projects/hello-pending/promote", headers=proj).status_code == 200
+    audit = api_get("/projects/hello-pending/audit").json()
+    actions = [e["action"] for e in audit]
+    assert actions.count("create") == 1 and "freeze" in actions and "approve" in actions, actions
+    print("  approved, unfrozen, promotable; audit has create/freeze/approve ✓")
+
+
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-keepenv", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp", "hello-pending", "hello-pending-2"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -1756,6 +1912,7 @@ def main():
         test_audit_log()
         test_list_projects()
         test_env_redaction()
+        test_project_network_reclaim()
         test_root_listing_layers()
         test_landing_cards()
         test_landing_descriptions()
@@ -1768,6 +1925,7 @@ def main():
         test_browser_pool()
         test_rfc0017_export_import()
         test_rfc0017_bootstrap()
+        test_provisioner_flow()
         test_teardown()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:

@@ -20,7 +20,8 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
-from .deploy import deploy, teardown, promote, unpromote, import_bundle
+from .deploy import deploy, teardown, promote, unpromote, import_bundle, REDACTED, NAME_RE, RESERVED_NAMES
+from . import pending
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
@@ -56,7 +57,7 @@ def _redact_env(data: dict) -> dict:
     must never echo plaintext secrets back to the client or into logs; GET, status,
     deploy, redeploy, promote and aggregate all share this one rule."""
     if data.get("env"):
-        data["env"] = dict.fromkeys(data["env"], "<redacted>")
+        data["env"] = dict.fromkeys(data["env"], REDACTED)
     return data
 
 
@@ -103,6 +104,43 @@ def _uptime_s(started_at: str) -> float:
 
 DSTACK_SOCK = None  # set by main.py
 API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
+
+# Headers this proxy never forwards upstream.
+HOP_HEADERS = ("host", "transfer-encoding", "accept-encoding")
+
+# Headers that claim who the client is. A tenant reading one is trusting whoever set it.
+FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "x-forwarded-proto", "x-forwarded-host")
+
+# Peers whose forwarded headers we believe, by address. Empty means "believe nobody".
+#
+# WHY THIS IS A LIST AND NOT `request.remote`. RFC 0004 says to set X-Forwarded-For from the
+# peer address. That is wrong on this stack and would be worse than doing nothing. The custom
+# domain path puts dstack-ingress (haproxy) in front of this daemon in `mode tcp`: haproxy
+# terminates TLS and forwards a raw stream, so `request.remote` here is haproxy's container
+# IP -- the SAME value for every client on earth. Injecting that as X-Forwarded-For
+# manufactures a constant that looks like a client IP, passes a "the header is present" test,
+# and silently breaks any rate limiting built on it.
+#
+# A real client IP can only come from a proxy that saw the connection and said so. Until
+# haproxy runs `mode http` with `http-request set-header X-Real-IP %[src]`, no such proxy
+# exists here and the honest answer to "who is the client" is that this daemon does not know.
+# It forwards nothing rather than invent it.
+#
+# What this DOES fix now: the ingress passes a client's own X-Forwarded-For through verbatim
+# (verified against the live pod -- `-H "X-Forwarded-For: 1.2.3.4"` reached the tenant
+# unchanged), so a tenant reading it reads a value the caller picked. Stripped unless the peer
+# is named here.
+TRUSTED_PROXIES = frozenset(
+    p.strip() for p in os.environ.get("TRUSTED_PROXY_IPS", "").split(",") if p.strip()
+)
+
+
+def forward_headers(request: web.Request, extra_drop: tuple = ()) -> dict:
+    """Client headers to pass upstream, minus anything this peer may not assert."""
+    drop = HOP_HEADERS + extra_drop
+    if request.remote not in TRUSTED_PROXIES:
+        drop += FORWARDED_HEADERS
+    return {k: v for k, v in request.headers.items() if k.lower() not in drop}
 
 MIME_TYPES = {
     ".html": "text/html", ".css": "text/css", ".js": "application/javascript",
@@ -207,6 +245,8 @@ class Ingress:
             project = self.store.load(name)
         except FileNotFoundError:
             return web.json_response({"error": "not found"}, status=404)
+        if project.approval and project.approval["status"] == "frozen":
+            return web.json_response({"error": "pending expired"}, status=503)
 
         subpath = "/" + parts[1] if len(parts) > 1 else "/"
 
@@ -246,6 +286,8 @@ class Ingress:
             project = self.store.load(project_name)
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
+        if project.approval and project.approval["status"] == "frozen":
+            return web.json_response({"error": "pending expired"}, status=503)
 
         subpath = "/" + path if path else "/"
 
@@ -324,17 +366,24 @@ class Ingress:
     async def _proxy(self, request: web.Request, ip: str, port: int,
                      path: str) -> web.Response:
         body = await request.read()
-        headers = {k: v for k, v in request.headers.items()
-                   if k.lower() not in ("host", "transfer-encoding", "accept-encoding")}
+        headers = forward_headers(request)
         url = f"http://{ip}:{port}{path}"
         async with aiohttp.ClientSession() as session:
             async with session.request(request.method, url,
                                        data=body if body else None,
                                        headers=headers) as resp:
                 resp_body = await resp.read()
-                return web.Response(
+                # Forward the upstream's CORS headers — otherwise they're dropped here and
+                # browser extensions / verifiers can't call proxied app APIs. These are public
+                # app endpoints; default permissive when the app set nothing.
+                out = web.Response(
                     body=resp_body, status=resp.status,
                     content_type=resp.content_type)
+                out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
+                for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
+                    if resp.headers.get(h):
+                        out.headers[h] = resp.headers[h]
+                return out
 
     def update_port_map(self):
         """Update the port map based on current projects.
@@ -472,17 +521,24 @@ class Ingress:
 
         # Handle regular HTTP request - make request to backend URL
         body = await request.read()
-        headers = {k: v for k, v in request.headers.items()
-                   if k.lower() not in ("host", "transfer-encoding", "accept-encoding")}
+        headers = forward_headers(request)
         url = f"{tunnel.backend}{subpath}"
         async with aiohttp.ClientSession() as session:
             async with session.request(request.method, url,
                                        data=body if body else None,
                                        headers=headers) as resp:
                 resp_body = await resp.read()
-                return web.Response(
+                # Forward the upstream's CORS headers — otherwise they're dropped here and
+                # browser extensions / verifiers can't call proxied app APIs. These are public
+                # app endpoints; default permissive when the app set nothing.
+                out = web.Response(
                     body=resp_body, status=resp.status,
                     content_type=resp.content_type)
+                out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
+                for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
+                    if resp.headers.get(h):
+                        out.headers[h] = resp.headers[h]
+                return out
 
     async def _proxy_websocket(self, request: web.Request, backend_url: str, path: str) -> web.Response:
         """Proxy WebSocket connection to backend."""
@@ -490,8 +546,7 @@ class Ingress:
             import aiohttp
 
             # Extract WebSocket headers
-            ws_headers = {k: v for k, v in request.headers.items()
-                          if k.lower() not in ("host", "connection", "upgrade", "transfer-encoding")}
+            ws_headers = forward_headers(request, extra_drop=("connection", "upgrade"))
 
             # Construct full backend URL with path
             full_url = f"{backend_url}{path}"
@@ -564,8 +619,10 @@ class Ingress:
             return None
         if owner_only:
             return web.json_response({"error": "owner token required"}, status=403)
-        if not self.token_store.authenticate(token, api_path):
+        tok = self.token_store.authenticate(token, api_path)
+        if not tok:
             return web.json_response({"error": "invalid token or scope"}, status=403)
+        request["api_token"] = tok
         return None
 
     async def _substrate_info(self) -> dict:
@@ -653,7 +710,7 @@ class Ingress:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
-        owner_only = path == "tokens" or path.startswith("tokens/")
+        owner_only = path == "tokens" or path.startswith("tokens/") or path.endswith("/approve")
         denied = self._check_auth(request, path, owner_only=owner_only)
         if denied:
             return denied
@@ -705,7 +762,7 @@ class Ingress:
             return await self._api_all_audit()
 
         if path == "projects" and method == "GET":
-            return await self._api_list()
+            return await self._api_list(request)
 
         if path == "projects" and method == "POST":
             return await self._api_deploy(request)
@@ -719,9 +776,11 @@ class Ingress:
             if method == "DELETE" and not rest:
                 return await self._api_teardown(name)
             if method == "POST" and rest == "redeploy":
-                return await self._api_redeploy(name)
+                return await self._api_redeploy(name, request)
             if method == "POST" and rest == "promote":
                 return await self._api_promote(name)
+            if method == "POST" and rest == "approve":
+                return await self._api_approve(name)
             if method == "POST" and rest == "unpromote":
                 return await self._api_unpromote(name)
             if method == "GET" and rest == "audit":
@@ -730,6 +789,8 @@ class Ingress:
                 return await self._api_history(name)
             if method == "GET" and rest == "stats":
                 return await self._api_project_stats(name)
+            if method == "GET" and rest == "logs":
+                return await self._api_logs(name, request)
 
         if path.startswith("attest/"):
             name = path.split("/")[1]
@@ -759,8 +820,13 @@ class Ingress:
 
         return web.json_response({"error": "not found"}, status=404)
 
-    async def _api_list(self) -> web.Response:
+    async def _api_list(self, request: web.Request) -> web.Response:
+        tok = request.get("api_token")
+        if tok and tok.scope == "create":
+            return web.json_response({"error": "create token cannot list projects"}, status=403)
         projects = self.store.list()
+        if request.query.get("pending"):
+            projects = [p for p in projects if p.approval]
         return web.json_response([_redact_env(asdict(p)) for p in projects])
 
     async def _api_routes(self) -> web.Response:
@@ -816,14 +882,29 @@ class Ingress:
                     return web.json_response({"error": "missing 'manifest' field"}, status=400)
                 if files_data is None:
                     return web.json_response({"error": "missing 'files' field"}, status=400)
-                project = await deploy(
-                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
-                    manifest, files_data=files_data)
             else:
                 manifest = await request.json()
-                project = await deploy(
-                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
-            return web.json_response(_redact_env(asdict(project)), status=201)
+                files_data = None
+            tok = request.get("api_token")
+            provisioned = bool(tok and tok.scope == "create")
+            if provisioned:
+                denied = self._check_provision(tok, manifest.get("name", ""))
+                if denied:
+                    return denied
+            project = await deploy(
+                self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
+                manifest, files_data=files_data)
+            body = _redact_env(asdict(project))
+            if provisioned:
+                # RFC 0034: the new project is pending and gets its own scoped token.
+                pending.mark_pending(project, tok.id)
+                self.store.save(project)
+                _, body["token"] = self.token_store.create(
+                    f"projects/{project.name}", pending.PROJECT_TOKEN_TTL)
+                body["approval"] = project.approval
+                await pending.record(self.audit_manager, project, "create")
+                pending.notify("create", project)
+            return web.json_response(body, status=201)
         except ValueError as e:
             # Bad manifest / port conflict etc. — the message is safe to return.
             return web.json_response({"error": str(e)}, status=400)
@@ -831,6 +912,25 @@ class Ingress:
             import traceback
             log.error("deploy failed: %s", traceback.format_exc())
             return web.json_response({"error": str(e)}, status=500)
+
+    def _check_provision(self, tok, name: str) -> web.Response | None:
+        if not NAME_RE.match(name or "") or name in RESERVED_NAMES:
+            return web.json_response({"error": f"Invalid project name: {name!r}"}, status=400)
+        try:
+            self.store.load(name)
+            return web.json_response({"error": "project exists; a create token cannot replace it"}, status=409)
+        except FileNotFoundError:
+            pass
+        if len(pending.pending_by(self.store, tok.id)) >= (tok.max_pending or pending.DEFAULT_MAX_PENDING):
+            return web.json_response({"error": "too many unapproved projects for this token"}, status=429)
+        return None
+
+    async def _api_approve(self, name: str) -> web.Response:
+        project = self.store.load(name)
+        if not project.approval:
+            return web.json_response({"error": "not pending"}, status=400)
+        await pending.approve(project, self.store, self.rtm, self.audit_manager)
+        return web.json_response(_redact_env(asdict(project)))
 
     async def _api_export(self) -> web.Response:
         """RFC 0017 §1: pin bundle for every project + audit refs. Raw env
@@ -910,8 +1010,16 @@ class Ingress:
                        self.rtm, name)
         return web.json_response({"ok": True})
 
-    async def _api_redeploy(self, name: str) -> web.Response:
+    async def _api_redeploy(self, name: str, request: web.Request) -> web.Response:
         project = self.store.load(name)
+        files_data = None
+        if request.headers.get("Content-Type", "").startswith("multipart/"):
+            reader = await request.multipart()
+            part = await reader.next()
+            while part is not None:
+                if part.name == "files":
+                    files_data = await part.read(decode=False)
+                part = await reader.next()
         old_sha = project.commit_sha
         old_digest = project.image_digest
         manifest = {
@@ -923,6 +1031,9 @@ class Ingress:
             "volumes": project.volumes, "env_passthrough": project.env_passthrough,
             "dstack_env": project.dstack_env,
             "oci_runtime": project.oci_runtime,
+            "cap_add": project.cap_add, "devices": project.devices,
+            "egress": project.egress, "egress_provider": project.egress_provider,
+            "public": project.public,
         }
         if project.listen:
             manifest["listen"] = {
@@ -930,7 +1041,8 @@ class Ingress:
                 "protocol": project.listen.protocol,
             }
         project = await deploy(
-            self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+            self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest,
+            files_data=files_data)
         result = _redact_env(asdict(project))
         if project.runtime == "image":
             result["changed"] = project.image_digest != old_digest
@@ -940,7 +1052,9 @@ class Ingress:
 
     async def _api_promote(self, name: str) -> web.Response:
         try:
-            project = await promote(self.store, self.audit_manager, self.rtm, name)
+            if self.store.load(name).approval:
+                return web.json_response({"error": "pending approval"}, status=403)
+            project = await promote(self.store, self.audit_manager, self.rtm, name, DSTACK_SOCK)
             return web.json_response(_redact_env(asdict(project)))
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
@@ -970,6 +1084,29 @@ class Ingress:
             return web.json_response(audit.history(project))
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
+
+    async def _api_logs(self, name: str, request: web.Request) -> web.Response:
+        """Read a project's container stdout/stderr (owner-authed, read-only).
+
+        Debugging a container that only reports symptoms from the outside (a VPN
+        that connects but passes no traffic, a crash-looping boot) previously had
+        no remote path here: docker exec is denied and there was no logs route, so
+        the only recourse was a full daemon redeploy with added instrumentation.
+        This exposes the logs the daemon can already read (docker_client.logs)."""
+        try:
+            project = self.store.load(name)
+        except FileNotFoundError:
+            return web.json_response({"error": "project not found"}, status=404)
+        try:
+            tail = min(int(request.query.get("tail", "200")), 2000)
+        except ValueError:
+            tail = 200
+        cid = await self.rtm.get_container_id(project)
+        if not cid:
+            return web.json_response(
+                {"error": "no container for project (not running?)"}, status=404)
+        text = await self.docker.logs(cid, tail=tail)
+        return web.Response(text=text, content_type="text/plain")
 
     async def _api_all_audit(self) -> web.Response:
         """Get audit entries for all known projects."""
@@ -1066,10 +1203,16 @@ class Ingress:
                 ),
                 image_digest=project.image_digest or "",
                 binding_quote=binding_quote,
+                binding=project.binding or {},
                 operator_debug=evidence.OperatorDebugInfo(
                     enabled=bool(project.operator_debug),
                 ),
             )
+
+            # RFC 0027: surface the per-app binding kind. Phase 1 produces only
+            # daemon-vouched bindings (report-data-quote on the shared daemon).
+            if project.binding:
+                bundle.attestation_kind = "daemon-vouched"
 
             # Attach the per-project audit log to the bundle (part of the served shape).
             try:
@@ -1106,9 +1249,21 @@ class Ingress:
         except Exception as e:
             log.warning("Failed to get audit log: %s", e)
 
-        # Build JSON data for the template
+        # Build JSON data for the template.
+        # This endpoint is PUBLIC for attested projects (RFC 0015: a relying party must be able to
+        # verify what is running without holding the admin token). asdict(project) carries
+        # project.env, so embedding it published every attested project's secrets to anyone who
+        # asked -- BRIDGE_SECRET, OPENVPN_PASS, ZAI_API_KEY, OAuth client secrets. The template
+        # never reads env; it was leaked incidentally by serialising the whole record.
+        # Allowlist what the page renders instead of denylisting what it must not.
+        safe_project = {
+            k: v for k, v in asdict(project).items()
+            if k not in ("env",)
+        }
+        # env_passthrough is a list of NAMES with no values, and naming which secrets the KMS
+        # injects is part of what a verifier checks -- keep it.
         verification_data = {
-            "project": _redact_env(asdict(project)),
+            "project": safe_project,
             "quote": quote,
             "audit": audit,
         }
@@ -1189,7 +1344,7 @@ class Ingress:
                 ttl = int(ttl)
             except (TypeError, ValueError):
                 return web.json_response({"error": "ttl must be an integer"}, status=400)
-            token, bearer = self.token_store.create(scope, ttl)
+            token, bearer = self.token_store.create(scope, ttl, int(data.get("max_pending", 0)))
             body = token.public()
             body["token"] = bearer
             return web.json_response(body, status=201)

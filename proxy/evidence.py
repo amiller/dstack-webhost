@@ -29,6 +29,11 @@ from verify.bundle import (
 
 log = logging.getLogger(__name__)
 
+# RFC 0027: domain separator for the per-app binding report_data preimage.
+APP_ATTEST_DOMAIN = b"tee-daemon/app-attest/v1"
+# Byte offset of the 64-byte report_data field within a TDX v4 quote (TD report body).
+REPORT_DATA_OFFSET = 568
+
 
 @dataclass
 class VerificationFacts:
@@ -53,6 +58,8 @@ class VerificationFacts:
     quote_valid: bool = False
     kms_root: bool = False
     webhost_app_id: str = ""
+    attestation_kind: str = ""  # RFC 0027 fact: which identity the binding quote measures
+    binding_verified: bool = False  # RFC 0027: recomputed report_data == quote's report_data
     onchain_approved: bool = False
     gateway_attested: bool = False
     source: SourceInfo = field(default_factory=SourceInfo)
@@ -64,6 +71,8 @@ class VerificationFacts:
             "quote_valid": self.quote_valid,
             "kms_root": self.kms_root,
             "webhost_app_id": self.webhost_app_id,
+            "attestation_kind": self.attestation_kind,
+            "binding_verified": self.binding_verified,
             "onchain_approved": self.onchain_approved,
             "gateway_attested": self.gateway_attested,
             "source": asdict(self.source),
@@ -143,6 +152,32 @@ async def verify(endpoint: str, name: str, opts: dict | None = None) -> Verifica
         # webhost_app_id
         facts.webhost_app_id = bundle.webhost_app_id
 
+        # RFC 0027: per-app binding. attestation_kind names which identity the
+        # binding quote measures; binding_verified recomputes report_data from the
+        # served preimage and checks it against report_data read out of the raw
+        # signed quote bytes — the daemon cannot forge that, which is the point.
+        facts.attestation_kind = bundle.attestation_kind
+        binding = bundle.app.binding
+        if bundle.attestation_kind and binding:
+            pre = binding.get("preimage", {})
+            recomputed = compute_app_report_data(
+                pre.get("app_id", ""), pre.get("name", ""),
+                pre.get("tree_hash", ""), pre.get("app_pubkey", "")).hex()
+            quote_hex = _norm_hex(binding.get("binding_quote", {}).get("quote", ""))
+            if not quote_hex:
+                facts.errors.append("RFC 0027 binding: no raw binding quote to read report_data from")
+            else:
+                # report_data is the 64-byte tail of the TD report body (offset 568).
+                quote_rd = quote_hex[REPORT_DATA_OFFSET * 2:(REPORT_DATA_OFFSET + 64) * 2]
+                facts.binding_verified = quote_rd == recomputed
+                if not facts.binding_verified:
+                    facts.errors.append(
+                        "RFC 0027 binding mismatch: recomputed report_data != the quote's report_data")
+            # DCAP/QVL (that the quote is genuine, current-TCB Intel TDX) is the
+            # consumer's step, as for platform_quote — the field read above needs no key.
+        elif bundle.attestation_kind:
+            facts.errors.append("attestation_kind set but app.binding block missing")
+
         # onchain_approved: true only if chain_id > 0 and DstackApp allowlisted
         # For MVP, chain_id 0 is expected for non-anchored deployments
         if bundle.onchain.chain_id == 0:
@@ -162,51 +197,24 @@ async def verify(endpoint: str, name: str, opts: dict | None = None) -> Verifica
         return facts
 
 
-def compute_report_data_binding(project: str, commit_sha: str, tree_hash: str) -> str:
-    """Compute the report_data that a quote should commit to for tree_hash binding.
+def _norm_hex(s: str) -> str:
+    return s.lower().removeprefix("0x") if isinstance(s, str) else ""
 
-    This binds the project identity to the quote's report_data, so a consumer can
-    verify that the quote actually attests to this specific source tree.
 
-    Format: sha256(project || commit_sha || tree_hash)
+def compute_app_report_data(app_id: str, name: str, tree_hash: str, app_pubkey: str) -> bytes:
+    """RFC 0027 per-app binding report_data (fills the 64-byte quote field exactly).
+
+        SHA-512(DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)
+
+    Encoding (unambiguous — `name` is the only variable-length field and is bracketed
+    by fixed-length fields): DOMAIN = raw bytes b"tee-daemon/app-attest/v1"; app_id,
+    tree_hash, app_pubkey are hex-decoded (a leading "0x" is stripped); name is UTF-8.
+    Callers reconstruct this exact preimage from the served `binding.preimage` block.
     """
-    payload = f"{project}|{commit_sha}|{tree_hash}"
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-def verify_report_data_binding(quote: dict, project: str, commit_sha: str, tree_hash: str) -> bool:
-    """Verify that the quote's report_data commits to the expected binding.
-
-    Args:
-        quote: Platform quote dict (from GetQuote or GetKey response)
-        project: Project name
-        commit_sha: Git commit SHA
-        tree_hash: Git tree SHA
-
-    Returns:
-        True if report_data matches expected binding
-    """
-    # Get report_data from quote - format varies by dstack version
-    report_data_hex = None
-
-    # Try GetQuote format first
-    if "report_data" in quote:
-        report_data_hex = quote["report_data"]
-    # Try GetKey format (report_data might be in signature_chain)
-    elif "signature_chain" in quote:
-        chain = quote["signature_chain"]
-        if isinstance(chain, dict) and "report_data" in chain:
-            report_data_hex = chain["report_data"]
-        elif isinstance(chain, list) and len(chain) > 0:
-            # Might be nested in chain entries
-            for entry in chain:
-                if isinstance(entry, dict) and "report_data" in entry:
-                    report_data_hex = entry["report_data"]
-                    break
-
-    if not report_data_hex:
-        log.warning("No report_data found in quote")
-        return False
-
-    expected = compute_report_data_binding(project, commit_sha, tree_hash)
-    return report_data_hex == expected
+    h = hashlib.sha512()
+    h.update(APP_ATTEST_DOMAIN)
+    h.update(bytes.fromhex(_norm_hex(app_id)))
+    h.update(name.encode("utf-8"))
+    h.update(bytes.fromhex(_norm_hex(tree_hash)))
+    h.update(bytes.fromhex(_norm_hex(app_pubkey)))
+    return h.digest()
