@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 
 from proxy.docker_client import GVISOR_DNS
 from proxy.runtimes import IMAGE_APP_RESTART_POLICY
+from proxy.ingress import _derive_stats
 
 DAEMON_PORT = 18080
 TEST_TOKEN = "test-secret-token-12345"
@@ -679,6 +680,63 @@ def test_ingress_image():
     else:
         assert actual in ("", "runc"), f"Expected default runtime, got {actual!r}"
     print(f"  Image container runtime={actual or 'default'} ✓")
+
+
+def test_stats_endpoints():
+    print("\n--- Test: per-tenant stats endpoints (#120) ---")
+    resp = api_get("/stats")
+    assert resp.status_code == 200, f"/_api/stats failed: {resp.status_code} {resp.text}"
+    fleet = {row["name"]: row for row in resp.json()}
+    # running image tenant: real numbers, real runtime
+    row = fleet["test-image"]
+    assert row["running"] is True, row
+    expected = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
+    assert row["oci_runtime"] == (expected or "runc"), row
+    assert row["container_id"], row
+    assert row["mem_bytes"] and row["mem_bytes"] > 0, row
+    assert row["pids"] and row["pids"] >= 1, row
+    assert row["uptime_s"] >= 0, row
+    assert row["net_rx"] is not None and row["net_tx"] is not None, row
+    # blkio counters must be real: this engine reports some; a zero would mean
+    # the op-name match broke, not that the container read nothing
+    assert row["blk_read"] > 0, row
+    assert row["blk_write"] is not None, row
+    assert "shared" not in row, row
+    # op casing is cgroup-version dependent (v1 "Read"/"Write", v2 lowercase —
+    # moby#45739) and this host may be either, so exercise both shapes directly
+    v1 = _derive_stats({"blkio_stats": {"io_service_bytes_recursive": [
+        {"op": "Read", "value": 7}, {"op": "Write", "value": 3}]}})
+    v2 = _derive_stats({"blkio_stats": {"io_service_bytes_recursive": [
+        {"op": "read", "value": 7}, {"op": "write", "value": 3}]}})
+    assert v1["blk_read"] == v2["blk_read"] == 7, (v1, v2)
+    assert v1["blk_write"] == v2["blk_write"] == 3, (v1, v2)
+    # ops that match neither casing are unreported (None), never an invented 0
+    odd = _derive_stats({"blkio_stats": {"io_service_bytes_recursive": [
+        {"op": "Total", "value": 10}]}})
+    assert odd["blk_read"] is None and odd["blk_write"] is None, odd
+    # shared-runtime tenant: served by a container it shares with co-tenants
+    srow = fleet["test-deno"]
+    assert srow["running"] is True and srow.get("shared") is True, srow
+    # registered with no container of its own: reported, not omitted, not 500
+    assert fleet["test-static"]["running"] is False, fleet["test-static"]
+    # per-project route agrees with the fleet row
+    resp = api_get("/projects/test-image/stats")
+    assert resp.status_code == 200, f"{resp.status_code} {resp.text}"
+    prow = resp.json()
+    assert prow["running"] is True and prow["container_id"] == row["container_id"], prow
+    assert prow["oci_runtime"] == row["oci_runtime"], prow
+    # unknown project 404s
+    assert api_get("/projects/nope/stats").status_code == 404
+    # a projects/<name> scoped token reaches its own stats but not the fleet
+    resp = api_post("/tokens", json={"scope": "projects/test-image", "ttl": 600})
+    assert resp.status_code == 201, resp.text
+    scoped = {"Authorization": f"Bearer {resp.json()['token']}"}
+    resp = requests.get(f"{API}/projects/test-image/stats", headers=scoped)
+    assert resp.status_code == 200, f"scoped token should read own stats: {resp.status_code} {resp.text}"
+    resp = requests.get(f"{API}/stats", headers=scoped)
+    assert resp.status_code == 403, f"scoped token must not read the fleet: {resp.status_code}"
+    print(f"  fleet rows={len(fleet)} test-image: cpu={row['cpu_pct']}% "
+          f"mem={row['mem_bytes']} pids={row['pids']} rt={row['oci_runtime']} \u2713")
 
 
 def test_env_passthrough():
@@ -1931,6 +1989,7 @@ def main():
         test_runtime_selection()
         test_deploy_image()
         test_ingress_image()
+        test_stats_endpoints()
         test_volume_adoption()
         test_per_project_isolation()
         test_per_project_network_isolation()

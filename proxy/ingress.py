@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -58,6 +59,51 @@ def _redact_env(data: dict) -> dict:
     if data.get("env"):
         data["env"] = dict.fromkeys(data["env"], REDACTED)
     return data
+
+
+def _derive_stats(raw: dict) -> dict:
+    """Docker one-shot stats → the per-tenant fields. A field the platform did
+    not report is None, never 0 — an absent counter is a finding (issue #120:
+    what Sentry accounts for under runsc is exactly the question), not a zero."""
+    out: dict = {}
+    cpu, pre = raw.get("cpu_stats") or {}, raw.get("precpu_stats") or {}
+    usage, pre_usage = cpu.get("cpu_usage") or {}, pre.get("cpu_usage") or {}
+    sys_now, sys_pre = cpu.get("system_cpu_usage"), pre.get("system_cpu_usage")
+    ncpu = cpu.get("online_cpus") or len(usage.get("percpu_usage") or [])
+    if ncpu and None not in (sys_now, sys_pre, usage.get("total_usage"),
+                             pre_usage.get("total_usage")) and sys_now > sys_pre:
+        out["cpu_pct"] = round(
+            (usage["total_usage"] - pre_usage["total_usage"])
+            / (sys_now - sys_pre) * ncpu * 100, 2)
+    else:
+        out["cpu_pct"] = None
+    mem = raw.get("memory_stats") or {}
+    out["mem_bytes"] = mem.get("usage")
+    out["mem_limit"] = mem.get("limit")
+    nets = raw.get("networks")
+    if nets:
+        out["net_rx"] = sum(n["rx_bytes"] for n in nets.values())
+        out["net_tx"] = sum(n["tx_bytes"] for n in nets.values())
+    else:
+        out["net_rx"] = out["net_tx"] = None
+    blk = (raw.get("blkio_stats") or {}).get("io_service_bytes_recursive")
+    if blk:
+        # op casing is cgroup-version dependent: "Read"/"Write" on v1, lowercase
+        # on v2 (moby#45739); ops that match neither are unreported, not zero
+        reads = [e["value"] for e in blk if e.get("op", "").lower() == "read"]
+        writes = [e["value"] for e in blk if e.get("op", "").lower() == "write"]
+        out["blk_read"] = sum(reads) if reads else None
+        out["blk_write"] = sum(writes) if writes else None
+    else:
+        out["blk_read"] = out["blk_write"] = None
+    out["pids"] = (raw.get("pids_stats") or {}).get("current")
+    return out
+
+
+def _uptime_s(started_at: str) -> float:
+    # Docker timestamps carry nanosecond fractions; fromisoformat takes 6 digits.
+    ts = re.sub(r"\.(\d{6})\d*", r".\1", started_at.replace("Z", "+00:00"))
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(ts)).total_seconds()
 
 
 DSTACK_SOCK = None  # set by main.py
@@ -745,6 +791,8 @@ class Ingress:
                 return await self._api_audit(name)
             if method == "GET" and rest == "history":
                 return await self._api_history(name)
+            if method == "GET" and rest == "stats":
+                return await self._api_project_stats(name)
             if method == "GET" and rest == "logs":
                 return await self._api_logs(name, request)
 
@@ -765,6 +813,10 @@ class Ingress:
         # RFC 0016: aggregate status endpoint (authed)
         if path == "status" and method == "GET":
             return await self._api_aggregate_status()
+
+        # #120: fleet per-tenant resource stats (authed; no per-project scope)
+        if path == "stats" and method == "GET":
+            return await self._api_stats()
 
         # RFC 0016: console page (authed)
         if path == "console" and method == "GET":
@@ -918,6 +970,50 @@ class Ingress:
     async def _api_status(self, name: str) -> web.Response:
         project = self.store.load(name)
         return web.json_response(_redact_env(asdict(project)))
+
+    async def _stats_row(self, project) -> dict:
+        """One tenant's resource row (#120). running means "has a running
+        container to measure" — a static project serves fine with running
+        false; backend says what serves it instead."""
+        row = {
+            "name": project.name,
+            "running": False,
+            "backend": self.rtm.get_project_liveness(project)["backend"],
+        }
+        found = self.rtm.get_project_container(project)
+        if not found:
+            return row
+        cid, shared = found
+        row["container_id"] = cid
+        if shared:
+            row["shared"] = True  # stats cover co-tenants too
+        try:
+            info = await self.docker.inspect(cid)
+            if not info.get("State", {}).get("Running"):
+                return row
+            row["running"] = True
+            row["oci_runtime"] = info.get("HostConfig", {}).get("Runtime") or "runc"
+            started = info.get("State", {}).get("StartedAt")
+            if started:
+                row["uptime_s"] = round(_uptime_s(started), 1)
+            row.update(_derive_stats(await self.docker.stats(cid)))
+        except RuntimeError as e:
+            # A container removed between resolve and read is "not running"
+            # (#120 criterion 3), not a fleet-wide 500; other errors raise.
+            if "(404)" not in str(e):
+                raise
+        return row
+
+    async def _api_project_stats(self, name: str) -> web.Response:
+        try:
+            project = self.store.load(name)
+        except FileNotFoundError:
+            return web.json_response({"error": "not found"}, status=404)
+        return web.json_response(await self._stats_row(project))
+
+    async def _api_stats(self) -> web.Response:
+        rows = [await self._stats_row(p) for p in self.store.list()]
+        return web.json_response(rows)
 
     async def _api_teardown(self, name: str) -> web.Response:
         await teardown(self.store, self.docker, self.audit_manager, self.tracker,
