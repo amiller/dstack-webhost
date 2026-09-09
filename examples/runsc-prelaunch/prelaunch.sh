@@ -77,10 +77,21 @@ JSON
 fi
 
 echo "[prelaunch] restarting docker..."
-systemctl restart docker || service docker restart || true
+systemctl restart docker || service docker restart
 
 echo "[prelaunch] runsc installed:"
 "$INSTALL_DIR/runsc" --version
+# Registered-name check: if Docker came back without the runsc runtimes, the
+# daemon would boot advertising a sandbox nothing runs under (#115) — abort
+# instead, so the failure is on the console, not in a tenant deploy later.
 echo "[prelaunch] docker runtimes:"
-docker info 2>/dev/null | grep -iE "runtime" || true
+rts=$(docker info | sed -n 's/^ *[Rr]untimes: *//p' | head -1)
+echo "  $rts"
+for rt in runsc runsc-hostuds runsc-hostnet; do
+  case " $rts " in
+    *" $rt "*) ;;
+    *) echo "[prelaunch] runtime '$rt' not registered with Docker after restart (Runtimes:$rts)" >&2
+       exit 1 ;;
+  esac
+done
 echo "[prelaunch] done"
