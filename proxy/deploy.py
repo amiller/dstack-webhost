@@ -20,12 +20,17 @@ from . import secp
 from .tracker import ContainerTracker
 from .audit import AuditLog, AuditEntry
 from .runtimes import RuntimeManager, RUNTIME_CONFIG, VOLUME_NAME, VOLUME_MOUNT
+from . import secp, evidence
 
 log = logging.getLogger(__name__)
 
 NETWORK_DEV = "tee-apps-dev"
 NETWORK_ATTESTED = "tee-apps-attested"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# The sentinel every project-returning API response writes over env values. It is a marker that
+# a secret was WITHHELD, never a value: deploy() refuses to store it (see below), so a client that
+# round-trips a fetched manifest gets a loud 400 instead of silently overwriting a live secret.
+REDACTED = "<redacted>"
 VALID_RUNTIMES = set(RUNTIME_CONFIG.keys()) | {"static", "dockerfile", "image"}
 
 DEFAULT_ENTRY = {
@@ -121,105 +126,8 @@ def compute_tree_hash(directory: str) -> str:
     return h.hexdigest()
 
 
-# RFC 0025: Per-app attestation helpers
-APP_ATTEST_DOMAIN = b"tee-daemon/app-attest/v1"
-DSTACK_SOCK = None  # Set by main.py
-
-
-async def _dstack_getkey(project_name: str) -> dict | None:
-    """Call dstack GetKey for a project and return the sanitized response.
-    Returns dict with pubkey and signature_chain, or None on error."""
-    if not DSTACK_SOCK:
-        log.warning("dstack not available - cannot get app pubkey")
-        return None
-    key_path = f"/tee-daemon/projects/{project_name}"
-    body = {"path": key_path}
-    try:
-        conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
-        async with aiohttp.ClientSession(connector=conn) as session:
-            async with session.post("http://localhost/GetKey", json=body) as resp:
-                if resp.status != 200:
-                    log.warning("GetKey failed: %s", resp.status)
-                    return None
-                data = await resp.json()
-                # Sanitize: extract compressed pubkey, discard private key
-                if not isinstance(data, dict) or "key" not in data:
-                    log.warning("GetKey response missing 'key'")
-                    return None
-                priv = bytes.fromhex(data["key"].replace("0x", ""))[:32]
-                out = {k: v for k, v in data.items() if k != "key"}
-                out["pubkey"] = secp.compressed_pubkey(priv).hex()
-                # Extract app_id if present in response
-                out["app_id"] = data.get("app_id", "")
-                return out
-    except Exception as e:
-        log.warning("GetKey failed: %s", e)
-        return None
-
-
-async def _dstack_getquote(report_data: bytes) -> str | None:
-    """Call dstack GetQuote and return the quote bytes as hex, or None on error."""
-    if not DSTACK_SOCK:
-        log.warning("dstack not available - cannot get quote")
-        return None
-    if len(report_data) != 64:
-        log.warning("report_data must be 64 bytes, got %d", len(report_data))
-        return None
-    body = {"report_data": report_data.hex()}
-    try:
-        conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
-        async with aiohttp.ClientSession(connector=conn) as session:
-            async with session.post("http://localhost/GetQuote", json=body) as resp:
-                if resp.status != 200:
-                    log.warning("GetQuote failed: %s", resp.status)
-                    return None
-                data = await resp.json()
-                quote = data.get("quote", "")
-                if not quote:
-                    log.warning("GetQuote response missing 'quote'")
-                    return None
-                return quote
-    except Exception as e:
-        log.warning("GetQuote failed: %s", e)
-        return None
-
-
-async def _dstack_emit_event(event: str, payload: str) -> bool:
-    """Call dstack EmitEvent to extend RTMR. Returns True on success."""
-    if not DSTACK_SOCK:
-        log.warning("dstack not available - cannot emit event")
-        return False
-    body = {"event": event, "payload": payload}
-    try:
-        conn = aiohttp.UnixConnector(path=DSTACK_SOCK)
-        async with aiohttp.ClientSession(connector=conn) as session:
-            async with session.post("http://localhost/EmitEvent", json=body) as resp:
-                if resp.status == 200:
-                    log.info("RTMR event emitted: %s", event)
-                    return True
-                else:
-                    log.warning("EmitEvent returned %s", resp.status)
-                    return False
-    except Exception as e:
-        log.warning("EmitEvent failed: %s", e)
-        return False
-
-
-def compute_report_data(app_id: str, name: str, tree_hash: str, app_pubkey: str) -> bytes:
-    """Compute SHA-512 report_data for per-app binding quote.
-    SHA-512(APP_ATTEST_DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)
-    Returns 64 bytes.
-    """
-    h = hashlib.sha512()
-    h.update(APP_ATTEST_DOMAIN)
-    h.update(app_id.encode())
-    h.update(b"\0")
-    h.update(name.encode())
-    h.update(b"\0")
-    h.update(tree_hash.encode())
-    h.update(b"\0")
-    h.update(app_pubkey.encode())
-    return h.digest()  # 64 bytes
+# Set by main.py; the live per-app binding path is build_app_binding() below (RFC 0027).
+DSTACK_SOCK = None
 
 
 def detect_manifest(files_dir: str) -> dict:
@@ -274,6 +182,27 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
 
     if not name or not NAME_RE.match(name):
         raise ValueError(f"Invalid project name: {name!r}")
+
+    # 2026-08-24: deploy-prod-core.sh built its manifest from GET /_api/projects/oauth3, which
+    # redacts env — and POSTed the redactions back, replacing prod's GitHub and Google client
+    # id/secret with the literal string "<redacted>". Every health gate stayed green; the failure
+    # surfaced as `client_id=%3Credacted%3E` when a user tried to log in. Refuse it here, once,
+    # for every client of this API rather than in each deploy script.
+    redacted = sorted(k for k, v in (manifest.get("env") or {}).items() if v == REDACTED)
+    if redacted:
+        raise ValueError(
+            f"env values for {', '.join(redacted)} are the literal {REDACTED!r} — that is a "
+            f"withheld secret, not a value. Supply the real values or omit 'env' to keep the "
+            f"ones already stored.")
+
+    # An ABSENT 'env' on an existing project carries the stored env forward, so a caller that
+    # only wants to change (say) oci_runtime does not have to re-supply secrets it cannot read.
+    # Clearing env stays possible and explicit: send "env": {}.
+    if "env" not in manifest:
+        try:
+            manifest = {**manifest, "env": dict(store.load(name).env or {})}
+        except FileNotFoundError:
+            pass
 
     if manifest.get("runtime") == "image":
         return await _deploy_image(store, docker, audit_manager, rtm, manifest)
@@ -382,6 +311,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         dstack_env=manifest.get("dstack_env") or repo_manifest.get("dstack_env", {}) or {},
         oci_runtime=manifest.get("oci_runtime", ""),
         cap_add=cap_add, devices=devices, operator_debug=operator_debug,
+        egress=bool(manifest.get("egress", False)),
+        egress_provider=bool(manifest.get("egress_provider", False)),
     )
     store.save(project)
 
@@ -474,6 +405,8 @@ async def _deploy_image(store: ProjectStore, docker: DockerClient,
         env_passthrough=env_passthrough, listen=listen_config,
         oci_runtime=oci_runtime, cap_add=cap_add, devices=devices,
         operator_debug=operator_debug,
+        egress=bool(manifest.get("egress", False)),
+        egress_provider=bool(manifest.get("egress_provider", False)),
     )
     store.save(project)
 
@@ -516,61 +449,103 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
         await rtm.refresh(project.runtime)
 
     await rtm.remove_project_broker(name)
+    # The containers are gone; hand back the subnet too. Without this every project
+    # ever deployed keeps a network for the life of the daemon, and the address pool
+    # runs out — after which new tenants fail at create_network.
+    await rtm.remove_project_network(name, project.mode)
 
     log.info("Torn down %s", name)
 
 
+async def _dstack_post(sock: str, method: str, body: dict) -> dict:
+    conn = aiohttp.UnixConnector(path=sock)
+    async with aiohttp.ClientSession(connector=conn) as session:
+        async with session.post(f"http://localhost/{method}", json=body) as resp:
+            data = await resp.json()
+            if resp.status != 200:
+                raise RuntimeError(f"dstack {method} failed ({resp.status}): {data}")
+            return data
+
+
+def _app_id_from_eventlog(event_log: str) -> str:
+    """The CVM's app-id, as measured into RTMR3 (event 'app-id', imr 3)."""
+    for e in json.loads(event_log or "[]"):
+        if e.get("imr") == 3 and e.get("event") == "app-id":
+            return e.get("event_payload", "")
+    return ""
+
+
+async def build_app_binding(sock: str, name: str, tree_hash: str,
+                            commit_sha: str, image_digest: str) -> dict:
+    """RFC 0027 (b): produce a hardware-rooted per-app binding at promote time.
+
+    Derives app_pubkey (GetKey), binds it plus the exact tree_hash into a fresh
+    TDX quote's report_data (GetQuote), and lands the promotion in RTMR3's measured
+    log (EmitEvent). Any RPC failure propagates — a swallowed error here would be a
+    silent false "verified".
+    """
+    # app_id is the CVM's own measured identity — read it from the quote event log,
+    # not the WEBHOST_APP_ID env (which is unreliable; empty on staging).
+    probe = await _dstack_post(sock, "GetQuote", {"report_data": "00" * 64})
+    app_id = _app_id_from_eventlog(probe.get("event_log", ""))
+    if not app_id:
+        raise RuntimeError("no app-id in the dstack quote event log; cannot build RFC 0027 binding")
+
+    key_path = f"/tee-daemon/projects/{name}"
+    getkey = await _dstack_post(sock, "GetKey", {"path": key_path})
+    if "key" not in getkey:
+        raise RuntimeError(f"GetKey returned no key for {key_path}")
+    # Derive the compressed pubkey; never persist the private key.
+    app_pubkey = secp.compressed_pubkey(bytes.fromhex(getkey["key"].replace("0x", ""))[:32]).hex()
+
+    report_data = evidence.compute_app_report_data(app_id, name, tree_hash, app_pubkey).hex()
+    binding_quote = await _dstack_post(sock, "GetQuote", {"report_data": report_data})
+
+    payload = json.dumps({"name": name, "tree_hash": tree_hash,
+                          "commit": commit_sha, "image_digest": image_digest},
+                         sort_keys=True).encode()
+    await _dstack_post(sock, "EmitEvent",
+                       {"event": "tee-daemon/promote", "payload": payload.hex()})
+
+    return {
+        "kind": "report-data-quote",
+        "binding_quote": binding_quote,
+        "report_data": "0x" + report_data,
+        "preimage": {
+            "domain": evidence.APP_ATTEST_DOMAIN.decode(),
+            "app_id": app_id,
+            "name": name,
+            "tree_hash": tree_hash,
+            "app_pubkey": app_pubkey,
+        },
+        "app_pubkey": app_pubkey,
+        "promote_event": {
+            "rtmr": 3,
+            "event": "tee-daemon/promote",
+            "digest": hashlib.sha384(payload).hexdigest(),
+        },
+    }
+
+
 async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
-                  name: str) -> Project:
+                  name: str, dstack_sock: str | None = None) -> Project:
     """Promote a project from dev mode to attested mode."""
     project = store.load(name)
 
     if project.mode == "attested":
         raise ValueError(f"Project {name} is already in attested mode")
 
-    # RFC 0025 Phase 1: Generate per-app binding quote before finalizing
-    # Get app_id from TDX_WORKLOAD_ID env var (present in TDX CVM)
-    app_id = os.environ.get("TDX_WORKLOAD_ID", "")
-
-    # Derive app_pubkey via GetKey
-    key_data = await _dstack_getkey(name)
-    if not key_data:
-        log.warning("Failed to get app pubkey for %s - promotion without binding quote", name)
-    else:
-        app_pubkey = key_data.get("pubkey", "")
-        if key_data.get("app_id"):
-            app_id = key_data.get("app_id", "")
-
-        # Compute report_data = SHA-512(domain ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)
-        report_data_bytes = compute_report_data(app_id, name, project.tree_hash, app_pubkey)
-        report_data_hex = report_data_bytes.hex()
-
-        # GetQuote for binding
-        binding_quote = await _dstack_getquote(report_data_bytes)
-        if binding_quote:
-            # Emit promote event to RTMR3
-            event_payload = json.dumps({
-                "name": name,
-                "tree_hash": project.tree_hash,
-                "commit": project.commit_sha,
-                "image_digest": project.image_digest,
-            }, sort_keys=True)
-            await _dstack_emit_event("tee-daemon/promote", event_payload.encode().hex())
-
-            # Persist binding fields
-            project.app_id = app_id
-            project.app_pubkey = app_pubkey
-            project.binding_quote = binding_quote
-            project.report_data = report_data_hex
-            project.attestation_kind = "daemon-vouched"
-            log.info("Generated binding quote for %s (app_id=%s, tree_hash=%s)",
-                     name, app_id[:20] if app_id else "-", project.tree_hash[:12])
-        else:
-            log.warning("Failed to get binding quote for %s", name)
-
     # Change mode to attested and save
     project.mode = "attested"
     store.save(project)
+
+    # RFC 0027 (b): hardware-rooted per-app binding quote. Only when dstack is
+    # present (inside the CVM); outside a TEE there is no quote to produce — the
+    # same condition the verification/attest endpoints already gate on.
+    if dstack_sock:
+        project.binding = await build_app_binding(
+            dstack_sock, name, project.tree_hash, project.commit_sha, project.image_digest)
+        store.save(project)
 
     # Record promotion in audit log with source hash (now attested)
     audit = audit_manager.get_audit_log(name)
@@ -585,19 +560,27 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
             "ref": project.ref,
             "commit": project.commit_sha,
             "tree_hash": project.tree_hash,
-            "attestation_kind": project.attestation_kind,
+            "attestation_kind": "daemon-vouched" if project.binding else "",
         }),
         image=project.image_digest,
         image_digest=project.image_digest,
     ))
 
-    # Re-deploy on attested network
-    if project.runtime not in ("static", "dockerfile"):
+    # Recreate so the container picks up attested-only settings (caps/devices, e.g. NET_ADMIN
+    # + /dev/net/tun for the VPN egress). Per-project containers (image, isolation:container)
+    # aren't touched by refresh() — they must be explicitly restarted in the new mode.
+    if project.runtime == "image":
+        await rtm.stop_image(project.name)
+        await rtm.start_image(project)
+    elif project.isolation == "container" and project.runtime in ("deno", "bun"):
+        await rtm.stop_isolated(project.name)
+        await rtm.start_isolated(project)
+    elif project.runtime not in ("static", "dockerfile"):
         await rtm.refresh(project.runtime)
 
     log.info("Promoted %s to attested mode (commit: %s, tree_hash: %s, kind: %s)",
              name, project.commit_sha[:12], project.tree_hash[:12],
-             project.attestation_kind or "none")
+             "daemon-vouched" if project.binding else "none")
     return project
 
 

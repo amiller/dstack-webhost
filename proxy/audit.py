@@ -40,8 +40,22 @@ class AuditLogManager:
         return os.path.join(self.audit_dir, f"{project_name}.head")
 
     def _load_entries(self, project_name: str) -> list[AuditEntry]:
-        """Load audit entries from disk for a project."""
+        """Load audit entries from disk for a project.
+
+        Entries written before #61's chain existed carry no hashes at all. They are
+        unverifiable by construction, so a LEADING run of them is adopted: each is
+        anchored by its computed hash so later entries chain onto it, and the adoption
+        is logged. Without this, any daemon whose audit dir predates #61 refuses to
+        boot — which is how webhost-staging went down on 2026-08-24 (`attested-demo`).
+
+        Adoption does not open a hole in a ledger that has one: blanking a later
+        entry's hashes only reconstructs the same value, and editing its content
+        changes that value, so the `.head` and prev_hash checks below still catch it.
+        A project whose file is legacy end-to-end has no `.head` and had no integrity
+        to lose — it gains one from its next entry on.
+        """
         entries = []
+        legacy = 0
         audit_file = self._audit_file(project_name)
         if os.path.exists(audit_file):
             with open(audit_file, "r") as f:
@@ -49,11 +63,20 @@ class AuditLogManager:
                     if line.strip():
                         entry = AuditEntry(**json.loads(line))
                         expected = self._entry_hash(entry)
+                        if not entry.entry_hash and not entry.prev_hash and legacy == len(entries):
+                            entry.prev_hash = entries[-1].entry_hash if entries else ""
+                            entry.entry_hash = self._entry_hash(entry)
+                            legacy += 1
+                            entries.append(entry)
+                            continue
                         if entry.prev_hash != (entries[-1].entry_hash if entries else ""):
                             raise ValueError(f"Audit chain broken for {project_name}")
                         if entry.entry_hash != expected:
                             raise ValueError(f"Audit entry tampered for {project_name}")
                         entries.append(entry)
+        if legacy:
+            log.info("audit %s: adopted %d pre-ledger entries (no hash on disk)",
+                     project_name, legacy)
         head_file = self._head_file(project_name)
         if os.path.exists(head_file):
             with open(head_file) as f:

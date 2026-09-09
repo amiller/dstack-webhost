@@ -325,7 +325,7 @@ def test_bundle_to_dict_is_the_served_shape():
     ``/_api/verification/<project>`` response shape must not change."""
     wire = _full_producer_bundle().to_dict()
     expected_keys = {"schema_version", "platform_quote", "webhost_app_id",
-                     "onchain", "gateway", "app", "audit"}
+                     "attestation_kind", "onchain", "gateway", "app", "audit"}
     assert expected_keys == set(wire.keys()), expected_keys ^ set(wire.keys())
     assert set(wire["app"]["source"]) == {"repo", "ref", "commit_sha", "tree_hash", "tree_hash_kind"}
     assert set(wire["onchain"]) == {"chain_id", "kms_contract", "dstackapp",

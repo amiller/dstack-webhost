@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>paseo — evidence report</title>
+<style>
+  /* watermelon on warm paper — teal #00838a + fluoro pink #ff48b0. ALWAYS LIGHT (standing
+     no-dark-mode rule): no prefers-color-scheme flip; OS dark mode must NOT darken this report. */
+  :root{
+    --teal:#00838a; --pink:#ff48b0; --red:#c2185b;
+    --paper:#faf6ee; --panel:#ffffff; --ink:#1a1712; --faint:#6b6557; --rule:#e7dfd0;
+    --pass-bg:#e6f5f3; --pass-fg:#00838a; --fail-bg:#fff0f7; --fail-fg:#c2185b;
+    --none-bg:#f3efe6; --none-fg:#6b6557; --banner-bg:#c2185b; --banner-fg:#ffffff;
+  }
+  :root{ color-scheme: light; }
+  :root[data-theme="dark"]{ --paper:#17140f; --panel:#211d17; --ink:#f1ece0; --faint:#a89e8c; --rule:#332d24;
+           --pass-bg:#0c2b2c; --pass-fg:#3fd0d4; --fail-bg:#2c0f1d; --fail-fg:#ff8ec6; --none-bg:#241f18; --none-fg:#a89e8c; }
+  :root[data-theme="light"]{ --paper:#faf6ee; --panel:#ffffff; --ink:#1a1712; --faint:#6b6557; --rule:#e7dfd0;
+           --pass-bg:#e6f5f3; --pass-fg:#00838a; --fail-bg:#fff0f7; --fail-fg:#c2185b; --none-bg:#f3efe6; --none-fg:#6b6557; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--paper); color:var(--ink);
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        font-size:16px; line-height:1.5; }
+  .wrap{ max-width:1040px; margin:0 auto; padding:28px 20px 64px; }
+  code{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em; }
+  a{ color:var(--teal); text-decoration:none; } a:hover{ text-decoration:underline; }
+  h1{ font-size:30px; margin:0 0 2px; letter-spacing:-.02em; }
+  h2{ font-size:21px; margin:0 0 4px; border-bottom:2px solid var(--teal); padding-bottom:6px; }
+  h3{ font-size:15px; margin:16px 0 6px; color:var(--teal); }
+  .kicker{ font-family:ui-monospace,monospace; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--pink); margin:0 0 4px; }
+  .cap{ color:var(--faint); font-size:13.5px; }
+  .tag{ font-family:ui-monospace,monospace; font-size:11px; font-weight:400; color:var(--faint); text-transform:none; letter-spacing:0; }
+  /* freshness header */
+  .fresh{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:14px 0 6px;
+          font-family:ui-monospace,monospace; font-size:14px; }
+  .fresh .oldest{ font-weight:700; color:var(--red); }
+  .fresh .assembled{ color:var(--faint); font-size:12px; }
+  /* the full-width red staleness banner */
+  .banner{ background:var(--banner-bg); color:var(--banner-fg); padding:8px 14px; border-radius:7px;
+    margin:0 0 16px; font-size:13.5px; line-height:1.45; }
+  .banner strong{ font-size:13.5px; }
+  .banner details{ display:inline; } .banner summary{ display:inline; cursor:pointer; text-decoration:underline; opacity:.85; }
+  .banner ul{ margin:6px 0 0; padding-left:18px; } .banner li{ margin:1px 0; opacity:.92; }
+  section.block{ background:var(--panel); border:1px solid var(--rule); border-radius:12px; padding:18px 20px; margin:18px 0; }
+  section.smoke{ background:transparent; border-style:dashed; }
+  /* flow grid */
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; margin-top:12px; }
+  .card{ border:1px solid var(--rule); border-radius:10px; overflow:hidden; background:var(--panel); display:flex; flex-direction:column; }
+  .card img{ width:100%; display:block; border-bottom:1px solid var(--rule); }
+  .card .noshot{ padding:26px 12px; text-align:center; color:var(--none-fg); background:var(--none-bg); font-size:13px; border-bottom:1px solid var(--rule); }
+  .card .meta{ padding:11px 14px; }
+  .card-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  .card-top h3{ margin:0; font-size:15px; }
+  .envpills{ display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .envlab{ font-family:ui-monospace,monospace; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--faint); }
+  .walkline{ font-family:ui-monospace,monospace; font-size:11.5px; color:var(--faint); margin:4px 0 6px; }
+  .signal{ font-size:12px; color:var(--faint); margin:4px 0; }
+  .note{ font-size:12.5px; color:var(--fail-fg); background:var(--fail-bg); border-radius:6px; padding:5px 8px; margin:6px 0 0; }
+  /* pills */
+  .pill{ font-family:ui-monospace,monospace; font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; white-space:nowrap; }
+  .pill-pass{ background:var(--pass-bg); color:var(--pass-fg); border:1px solid var(--teal); }
+  .pill-fail,.pill-stale{ background:var(--fail-bg); color:var(--fail-fg); border:1px solid var(--pink); }
+  .pill-stale{ text-decoration:underline; }
+  .pill-none{ background:var(--none-bg); color:var(--none-fg); border:1px dashed var(--none-fg); }
+  .s-pill{ font-family:ui-monospace,monospace; font-size:11px; font-weight:700; padding:1px 8px; border-radius:14px; }
+  .s-ok{ background:var(--pass-bg); color:var(--pass-fg); }
+  .s-fail,.s-stale{ background:var(--fail-bg); color:var(--fail-fg); }
+  .s-none{ background:var(--none-bg); color:var(--none-fg); }
+  /* lists / tables */
+  ul.asks,ul.improved{ list-style:none; margin:10px 0 0; padding:0; }
+  ul.asks li,ul.improved li{ padding:7px 0; border-bottom:1px solid var(--rule); }
+  .gallery{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .gallery img{ max-width:220px; border:1px solid var(--rule); border-radius:6px; }
+  table.smoke-tbl{ border-collapse:collapse; width:100%; font-size:13.5px; margin-top:10px; }
+  table.smoke-tbl th,table.smoke-tbl td{ text-align:left; padding:6px 10px; border-bottom:1px solid var(--rule); }
+  .err{ color:var(--fail-fg); background:var(--fail-bg); border-radius:6px; padding:8px 10px; font-size:13px; }
+  .swarm-embed{ margin-top:16px; }
+  .swarm-embed h2{ font-size:16px; border-bottom:1px solid var(--rule); }
+  footer{ color:var(--faint); font-size:12.5px; margin-top:28px; border-top:1px solid var(--rule); padding-top:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="kicker">paseo swarm — evidence report</p>
+  <h1>What the swarm can show you, walked and dated</h1>
+  <div class="fresh">
+    <span class="oldest">oldest evidence on this page: 0m ago</span>
+    <span class="assembled">html assembled 2026-09-09 07:33 CDT (assembly time is not evidence freshness)</span>
+  </div>
+<section class="block"><h2>Your asks</h2>
+<p class="cap">Open <code>operator-ask</code> issues across the repos — the things you asked to see, each with its current flow status. This section leads the report so an evaporated plan is visible, not forgotten.</p>
+<ul class="asks">
+<li><span class="s-pill s-none">flow not yet walked</span> <b>webhost-apps#8</b> — <a href="https://github.com/amiller/webhost-apps/issues/8" target="_blank" rel="noopener">twitter-debug: posting requires DEBUG_SECRET — replace with a consent-gated OAuth3 write cap</a></li>
+</ul>
+</section>
+<section class="block"><h2>What improved since yesterday</h2>
+<p class="cap">PRs merged in the last 24h, grouped by repo. Where the PR committed a <code>.evidence/issue-&lt;N&gt;/</code> gallery, it renders inline below; otherwise it is labelled "merged, no flow evidence" — the report curates merge-time proof, it never fabricates it.</p>
+<p class="cap">Nothing merged in the last 24h.</p>
+</section>
+<section class="block"><h2>Flows <span class="tag">signed-in, walked click-by-click on staging</span></h2>
+<p class="cap">The registry drives this grid (webhost-apps#41): a merged app that adds its <code>REGISTRY.md</code> row self-registers here — no host-side edit. Each card is timestamped by when it was <b>actually walked</b>, not when this page was built. A walk older than 24h is <b>STALE</b> and red no matter its last result; an app never walked says so.</p>
+<div class="grid">
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/router-dashboard/" target="_blank" rel="noopener">router-dashboard</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">Aggregates Router/simulcast feeds; secrets read from ~/.claude/router-simulcast.json at deploy time. Per-app deploy.sh.</p>
+<p class="signal">signal: <code>title &quot;Router Member Dashboard&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;Router Member Dashboard&quot;' not satisfied on https://pod.dstack.soc1024.com/router-dashboard/</p>
+<p class="note">staging: FAIL signal='title &quot;Router Member Dashboard&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/router-dashboard/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://pod.dstack.soc1024.com/otterscope/" target="_blank" rel="noopener">otterscope</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">Otter.ai transcript viewer via oauth3 otter plugin. SDK connect() (RFC 0008): extension provider-preferred, web-approve fallback via the signed-in pod room — works mobile/same-pod.</p>
+<p class="signal">signal: <code>title &quot;Otter via OAuth3&quot;</code></p>
+<p class="note">staging: FAIL signal='title &quot;Otter via OAuth3&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/otterscope/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://pod.dstack.soc1024.com/feedling-web/" target="_blank" rel="noopener">feedling-web</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">Doomscroll notifier; reads YouTube via oauth3 youtube plugin (user-approved token, NOT owner). Set TZ. Today-filtering blocked on per-item dates (oauth3-server).</p>
+<p class="signal">signal: <code>title &quot;feedling&quot;</code></p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/calendar-share/" target="_blank" rel="noopener">calendar-share</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">edit-on-behalf demo (write-side sibling of timeline-peek). Owner mints a write:event:&lt;id&gt; share code; recipient edits ONE Google Calendar event. Thin server.ts serves public/index.html at /calendar-share/. Per-app deploy.sh.</p>
+<p class="signal">signal: <code>title &quot;Calendar Share&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;Calendar Share&quot;' not satisfied on https://pod.dstack.soc1024.com/calendar-share/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/reddit-karma/" target="_blank" rel="noopener">reddit-karma</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">sample OAuth3 app for the app+plugin story. Connect → reads the Reddit account's saved posts through a scoped reddit:read token (GET /oauth3/api/reddit/items; the /account karma route was never shipped and 404s — #64). Static index.html, rendered title Reddit Saved; same shape as timeline-peek. Motivated the post-merge deploy lane (sat at 404 after merge until hand-deployed).</p>
+<p class="signal">signal: <code>title &quot;Reddit Saved&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;Reddit Saved&quot;' not satisfied on https://pod.dstack.soc1024.com/reddit-karma/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/share-kit/" target="_blank" rel="noopener">share-kit</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">shared UI for the suite: the journey-labeled Share button, capability receipt (link + TRUE scope sentence + Revoke + status pill), and recipient banner (honest end-states). inline.sh inlines the one file into an app's index.html.</p>
+<p class="signal">signal: <code>title &quot;share-kit&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;share-kit&quot;' not satisfied on https://pod.dstack.soc1024.com/share-kit/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/timeline-peek/" target="_blank" rel="noopener">timeline-peek</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">client-side twitter-feed relying-party demo; recovered from the running pod. Static index.html.</p>
+<p class="signal">signal: <code>title &quot;Timeline Peek&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;Timeline Peek&quot;' not satisfied on https://pod.dstack.soc1024.com/timeline-peek/</p>
+<p class="note">staging: FAIL signal='title &quot;Timeline Peek&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/timeline-peek/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/zai-usage/" target="_blank" rel="noopener">zai-usage</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">z.ai Coding Plan usage app (issue #76). Reads GLM quotas through a scoped zai:usage-read token via the zai cookie-jar plugin (oauth3-server, pending). Static index.html, uses the shared ShareKit.oauth3Connect helper. Render path proven with a labeled SAMPLE until the plugin + owner jar-sync land.</p>
+<p class="signal">signal: <code>title &quot;GLM Usage&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;GLM Usage&quot;' not satisfied on https://pod.dstack.soc1024.com/zai-usage/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/goodpoint-box/app" target="_blank" rel="noopener">goodpoint-box</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-pass">PASS</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">Live Otter transcript + good-point detector steering the interleave brainrot canvas. No mic/STT path and no demo data path.</p>
+<p class="signal">signal: <code>title &quot;goodpoint-box&quot;</code></p>
+<p class="note">staging: FAIL signal='title &quot;goodpoint-box&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/goodpoint-box/app</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/screenshare-debug/" target="_blank" rel="noopener">screenshare-debug</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">screen-stream consent demo (aishley sibling of feedling / timeline-peek). Capture → scoped, revocable grant → debug echo-sink (proof of delivery) or aishley enclave. oauth3 = identity + grant trust root, never in the frame path. Desktop-only (getDisplayMedia).</p>
+<p class="signal">signal: <code>title &quot;screenshare-debug — screen → pod under consent&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;screenshare-debug — screen → pod under consent&quot;' not satisfied on https://pod.dstack.soc1024.com/screenshare-debug/</p>
+<p class="note">staging: FAIL signal='title &quot;screenshare-debug — screen → pod under consent&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/screenshare-debug/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/screenshare-pet/" target="_blank" rel="noopener">screenshare-pet</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-pass">PASS</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">change-signals demo consumer (sibling of screenshare-debug, issue #73). Picture-in-Picture pet reactive to signals derived from the screen (changedPct + hot region + still/local/scene), with rare budgeted OCR/VLM escalation. All auth machinery out; frames never leave the browser unless the dev-only mirror toggle is on. Desktop-only (getDisplayMedia); in-page fallback where Document PiP is unavailable.</p>
+<p class="signal">signal: <code>title &quot;screenshare-pet — a PiP pet that watches your screen&quot;</code></p>
+<p class="note">prod: FAIL signal='title &quot;screenshare-pet — a PiP pet that watches your screen&quot;' not satisfied on https://pod.dstack.soc1024.com/screenshare-pet/</p>
+</div></div>
+<div class="card">
+<div class="noshot">signed-in view — screenshot withheld from the shared report (contains logged-in data).</div>
+<div class="meta">
+<div class="card-top"><h3><a href="https://pod.dstack.soc1024.com/souk-dogfood/board" target="_blank" rel="noopener">souk-dogfood</a></h3>
+<span class="envpills"><span class="envlab">prod</span><span class="pill pill-fail">FAIL</span><span class="envlab">staging</span><span class="pill pill-fail">FAIL</span></span></div>
+<p class="walkline">last walked 0m ago</p>
+<p class="cap">souk-mini run as a posted service — a group pools private evidence and the protocol kernel settles who gets paid. /board is the group view (public tier without a token), /debug the operator view with a tier cut-line. Signal is a selector, not title: the title is static markup and would green on a dead API, whereas #souk is filled from GET /api/board, so it greens only if the app answered. Source is not in this repo — sxysun/souk, branch amiller-notes, amiller-notes/dogfood/ — so the daemon record carries source: &quot;&quot; and it is not promotable. State lives on /daemon-data/souk-dogfood/ and survives redeploy (verified 2026-08-09).</p>
+<p class="signal">signal: <code>#souk &quot;souk-dogfood&quot;</code></p>
+<p class="note">prod: FAIL signal='#souk &quot;souk-dogfood&quot;' not satisfied on https://pod.dstack.soc1024.com/souk-dogfood/board</p>
+<p class="note">staging: FAIL signal='#souk &quot;souk-dogfood&quot;' not satisfied on https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala.network/souk-dogfood/board</p>
+</div></div>
+</div></section>
+<section class="block smoke"><h2>Swarm activity <span class="tag">lanes &amp; queue</span></h2>
+<div class="swarm-embed">
+<h2 id="swarm">The swarm — what it shipped, where the time went</h2>
+<p class="cap" style="color:#57606a">North star (PRD): M1 single-tenant loop verified end-to-end 2026-06-24; M2 = browser worker (J5) + app-store approver (J7). Everything below is pulled live from GitHub, the lane results, and the paseo daemon — no manual claims.</p>
+<h3>Shipped in the last 7 days (merged PRs)</h3>
+<ul class="swarm-list">
+<li><code>2026-09-08</code> <b>dstack-webhost</b> — <a href="https://github.com/amiller/dstack-webhost/pull/144" target="_blank">daemon: pull private registry images via X-Registry-Auth</a></li>
+</ul>
+<h3>Lane health over time</h3>
+<table class="swarm-table"><tr><th>lane</th><th>runs logged</th><th>pass rate</th><th>latest</th></tr>
+<tr><td><b>browser-pool</b></td><td>367</td><td>367/367</td><td style="color:#00838a">09-09T12:33 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
+<tr><td><b>e2e-verifier</b></td><td>367</td><td>17/367</td><td style="color:#c2185b">09-09T12:33 — FAIL: e2e-flow engine exited 1</td></tr>
+<tr><td><b>login-with-everything</b></td><td>367</td><td>223/367</td><td style="color:#00838a">09-09T12:33 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
+</table>
+<p class="cap" style="color:#57606a">History collection started 2026-07-06; each 30-min refresh appends a snapshot.</p>
+<h3>Agent census</h3><p>0 running, 0 idle/stopped on the paseo daemon right now.</p>
+<h3>Next — open <code>ready</code> work</h3>
+<p>No open ready-labeled issues — the queue is empty.</p>
+
+section.work{ margin-top:14px; }
+section.work h2{ font-size:16px; border-bottom:1px solid var(--rule,#d8d4cc); padding-bottom:4px; }
+section.work h3{ font-size:13.5px; margin:18px 0 2px; }
+section.work .last-run{ float:right; font-size:12px; color:var(--faint,#6e6a62); font-variant-numeric:tabular-nums; }
+section.work .sub.stale{ background:var(--fail-bg,#fbe9eb); border-left:4px solid var(--fail-fg,#b00020);
+  padding:8px 12px; border-radius:6px; }
+section.work .sub.stale h3{ color:var(--fail-fg,#b00020); margin-top:0; }
+section.work table.smoke-tbl{ font-size:13px; }
+section.work td.verify{ font-weight:600; white-space:nowrap; }
+section.work .v-pass{ color:#0b7a44; } section.work .v-fail{ color:var(--fail-fg,#b00020); }
+section.work .v-unknown{ color:var(--faint,#6e6a62); }
+section.work .badge{ font-size:11px; padding:1px 7px; border-radius:999px; white-space:nowrap; }
+section.work .b-merged{ background:#e3f3e8; color:#0b7a44; }
+section.work .b-open{ background:#e7f0fb; color:#1f6feb; }
+section.work .b-closed{ background:#f1ecea; color:#6e6a62; }
+section.work .b-ask{ background:#fde8e8; color:#b00020; }
+section.work .none{ color:var(--faint,#6e6a62); font-style:italic; }
+section.work .cap{ color:var(--faint,#6e6a62); font-size:12px; margin:6px 0 0; }
+section.work a{ color:#1f6feb; }
+<section class="work"><h2 id="work">Work — the autonomous loop</h2><p class="cap">What the loop is doing: recent runs (issue → branch → verify → PR), PR merge + pass/fail state, and the ready/operator-ask queue. Sourced live from <code>gh</code> + <code>~/paseo-batch/out</code>; any section whose substance is &gt;24h old or absent turns RED.</p>
+<div class="sub stale"><span class="last-run" title="2026-08-28 00:13 UTC">last run 12d ago</span><h3>Recent runs — STALE</h3><table class="smoke-tbl"><thead><tr><th>issue</th><th>title</th><th>branch</th><th>verify</th><th>PR · merge</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/issues/103">#103</a></td><td>staging-B: second oauth3 core instance as migration destination</td><td><code>staging-103</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/104">#104</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/85">#85</a></td><td>envoy-browser rig: screenshots degrade under Brave memory/process accu</td><td><code>staging-85</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/128">#128</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/38">#38</a></td><td>Otter demo: activity log noisy with frequent poll entries — coalesce +</td><td><code></code></td><td class="verify v-unknown">unknown</td><td>— </td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/6">#6</a></td><td>Attested gVisor (runsc) tenants can&#x27;t reach the broker unix socket — n</td><td><code>staging-6</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/127">#127</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/121">#121</a></td><td>&quot;tenant&quot; is used for containers, but a tenant is a user — the word hid</td><td><code>staging-121</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/123">#123</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/120">#120</a></td><td>No per-tenant resource visibility: CPU, memory and network are unmeasu</td><td><code>staging-120</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/122">#122</a> <span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/116">#116</a></td><td>gVisor with a working network: register runsc-hostnet (--network=host)</td><td><code>staging-116</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/117">#117</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/106">#106</a></td><td>version identity must be baked at build and asserted at boot</td><td><code>staging-106</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/113">#113</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/43">#43</a></td><td>Pod homepage should point visitors to the interesting apps deployed on</td><td><code>staging-43</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/111">#111</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/22">#22</a></td><td>Implement RFC 0019 — Managed Hosting via TeeSQL / AttestMesh</td><td><code>staging-22</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/110">#110</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/13">#13</a></td><td>Promote isolation-probe to attested + feature it as the worked example</td><td><code>staging-13</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/109">#109</a> <span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/2">#2</a></td><td>isolation:container tenants have no outbound DNS under runsc</td><td><code>staging-2</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/108">#108</a> <span class="badge b-merged">merged</span></td></tr></tbody></table><p class="cap">Each row is one ready-queue iteration from the result.json lane logs; verify = test_daemon.py / unit result recorded by that run.</p></div>
+<div class="sub "><span class="last-run" title="2026-09-09 12:33 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/143">#143</a></td><td>status: read live container state from docker at request time (#</td><td><code>staging-133</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/142">#142</a></td><td>deploy: refuse an env that carries the redaction sentinel (#132)</td><td><code>staging-132</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/141">#141</a></td><td>runtimes: give isolated (deno/bun) containers the same restart p</td><td><code>staging-131</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/140">#140</a></td><td>deploy: never destroy files_dir on a failed or non-git clone (#1</td><td><code>staging-130</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/139">#139</a></td><td>docs(#119): a project is one container — multi-process workloads</td><td><code>staging-119</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/138">#138</a></td><td>feat: atomically deploy and promote with tree pin</td><td><code>staging-105</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/137">#137</a></td><td>browser parity e2e suite + published board — the cutover gate (#</td><td><code>staging-77</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/136">#136</a></td><td>rfcs: add 0023 — staging CVM roles (webhost-staging vs hermes-st</td><td><code>staging-59</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/135">#135</a></td><td>RFC 0026: add scoped per-project debug sessions</td><td><code>staging-58</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/134">#134</a></td><td>prelaunch: abort on failed docker restart or unregistered runsc </td><td><code>staging-115</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/122">#122</a></td><td>per-tenant resource stats: /_api/stats + /_api/projects/&lt;name&gt;/s</td><td><code>staging-120</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/144">#144</a></td><td>daemon: pull private registry images via X-Registry-Auth</td><td><code>feat/private-registry-pull</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/129">#129</a></td><td>Complete staging-B oauth3 migration destination</td><td><code>staging-103</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr>
+<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/128">#128</a></td><td>envoy rig (#85): renderer cap + bridge port — 3 consecutive walk</td><td><code>staging-85</code></td><td class="verify v-pass">pass</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
+<div class="sub "><span class="last-run" title="2026-09-09 12:33 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><p class="none">No ready or operator-ask issues — the queue is empty.</p></div>
+</section>
+</div>
+</section>
+  <footer>
+    Cadence: flows are walked <b>on merge</b> plus a <b>2×/day sweep</b> (morning/evening); this page
+    regenerates after walks and merges. It does not poll and does not refresh on a timer.
+    Vocabulary per <code>VOCABULARY.md</code> — this report uses "flow" and "smoke check" only.
+  </footer>
+</div>
+<div id="lightbox" role="dialog" aria-label="zoomed screenshot" hidden><img alt="zoomed screenshot"></div>
+<style>
+  .zoomable{cursor:zoom-in}
+  #lightbox{position:fixed;inset:0;z-index:9999;background:rgba(10,8,4,.88);display:flex;
+    align-items:center;justify-content:center;padding:2.5vmin;cursor:zoom-out}
+  #lightbox[hidden]{display:none}
+  #lightbox img{max-width:96vw;max-height:96vh;border-radius:6px;box-shadow:0 12px 60px rgba(0,0,0,.7)}
+</style>
+<script>
+  (function(){
+    var lb=document.getElementById('lightbox'), lbImg=lb.querySelector('img');
+    document.addEventListener('click',function(e){
+      var t=e.target;
+      if(t.classList&&t.classList.contains('zoomable')){ lbImg.src=t.src; lb.hidden=false; }
+      else if(t===lb||t===lbImg){ lb.hidden=true; lbImg.removeAttribute('src'); }
+    });
+    document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&!lb.hidden){ lb.hidden=true; lbImg.removeAttribute('src'); } });
+  })();
+</script>
+</body>
+</html>
