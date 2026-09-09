@@ -115,6 +115,8 @@ def start_daemon(reuse_tmpdir: bool = False):
         "DOCKER_SOCKET": "/var/run/docker.sock",
         "DSTACK_SOCKET": "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
+        "DAEMON_PENDING_TTL": "8",
+        "DAEMON_SWEEP_INTERVAL": "1",
         "FOO": "isolated-deno-passthrough",
     }
     # RFC 0028: enable a 1-slot browser pool driven by a fake browser-bridge
@@ -1755,9 +1757,72 @@ def test_rfc0017_bootstrap():
     print(f"  Bootstrap: {len(bundle['projects'])} projects restored at their pins \u2713")
 
 
+def test_provisioner_flow():
+    """RFC 0034: a create-scoped token provisions a pending project and gets a per-project token."""
+    print("\n--- Test: RFC 0034 provisioner token + pending approval ---")
+    resp = api_post("/tokens", json={"scope": "create", "ttl": 600, "max_pending": 2})
+    assert resp.status_code == 201, resp.text
+    prov = {"Authorization": f"Bearer {resp.json()['token']}"}
+    assert resp.json()["scope"] == "create" and resp.json()["max_pending"] == 2
+
+    assert requests.get(f"{API}/projects", headers=prov).status_code == 403
+    assert requests.post(f"{API}/projects/test-tarball/redeploy", headers=prov).status_code == 403
+
+    def create(name, body):
+        return requests.post(f"{API}/projects", headers=prov, files={
+            "manifest": (None, json.dumps({"name": name, "runtime": "static", "source": "tarball://local"}), "application/json"),
+            "files": ("app.tar.gz", make_tarball({"index.html": body}), "application/gzip")})
+    resp = create("hello-pending", b"v1")
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["approval"]["status"] == "pending" and body["approval"]["created_by"].startswith("tok-")
+    proj = {"Authorization": f"Bearer {body['token']}"}
+    assert requests.get(f"{API}/projects/hello-pending", headers=prov).status_code == 403
+    print(f"  created hello-pending, deadline in {body['approval']['deadline'] - time.time():.0f}s")
+
+    assert create("hello-pending", b"v1").status_code == 409
+    assert create("hello-pending-2", b"x").status_code == 201
+    assert create("hello-pending-3", b"x").status_code == 429
+    assert create("create", b"x").status_code == 400
+    print("  409 on existing name, 429 past max_pending, 400 on reserved name ✓")
+
+    assert requests.get(f"{API}/projects/hello-pending", headers=proj).status_code == 200
+    assert requests.post(f"{API}/projects/hello-pending/promote", headers=proj).status_code == 403
+    assert requests.post(f"{API}/projects/hello-pending/approve", headers=proj).status_code == 403
+    pending = api_get("/projects?pending=1").json()
+    assert {p["name"] for p in pending} == {"hello-pending", "hello-pending-2"}, pending
+    assert requests.get(f"{INGRESS}/hello-pending/").text == "v1"
+    print("  per-project token works, promote/approve refused while pending ✓")
+
+    # redeploy with a tarball keeps the approval state (no laundering)
+    resp = requests.post(f"{API}/projects/hello-pending/redeploy", headers=proj,
+                         files={"files": ("app.tar.gz", make_tarball({"index.html": b"v2"}), "application/gzip")})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["approval"]["status"] == "pending"
+    assert requests.get(f"{INGRESS}/hello-pending/").text == "v2"
+    print("  redeploy with tarball via per-project token ✓")
+
+    deadline = body["approval"]["deadline"]
+    time.sleep(max(0, deadline - time.time()) + 3)
+    r = requests.get(f"{INGRESS}/hello-pending/")
+    assert r.status_code == 503 and r.json()["error"] == "pending expired", r.text
+    assert api_get("/projects/hello-pending").json()["approval"]["status"] == "frozen"
+    print("  frozen after deadline ✓")
+
+    assert api_post("/projects/hello-pending/approve").status_code == 200
+    assert api_get("/projects/hello-pending").json()["approval"] is None
+    assert requests.get(f"{INGRESS}/hello-pending/").text == "v2"
+    assert api_post("/projects/hello-pending/approve").status_code == 400
+    assert requests.post(f"{API}/projects/hello-pending/promote", headers=proj).status_code == 200
+    audit = api_get("/projects/hello-pending/audit").json()
+    actions = [e["action"] for e in audit]
+    assert actions.count("create") == 1 and "freeze" in actions and "approve" in actions, actions
+    print("  approved, unfrozen, promotable; audit has create/freeze/approve ✓")
+
+
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-keepenv", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-keepenv", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp", "hello-pending", "hello-pending-2"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -1818,6 +1883,7 @@ def main():
         test_browser_pool()
         test_rfc0017_export_import()
         test_rfc0017_bootstrap()
+        test_provisioner_flow()
         test_teardown()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:
