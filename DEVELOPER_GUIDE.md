@@ -216,6 +216,10 @@ Two limits to plan around:
 - **`/oauth3/sdk.js` is fetched at runtime**, so it is not covered by your project's measured tree
   hash. If your project is `attested`, vendor the SDK into your own tree instead.
 
+## Shipping the daemon itself
+
+Two paths roll a CVM to a new daemon image, both through `ship-fix.sh`. **CI-built (staging, no ghcr credential):** every push to `staging` makes [`.github/workflows/staging-image.yml`](.github/workflows/staging-image.yml) build the `Dockerfile` and push `ghcr.io/amiller/tee-socket-proxy:staging-<short sha>` with the workflow's own `GITHUB_TOKEN`; `ship-fix.sh staging --no-build` then resolves that tag's digest anonymously from ghcr (the package is public), pins it in the staging compose and `phala deploy`s — and refuses, changing nothing, if CI has not built an image for HEAD. **Local (any target):** plain `ship-fix.sh staging|prod|pod` builds and pushes the image itself, so it needs `docker login ghcr.io` on the shipping machine.
+
 ## Where to look in the daemon
 
 `proxy/ingress.py` has the request routing and auth gate. `proxy/runtimes.py` has the language-runtime container management and the Deno router that loads your handler. `proxy/deploy.py` has the git-clone path and the source-hash recording. The whole thing is small enough to read end-to-end.
