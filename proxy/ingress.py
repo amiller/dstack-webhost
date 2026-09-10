@@ -1272,12 +1272,15 @@ class Ingress:
         session = self.debug_session_store.find(session_id)
         if session is None:
             return None
-        if session.revoked:
-            return None
+        # Expiry is checked before `revoked`: the sweeper reclaims expired sessions by
+        # setting revoked=True, and a use after that must still audit as an expiry, not
+        # silently masquerade as a manual revocation.
         if session.is_expired():
             await self.audit_manager.get_audit_log(session.project).record(AuditEntry(
                 timestamp=time.time(), action="debug_expired", detail=session_id,
                 container_id=session.container_id))
+            return None
+        if session.revoked:
             return None
         return session
 
