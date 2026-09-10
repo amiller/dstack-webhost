@@ -1,5 +1,27 @@
 # Issue #58 — scoped per-project debug sessions — Tier-1 evidence (rework, 2026-08-30)
 
+## Re-verified after rebase onto staging (2026-09-10, head `270d03b2`)
+
+Rebased onto `origin/staging` @ `683417a1` (was DIRTY; conflicts in
+`proxy/docker_client.py` and `proxy/test_docker_client.py` resolved as the union of
+staging's registry-auth/pull-timeout/log-demux work and this PR's
+tail-validation/exec/read_data_file work). Re-run in full at the rebased head:
+`test_daemon.py` → `=== ALL TESTS PASSED ===` (52 tests, staging added three);
+`pytest proxy/` → 23 passed; the tier-1 transcript below → `ALL ACCEPTANCE CHECKS
+PASSED` (`/_api/version` → `{"commit": "270d03b2"}`; rerun log box-local:
+`~/paseo-batch/out/58/transcript-rerun-270d03b2.txt`).
+
+The rerun caught a real regression the rebase exposed: staging's new
+`DAEMON_SWEEP_INTERVAL` (the test daemon sweeps every 1s) lets the grant sweeper
+reclaim an expired debug session (`revoked=True`) before its first refused use,
+so the old revoked-first classification in `_debug_session` returned 404 without
+the `debug_expired` audit the acceptance requires. Fixed by classifying expiry
+before revocation (commit `270d03b2`); the transcript now shows
+`('debug_expired', …)` in dbg-alpha's chain again. Staging's log demux also
+resolves the `/logs` raw-frames note below.
+
+---
+
 Demonstrated end-to-end over HTTP against a daemon running this PR's exact head
 (`staging-58` @ `594224d8`, resolved from git at boot, see the version pin below),
 with real docker containers. Run on the swarm box: rootless docker via the
@@ -145,9 +167,10 @@ script itself.)
 - `GET …/data?path=../../../etc/passwd` fails **closed** (ValueError from the path
   guard propagates → HTTP 500, nothing read). It is not mapped to a 400 like other
   bad inputs — cosmetic inconsistency, no content leak.
-- `/logs` returns docker's raw multiplexed frame bytes interleaved with the text
-  (visible as `\u0001\u0000…` above) — the exec endpoint demuxes, the logs endpoint
-  does not. Readable but noisy; a demux would be a small follow-up.
+- `/logs` returned docker's raw multiplexed frame bytes interleaved with the text
+  (visible as `\u0001\u0000…` above) — cosmetic, noted 2026-08-30. **Resolved by the
+  2026-09-10 rebase**: staging's `_demux_docker_stream` now applies to `logs()`, and
+  the rerun transcript shows clean text (see the re-verification note above).
 - Per-project audit over HTTP is attested-only by design; the dev-mode project's
   chain was read from the daemon's audit dir on disk (labeled as such above).
 
