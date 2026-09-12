@@ -1,5 +1,33 @@
 # Issue #58 — scoped per-project debug sessions — Tier-1 evidence (rework, 2026-08-30)
 
+## Review rework: sessions mediated by the DockerProxy, ownership proven at mint (2026-09-12, head `24b4f578`)
+
+The independent review (2026-09-12 19:17Z, `REVIEW: REJECT`) named two gaps: the
+debug handlers called the daemon's internal `DockerClient` directly instead of going
+through the existing DockerProxy, and minting created + audited the grant while the
+exact-project-label ownership check was deferred to first use. Fixed at `24b4f578`:
+
+- `DockerProxy` gained scoped entry points (`debug_scope`, `debug_exec`, `debug_logs`,
+  `debug_read_data_file`) that enforce tracker membership + the exact
+  `tee-daemon.project.<name>` label on **every** call; the ingress handlers call those
+  and no longer touch `self.docker`. The app-facing HTTP route table still hard-denies
+  `exec`/`archive` — apps are unchanged.
+- Minting calls `debug_scope` **before** `create` + audit, so a grant (and its audit
+  entry) exists only for a container proven owned by that project.
+
+The deferred-check hole was real, demonstrated at the pre-fix head `6a2b3488`: a
+tampered manifest (`runtime: dockerfile`) naming dbg-beta's container minted a **201**
+grant audited under the imposter's project (box-local:
+`~/paseo-batch/out/58/transcript-prefix-bugprobe-6a2b3488.txt`). At `24b4f578` the same
+mint is refused — `409 {"error": "container is not owned by this project"}` — and **no**
+`dbg-imposter` audit file exists (refused before mint+audit).
+
+Re-run in full at `24b4f578`: `test_daemon.py` → `=== ALL TESTS PASSED ===` (52 tests);
+`pytest proxy/` → 23 passed; tier-1 transcript (now including the negative mint) →
+`ALL ACCEPTANCE CHECKS PASSED` (`/_api/version` → `{"commit": "24b4f578"}`; logs
+box-local: `~/paseo-batch/out/58/{test_daemon-review-fix-24b4f578.log,
+transcript-review-fix-24b4f578.txt,tier1-review-fix-24b4f578.py}`).
+
 ## Landed as a merge (2026-09-12, head `c8e49878`)
 
 The verified rebase line (`3308000a`) could not be force-pushed: the push channel is
@@ -166,7 +194,7 @@ script itself.)
 
 | Criterion | Demonstrated by |
 |---|---|
-| `POST /_api/projects/<name>/debug` mints a TTL'd, audited grant giving exec, log tail and dataDir read on that one project's container, through the daemon — no host shell, no other project, no raw dstack socket | mint → 201 with id/expires_at; exec returned that container's hostname and its own `/data` content; logs tailed the container's stdout; data read returned `alpha-secret` written by the app itself. Two sessions on two projects ran on distinct containers (`d5d0d998faf1` vs `32ccd657665b`), each seeing only its own data. No token → 401. Structural (code, not runtime): the daemon path checks `tracker.is_allowed` + the `tee-daemon.project.<name>` label before any engine call (`ingress._debug_container`), the app-facing DockerProxy exec/archive deny is untouched, and `DSTACK_SOCKET=/nonexistent` in this run |
+| `POST /_api/projects/<name>/debug` mints a TTL'd, audited grant giving exec, log tail and dataDir read on that one project's container, through the existing DockerProxy — no host shell, no other project, no raw dstack socket | mint → 201 with id/expires_at; exec returned that container's hostname and its own `/data` content; logs tailed the container's stdout; data read returned `alpha-secret` written by the app itself. Two sessions on two projects ran on distinct containers (`d5d0d998faf1` vs `32ccd657665b`), each seeing only its own data. No token → 401. Structural (code + runtime, 2026-09-12): every debug exec/logs/data call goes through `DockerProxy` scoped entry points that check `tracker.is_allowed` + the `tee-daemon.project.<name>` label per call, mint proves the same **before** the grant is created or audited (a tampered manifest naming another project's container → 409, no audit), the app-facing DockerProxy exec/archive deny is untouched, and `DSTACK_SOCKET=/nonexistent` in this run |
 | `DELETE /_api/debug/<session>` revokes it, and a session past its TTL is refused without needing the delete | revoke → `{"ok": true}`; exec after revoke → 404; second delete → 404. Separate `ttl: 1` session: exec after expiry (no delete sent) → 404, and the refusal itself audited as `debug_expired` |
 | A debug session against an `attested`-mode project is ALLOWED, and every action lands in `proxy/audit.py` under that project | `dbg-alpha` is mode=attested; its session minted, exec'd, tailed and read. Its audit chain (readable **without** a token — attested projects expose their audit per RFC 0015) contains `debug_mint, debug_exec, debug_logs, debug_data, debug_revoke, debug_mint, debug_expired`, each carrying the session id and container id. `dbg-beta`'s chain contains only its own `debug_mint/debug_exec` — no alpha events leaked in |
 | Opening, using and revoking a session leaves the project's mode unchanged | manifests before/after identical: `dbg-alpha` `mode: attested`, `dbg-beta` `mode: dev`, both `isolation: container` |
