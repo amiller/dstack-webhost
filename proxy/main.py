@@ -210,8 +210,8 @@ async def start():
         log.info("BROWSER_POOL_IMAGE unset — browser pool disabled")
 
     # Ingress + API on TCP port(s)
-    ing = Ingress(store, docker, audit_manager, tracker, rtm, tunnel_store, token_store,
-                  broker_store, browser_pool, debug_session_store)
+    ing = Ingress(store, docker, audit_manager, tracker, rtm, docker_proxy, tunnel_store,
+                  token_store, broker_store, browser_pool, debug_session_store)
 
     # Check for port conflicts. The default ingress port (INGRESS_PORT) and the
     # reserved path-based port (8080 — see deploy() and update_port_map()) are

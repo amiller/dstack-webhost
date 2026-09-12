@@ -16,6 +16,7 @@ import aiohttp
 from aiohttp import web
 
 from .docker_client import DockerClient
+from .docker_proxy import DockerProxy
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
@@ -124,12 +125,14 @@ def _network_isolation(runtime: str, available: dict) -> str:
 class Ingress:
     def __init__(self, store: ProjectStore, docker: DockerClient,
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
-                 rtm: RuntimeManager, tunnel_store: TunnelStore,
-                 token_store: TokenStore, broker_store: BrokerStore | None = None,
+                 rtm: RuntimeManager, docker_proxy: DockerProxy,
+                 tunnel_store: TunnelStore, token_store: TokenStore,
+                 broker_store: BrokerStore | None = None,
                  browser_pool: BrowserPool | None = None,
                  debug_session_store: DebugSessionStore | None = None):
         self.store = store
         self.docker = docker
+        self.docker_proxy = docker_proxy
         self.audit_manager = audit_manager
         self.tracker = tracker
         self.rtm = rtm
@@ -1287,12 +1290,8 @@ class Ingress:
     async def _debug_container(self, session):
         project = self.store.load(session.project)
         container_id = self.rtm.get_debug_container(project)
-        if container_id != session.container_id or not self.tracker.is_allowed(container_id):
+        if container_id != session.container_id:
             raise RuntimeError("debug container is no longer managed for this project")
-        inspected = await self.docker.inspect(container_id)
-        labels = inspected.get("Config", {}).get("Labels", {})
-        if labels.get(f"tee-daemon.project.{project.name}") != "true":
-            raise RuntimeError("debug container is not owned by this project")
         return project, container_id
 
     async def _api_create_debug(self, request: web.Request, name: str) -> web.Response:
@@ -1303,8 +1302,15 @@ class Ingress:
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
         container_id = self.rtm.get_debug_container(project)
-        if not container_id or not self.tracker.is_allowed(container_id):
+        if not container_id:
             return web.json_response({"error": "project has no isolated managed container"}, status=409)
+        # Exact-container ownership is proven BEFORE the grant is minted and
+        # audited — a stale or tampered manifest must not earn a cross-project
+        # grant (review on PR #135, 2026-09-12).
+        try:
+            await self.docker_proxy.debug_scope(container_id, project.name)
+        except RuntimeError as e:
+            return web.json_response({"error": str(e)}, status=409)
         try:
             data = await request.json()
             if not isinstance(data, dict):
@@ -1350,7 +1356,10 @@ class Ingress:
         data = await request.json()
         if not isinstance(data, dict) or "cmd" not in data:
             return web.json_response({"error": "cmd is required"}, status=400)
-        output = await self.docker.exec(container_id, data["cmd"])
+        try:
+            output = await self.docker_proxy.debug_exec(container_id, project.name, data["cmd"])
+        except RuntimeError as e:
+            return web.json_response({"error": str(e)}, status=409)
         await self.audit_manager.get_audit_log(project.name).record(AuditEntry(
             timestamp=time.time(), action="debug_exec", container_id=container_id,
             detail=json.dumps({"session": session.id, "cmd": data["cmd"]})))
@@ -1365,7 +1374,10 @@ class Ingress:
             tail = int(request.query.get("tail", "100"))
         except ValueError:
             return web.json_response({"error": "tail must be an integer"}, status=400)
-        output = await self.docker.logs(container_id, tail)
+        try:
+            output = await self.docker_proxy.debug_logs(container_id, project.name, tail)
+        except RuntimeError as e:
+            return web.json_response({"error": str(e)}, status=409)
         await self.audit_manager.get_audit_log(project.name).record(AuditEntry(
             timestamp=time.time(), action="debug_logs", container_id=container_id,
             detail=json.dumps({"session": session.id, "tail": tail})))
@@ -1381,7 +1393,10 @@ class Ingress:
         relative_path = request.query.get("path")
         if relative_path is None:
             return web.json_response({"error": "path is required"}, status=400)
-        data = await self.docker.read_data_file(container_id, relative_path)
+        try:
+            data = await self.docker_proxy.debug_read_data_file(container_id, project.name, relative_path)
+        except RuntimeError as e:
+            return web.json_response({"error": str(e)}, status=409)
         if len(data) > 1024 * 1024:
             raise ValueError("dataDir file exceeds 1 MiB")
         await self.audit_manager.get_audit_log(project.name).record(AuditEntry(

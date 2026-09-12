@@ -9,6 +9,7 @@ from aiohttp import web
 
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
+from .docker_client import DockerClient
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class DockerProxy:
         self.real_socket = real_socket
         self.tracker = tracker
         self.audit_manager = audit_manager
+        self.client = DockerClient(real_socket)
 
     async def ensure_network(self):
         conn = aiohttp.UnixConnector(path=self.real_socket)
@@ -77,6 +79,31 @@ class DockerProxy:
                 for c in await resp.json():
                     self.tracker.add(c["Id"])
                     log.info("Recovered tracked container %s", c["Id"][:12])
+
+    # RFC 0026 scoped debug operations. The HTTP surface above still hard-denies
+    # exec/archive for app callers; these are the daemon-side entry points its
+    # authenticated ingress uses, so every debug action passes this proxy's
+    # mediation (tracked container + exact project label) instead of a raw client.
+    async def debug_scope(self, container_id: str, project_name: str):
+        if not self.tracker.is_allowed(container_id):
+            raise RuntimeError(f"container {container_id[:12]} is not managed")
+        inspected = await self.client.inspect(container_id)
+        labels = inspected.get("Config", {}).get("Labels", {})
+        if labels.get(f"{LABEL_PROJECT}.{project_name}") != "true":
+            raise RuntimeError("container is not owned by this project")
+
+    async def debug_exec(self, container_id: str, project_name: str, cmd: list[str]) -> str:
+        await self.debug_scope(container_id, project_name)
+        return await self.client.exec(container_id, cmd)
+
+    async def debug_logs(self, container_id: str, project_name: str, tail: int) -> str:
+        await self.debug_scope(container_id, project_name)
+        return await self.client.logs(container_id, tail)
+
+    async def debug_read_data_file(self, container_id: str, project_name: str,
+                                   relative_path: str) -> bytes:
+        await self.debug_scope(container_id, project_name)
+        return await self.client.read_data_file(container_id, relative_path)
 
     async def handle(self, request: web.Request) -> web.Response:
         method = request.method
