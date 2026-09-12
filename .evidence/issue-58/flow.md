@@ -1,5 +1,17 @@
 # Issue #58 — scoped per-project debug sessions — Tier-1 evidence (rework, 2026-08-30)
 
+## Landed as a merge (2026-09-12, head `c8e49878`)
+
+The verified rebase line (`3308000a`) could not be force-pushed: the push channel is
+unforced by design and a rebase rewrites history. It is landed instead as merge
+`c8e49878` on top of the published head `ed75db6e` — tree byte-identical to `3308000a`
+(`git diff` empty), so the code is exactly the re-verified line, and the push is a
+pure fast-forward (nothing on origin replaced). Re-run in full at the landed head:
+`test_daemon.py` → `=== ALL TESTS PASSED ===` (52 tests); `pytest proxy/` → 23 passed;
+tier-1 transcript → `ALL ACCEPTANCE CHECKS PASSED` (`/_api/version` →
+`{"commit": "c8e49878"}`; rerun log box-local:
+`~/paseo-batch/out/58/transcript-rerun-c8e49878.txt`).
+
 ## Re-verified after rebase onto staging (2026-09-10, head `270d03b2`)
 
 Rebased onto `origin/staging` @ `683417a1` (was DIRTY; conflicts in
