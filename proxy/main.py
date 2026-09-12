@@ -21,6 +21,7 @@ from .broker import BrokerStore, BrokerProxy
 from .browser_pool import BrowserPool, parse_binds
 from . import ingress as ingress_mod
 from . import deploy as deploy_mod
+from . import pending
 from .ingress import Ingress
 
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
@@ -40,6 +41,7 @@ TOKEN_DIR = os.environ.get("DAEMON_TOKEN_DIR", "/var/lib/tee-daemon/tokens")
 BROKER_DIR = os.environ.get("DAEMON_BROKER_DIR", "/var/lib/tee-daemon/broker")
 CREDS_DIR = os.environ.get("DAEMON_CREDS_DIR", "/var/lib/tee-daemon/creds")
 INGRESS_PORT = int(os.environ.get("INGRESS_PORT", "8080"))
+SWEEP_INTERVAL = int(os.environ.get("DAEMON_SWEEP_INTERVAL", "60"))
 
 
 def _resolve_commit() -> str:
@@ -99,6 +101,13 @@ async def start():
     await docker_proxy.recover_tracked()
     log.info("Recovered %d tracked containers", len(tracker.all_ids()))
 
+    # Hand back address space from projects that no longer exist. Networks outlive the
+    # containers that used them, so a daemon that has deployed more projects than the
+    # pool has subnets will fail to start any new tenant — with a create_network 404
+    # that names an address pool and not the reason. Skips anything still in use.
+    reclaimed = await rtm.reclaim_orphan_networks()
+    log.info("Startup network reclaim released %d subnet(s)", reclaimed)
+
     # Connect ourselves to runtime networks so we can proxy to runtime containers
     hostname = os.environ.get("HOSTNAME", "")
     if hostname:
@@ -154,8 +163,22 @@ async def start():
 
     await audit_manager.replay_anchors()
 
-    # Recovery: restore shared runtimes for existing projects
-    await rtm.recover_all()
+    # Recovery runs in the BACKGROUND; the ingress binds without waiting for it.
+    # Awaiting it here meant one tenant's slow image pull held the whole pod dark:
+    # 2026-08-25, oauth3-prod7 sat unreachable for fifteen minutes on
+    # `Pulling alpine for project caps-probe` — one long-broken tenant, thirty-three
+    # healthy ones unreachable, and nothing served until it gave up. A project that
+    # has not been recovered yet answers 502 for a moment, which is strictly better
+    # than every project answering nothing.
+    recovery = asyncio.create_task(rtm.recover_all())
+
+    def _recovery_done(task):
+        exc = task.exception() if not task.cancelled() else None
+        if exc:
+            log.error("recover_all failed: %s", exc)
+        else:
+            log.info("Recovery complete")
+    recovery.add_done_callback(_recovery_done)
 
     # Recovery: restore tunnels from disk
     tunnel_store.recover()
@@ -259,12 +282,16 @@ async def start():
     # Background task: cleanup expired short-lived grants
     async def cleanup_expired_grants():
         while True:
-            await asyncio.sleep(60)  # Check every minute
+            await asyncio.sleep(SWEEP_INTERVAL)
             tunnel_store.cleanup_expired()
             debug_session_store.cleanup_expired()
             token_store.cleanup_expired()
             if dstack_sock:
                 broker_store.cleanup_expired()
+            try:
+                await pending.sweep(store, rtm, audit_manager)
+            except Exception as e:
+                log.error("pending sweep failed: %s", e)
 
     cleanup_task = asyncio.create_task(cleanup_expired_grants())
 

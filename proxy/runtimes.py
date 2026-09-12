@@ -18,6 +18,13 @@ log = logging.getLogger(__name__)
 
 NETWORK_DEV = "tee-apps-dev"
 NETWORK_ATTESTED = "tee-apps-attested"
+
+# Shared opt-in VPN egress. The provider (an attested openvpn-socks5 project with
+# egress_provider=true) joins EGRESS_NET as alias EGRESS_ALIAS; consumers set egress=true
+# to join the same net and receive EGRESS_PROXY_URL so their outbound routes via the VPN.
+EGRESS_NET = "tee-egress"
+EGRESS_ALIAS = "egress-vpn"
+EGRESS_PROXY_URL = f"socks5://{EGRESS_ALIAS}:1080"
 # When running inside Docker, host paths don't work for sibling container bind mounts.
 # Set DAEMON_VOLUME_NAME to the Docker volume name (e.g. "dstack_daemon_data")
 # and DAEMON_VOLUME_MOUNT to the mount point inside the daemon (e.g. "/var/lib/tee-daemon").
@@ -506,6 +513,56 @@ class RuntimeManager:
                 log.debug("daemon connect_network %s: %s", net_name, e)
         return net_name
 
+    async def remove_project_network(self, project_name: str, mode: str) -> None:
+        """Give the subnet back when a project goes away.
+
+        Docker allocates every bridge network a subnet from default-address-pools —
+        by default about thirty of them. A daemon that creates one network per project
+        and never removes one runs the pool dry, and then every new tenant fails at
+        create_network with a 404 that says nothing about the real cause. The
+        containers are cleaned up already; this is the address space they were using."""
+        net_name = f"tee-proj-{project_name}-{mode}"
+        daemon_hostname = os.environ.get("HOSTNAME", "")
+        if daemon_hostname:
+            try:
+                await self.docker.disconnect_network(daemon_hostname, net_name)
+            except Exception as e:
+                log.debug("daemon disconnect_network %s: %s", net_name, e)
+        try:
+            if await self.docker.remove_network(net_name):
+                log.info("Released network %s", net_name)
+            else:
+                log.info("Network %s still has containers attached; left alone", net_name)
+        except Exception as e:
+            log.warning("remove_network %s: %s", net_name, e)
+
+    async def reclaim_orphan_networks(self) -> int:
+        """Release tee-proj-* networks nothing is attached to. Safe to run at startup:
+        a network with a live tenant on it reports containers and is skipped."""
+        released = 0
+        try:
+            for net in await self.docker.list_networks("tee-proj-"):
+                if not await self.docker.network_is_empty(net):
+                    continue
+                if await self.docker.remove_network(net):
+                    released += 1
+                    log.info("Reclaimed orphaned network %s", net)
+        except Exception as e:
+            log.warning("network reclaim failed: %s", e)
+        if released:
+            log.info("Reclaimed %d orphaned project network(s)", released)
+        return released
+
+    async def _attach_egress(self, container: str, project) -> None:
+        """Opt-in shared VPN egress. The provider joins as the stable alias 'egress-vpn';
+        consumers just join so docker DNS resolves that alias (proxy env is injected at
+        container-create time). No-op unless the project opted in."""
+        if not (getattr(project, "egress", False) or getattr(project, "egress_provider", False)):
+            return
+        await self.docker.create_network(EGRESS_NET)
+        aliases = [EGRESS_ALIAS] if getattr(project, "egress_provider", False) else None
+        await self.docker.connect_network(container, EGRESS_NET, aliases=aliases)
+
     async def start_isolated(self, project) -> str:
         """Per-project container for deno/bun with scoped Deno permissions.
         Returns the runtime image digest."""
@@ -590,6 +647,9 @@ class RuntimeManager:
             env["BROKER_SOCKET"] = creds_sock
             broker_token = self._generate_broker_token(project.name)
             env["BROKER_TOKEN"] = broker_token
+        if getattr(project, "egress", False) and not getattr(project, "egress_provider", False):
+            env["EGRESS_PROXY_URL"] = EGRESS_PROXY_URL
+            env["ALL_PROXY"] = EGRESS_PROXY_URL
         cmd += [
             entry_in,
             project.entry or "server.ts",
@@ -603,8 +663,10 @@ class RuntimeManager:
         cid = await self.docker.create_container(
             cname, image, cmd, binds, labels, network,
             runtime=(project.oci_runtime or CONTAINER_RUNTIME),
+            restart_policy=IMAGE_APP_RESTART_POLICY,
             cap_add=caps, devices=devs)
         await self.docker.start(cid)
+        await self._attach_egress(cid, project)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
         self.image_cids[project.name] = cid
@@ -660,6 +722,9 @@ class RuntimeManager:
             env.append(f"BROKER_SOCKET={BROKER_MOUNT_IN_APP}/creds.sock")
             broker_token = self._generate_broker_token(project.name)
             env.append(f"BROKER_TOKEN={broker_token}")
+        if getattr(project, "egress", False) and not getattr(project, "egress_provider", False):
+            env.append(f"EGRESS_PROXY_URL={EGRESS_PROXY_URL}")
+            env.append(f"ALL_PROXY={EGRESS_PROXY_URL}")
         runtime = project.oci_runtime or CONTAINER_RUNTIME
         caps = project.cap_add if project.mode == "attested" else []
         devs = project.devices if project.mode == "attested" else []
@@ -669,6 +734,7 @@ class RuntimeManager:
             restart_policy=IMAGE_APP_RESTART_POLICY,
             cap_add=caps, devices=devs)
         await self.docker.start(cid)
+        await self._attach_egress(cid, project)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
         self.image_cids[project.name] = cid
@@ -776,6 +842,21 @@ class RuntimeManager:
 
         return result
 
+    async def get_container_id(self, project) -> str | None:
+        """Resolve a project's live container id for logs/inspect. Prefers the
+        in-memory map (populated on deploy/recover); falls back to resolving by
+        the deterministic container name so it still works right after a daemon
+        restart before recover_all has run."""
+        cid = self.image_cids.get(project.name)
+        if cid:
+            return cid
+        if project.runtime == "image" or project.isolation == "container":
+            prefix = "tee-image" if project.runtime == "image" else "tee-isolated"
+            return await self.docker.container_exists(f"{prefix}-{project.name}-{project.mode}")
+        if project.runtime in ("dockerfile",):
+            return project.container_id or None
+        return None
+
     async def recover_all(self):
         await self._bootstrap_from_import_bundle()
         runtimes_needed = set()
@@ -788,12 +869,23 @@ class RuntimeManager:
                 isolated_projects.append(p)
             elif p.runtime not in ("static", "dockerfile"):
                 runtimes_needed.add(p.runtime)
+        # Recover each project independently — a single failure (e.g. a transient image
+        # pull 500) must NOT abort startup and take down the daemon + every other app.
         for rt in runtimes_needed:
-            await self.refresh(rt)
+            try:
+                await self.refresh(rt)
+            except Exception as e:
+                log.error("recover: runtime %s failed, skipping: %s", rt, e)
         for p in image_projects:
-            await self.start_image(p)
+            try:
+                await self.start_image(p)
+            except Exception as e:
+                log.error("recover: image project %s failed, skipping: %s", p.name, e)
         for p in isolated_projects:
-            await self.start_isolated(p)
+            try:
+                await self.start_isolated(p)
+            except Exception as e:
+                log.error("recover: isolated project %s failed, skipping: %s", p.name, e)
 
     async def _bootstrap_from_import_bundle(self):
         """RFC 0017 §4: an empty registry with an import bundle present means a
@@ -815,3 +907,4 @@ class RuntimeManager:
         log.info("Bootstrapped from %s: imported=%s skipped=%s", path,
                  result["imported"],
                  [s["project"] for s in result["skipped"]])
+
