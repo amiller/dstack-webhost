@@ -117,3 +117,20 @@ PLAN — checkboxes derived from the issue's `## Acceptance`.
       start path exists, so `probe-121` never left "runtime not running"; the walk serves the
       branch's probe.py + index.html verbatim behind a handle() adapter);
       ghcr probe-image rebuild for hermes-staging remains the named operator step.
+
+---
+
+# Issue #131 plan — isolated (deno/bun) containers get no restart policy
+
+PLAN — checkboxes derived from the issue's `## Acceptance`.
+
+- [x] `start_isolated` passes `IMAGE_APP_RESTART_POLICY` to `create_container`
+      (same one-line shape as `start_image`; `docker_client` already plumbed the kwarg).
+- [x] `test_isolated_restart_policy`: deploys an isolated deno app whose entry throws at
+      module load, asserts `HostConfig.RestartPolicy` on `tee-isolated-iso-restart-dev`
+      equals `IMAGE_APP_RESTART_POLICY`, then asserts docker actually retried
+      (`RestartCount > 0`); cleans up via `api_delete` like its sibling test.
+- [x] Full `test_daemon.py` green on real docker (`=== ALL TESTS PASSED ===`).
+- [x] Tier 1: HTTP transcript (deploy → inspect → pinned `/_api/version`) in the PR;
+      webhost-staging image deploy (`ship-fix.sh staging`) is operator-gated from this
+      sandbox (no ghcr push creds, no phala) — named in the PR, not papered over.
