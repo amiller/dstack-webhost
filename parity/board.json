@@ -1,0 +1,476 @@
+{
+ "issue": "amiller/dstack-webhost#77",
+ "generated": "2026-08-30T03:26:20+00:00",
+ "cutover": {
+  "ready": false,
+  "rule": "the bespoke Brave is NOT retired and the flag is NOT flipped until every row is green, including isolation; red and NOT-YET rows are the remaining work"
+ },
+ "targets": {
+  "pool": "http://localhost:18080",
+  "bespoke": "https://pod.dstack.soc1024.com/twitter-debug",
+  "pool_status": {
+   "started": true,
+   "size": 2,
+   "free": 2,
+   "busy": 0,
+   "active_leases": 0,
+   "image": "denoland/deno:latest"
+  }
+ },
+ "notes": [
+  "RFC 0028 decided ephemeral-per-lease + a metering hook; the pool implements reset-and-reuse with no metering \u2014 remaining work, tracked by the isolation row.",
+  "RFC 0018 broker jar-injection is unwired (issue #50): /_api/browser/render accepts a raw jar.",
+  "twitter-debug's /twitter/setjar was removed; bespoke jar injection is now owner-approved OAuth3 vault connect."
+ ],
+ "rows": [
+  {
+   "capability": "liveness",
+   "assertion": "green",
+   "pool": {
+    "checks": [
+     {
+      "name": "GET /_api/browser/pool green",
+      "status": "PASS",
+      "detail": "started, size=2"
+     },
+     {
+      "name": "a lease renders (health alone is not parity)",
+      "status": "PASS",
+      "detail": "lease bl-16f3576547f2 slot 0 in 412ms"
+     }
+    ],
+    "evidence": {
+     "GET /_api/browser/pool": {
+      "http": 200,
+      "body": {
+       "started": true,
+       "size": 2,
+       "free": 2,
+       "busy": 0,
+       "active_leases": 0,
+       "image": "denoland/deno:latest"
+      }
+     },
+     "POST /_api/browser/render": {
+      "http": 200,
+      "body": {
+       "body": "@liveness",
+       "max_active": 1,
+       "lease": {
+        "id": "bl-16f3576547f2",
+        "slot": 0,
+        "domain": "parity.internal",
+        "render_ms": 412
+       }
+      }
+     }
+    }
+   },
+   "bespoke": {
+    "checks": [
+     {
+      "name": "GET /twitter/health",
+      "status": "PASS",
+      "detail": "jarLoaded=False"
+     }
+    ],
+    "evidence": {
+     "GET /twitter/health": {
+      "http": 200,
+      "body": {
+       "ok": true,
+       "jarLoaded": false
+      }
+     }
+    }
+   },
+   "green": true
+  },
+  {
+   "capability": "inject jar",
+   "assertion": "a known jar renders logged-in on both",
+   "pool": {
+    "checks": [
+     {
+      "name": "seeded jar renders logged-in",
+      "status": "PASS",
+      "detail": "render returned '@parity-seed' for jar '@parity-seed'"
+     },
+     {
+      "name": "reset clears (no bleed into the next lease)",
+      "status": "PASS",
+      "detail": "jar-less render returned ''"
+     },
+     {
+      "name": "broker jar-inject (RFC 0018)",
+      "status": "NOT-YET",
+      "detail": "/_api/browser/render accepts a raw jar; the scoped broker delegation is unwired (issue #50 open)"
+     }
+    ],
+    "evidence": {
+     "request": {
+      "domain": "x.com",
+      "jar": "@parity-seed",
+      "url": "/me"
+     },
+     "response": {
+      "body": "@parity-seed",
+      "max_active": 1,
+      "lease": {
+       "id": "bl-1c5fbf503de2",
+       "slot": 1,
+       "domain": "x.com",
+       "render_ms": 411
+      }
+     }
+    }
+   },
+   "bespoke": {
+    "checks": [
+     {
+      "name": "jar loaded (OAuth3 vault connect)",
+      "status": "NOT-YET",
+      "detail": "POST /twitter/oauth3/connect then approve in the OAuth3 popup \u2014 /twitter/setjar was removed; injection is owner-approved now"
+     }
+    ],
+    "evidence": {
+     "GET /twitter/oauth3/status": {
+      "http": 200,
+      "body": {
+       "connected": false,
+       "jarLoaded": false,
+       "count": 0,
+       "pending": null,
+       "server": "https://pod.dstack.soc1024.com/oauth3"
+      }
+     }
+    }
+   },
+   "green": false
+  },
+  {
+   "capability": "logged-in screenshot",
+   "assertion": "x.com/home shows the account (a known @handle visible), non-blank",
+   "pool": {
+    "checks": [
+     {
+      "name": "live logged-in jar",
+      "status": "NOT-YET",
+      "detail": "operator-provided jar unavailable (PARITY_JAR unset)"
+     },
+     {
+      "name": "real browser bridge",
+      "status": "NOT-YET",
+      "detail": "pool runs the Deno bridge double (PARITY_REAL_BRIDGE unset); a real Neko/Chromium bridge image is required for a real x.com/home frame"
+     }
+    ],
+    "evidence": {}
+   },
+   "bespoke": {
+    "checks": [
+     {
+      "name": "GET /twitter/shot non-blank (serving)",
+      "status": "PASS",
+      "detail": "saved bespoke-x-home.png (71192 bytes); jarLoaded=False"
+     },
+     {
+      "name": "known handle visible",
+      "status": "NOT-YET",
+      "detail": "live logged-in jar unavailable \u2014 operator OAuth3 vault connect required (PARITY_JAR); the saved frame is the signed-out wall"
+     }
+    ],
+    "evidence": {
+     "GET /twitter/health": {
+      "body": {
+       "ok": true,
+       "jarLoaded": false
+      }
+     },
+     "GET /twitter/shot": {
+      "http": 200,
+      "content-type": "image/png"
+     }
+    }
+   },
+   "green": false
+  },
+  {
+   "capability": "DOM reconstruct (reify)",
+   "assertion": ">=N timeline entries with text, same order-of-magnitude",
+   "pool": {
+    "checks": [
+     {
+      "name": "live logged-in jar",
+      "status": "NOT-YET",
+      "detail": "operator-provided jar unavailable (PARITY_JAR unset)"
+     },
+     {
+      "name": "real browser bridge",
+      "status": "NOT-YET",
+      "detail": "pool runs the Deno bridge double (PARITY_REAL_BRIDGE unset)"
+     }
+    ],
+    "evidence": {}
+   },
+   "bespoke": {
+    "checks": [
+     {
+      "name": "live logged-in jar",
+      "status": "NOT-YET",
+      "detail": "operator OAuth3 vault connect required (PARITY_JAR unset)"
+     }
+    ],
+    "evidence": {}
+   },
+   "green": false
+  },
+  {
+   "capability": "driven browser actions",
+   "assertion": "a scripted task reaches the same end state",
+   "pool": {
+    "checks": [
+     {
+      "name": "driven task reaches its end state through the lease",
+      "status": "PASS",
+      "detail": "end_state={'steps_done': 3}, lease=bl-83164d6a174e"
+     },
+     {
+      "name": "real driven task (same end state on both engines)",
+      "status": "NOT-YET",
+      "detail": "needs the real bridge + live jar on the pool and the secret-gated /twitter/browser on the bespoke side"
+     }
+    ],
+    "evidence": {
+     "request": {
+      "url": "/home",
+      "op": {
+       "op": "drive",
+       "steps": [
+        "navigate https://x.com/home",
+        "click compose",
+        "type parity"
+       ]
+      }
+     },
+     "response": {
+      "body": "@driver",
+      "max_active": 1,
+      "end_state": {
+       "steps_done": 3
+      },
+      "lease": {
+       "id": "bl-83164d6a174e",
+       "slot": 1,
+       "domain": "x.com",
+       "render_ms": 402
+      }
+     }
+    }
+   },
+   "bespoke": {
+    "checks": [
+     {
+      "name": "live logged-in jar",
+      "status": "NOT-YET",
+      "detail": "operator OAuth3 vault connect required (PARITY_JAR unset); browser-driving is lock+cooldown'd on the single bespoke Brave"
+     }
+    ],
+    "evidence": {}
+   },
+   "green": false
+  },
+  {
+   "capability": "write / post",
+   "assertion": "a post (or dry-run) lands, asserted present",
+   "pool": {
+    "checks": [
+     {
+      "name": "dry-run post lands, asserted present",
+      "status": "PASS",
+      "detail": "end_state={'posted': 'parity board probe (dry-run 1788060377)', 'dry_run': True}, read-back entries=[{'text': 'parity board probe (dry-run 1788060377)'}]"
+     },
+     {
+      "name": "post is account-scoped (invisible to another jar)",
+      "status": "PASS",
+      "detail": "other jar timeline=[]"
+     },
+     {
+      "name": "reset clears the post",
+      "status": "PASS",
+      "detail": "post-reset timeline=[]"
+     },
+     {
+      "name": "real post (non-dry-run)",
+      "status": "NOT-YET",
+      "detail": "needs the real bridge + live jar on the pool; the bespoke side needs X-Debug-Secret and posts FOR REAL (PARITY_POST_TEXT)"
+     }
+    ],
+    "evidence": {
+     "post_response": {
+      "body": "@writer",
+      "max_active": 1,
+      "end_state": {
+       "posted": "parity board probe (dry-run 1788060377)",
+       "dry_run": true
+      },
+      "entries": [
+       {
+        "text": "parity board probe (dry-run 1788060377)"
+       }
+      ],
+      "lease": {
+       "id": "bl-dd5fad395a14",
+       "slot": 0,
+       "domain": "x.com",
+       "render_ms": 402
+      }
+     },
+     "other_jar_timeline": {
+      "body": "@reader",
+      "max_active": 1,
+      "entries": [],
+      "lease": {
+       "id": "bl-9f5860858a47",
+       "slot": 1,
+       "domain": "x.com",
+       "render_ms": 402
+      }
+     },
+     "post_reset_timeline": {
+      "body": "",
+      "max_active": 1,
+      "entries": [],
+      "lease": {
+       "id": "bl-91bea6bb1dd8",
+       "slot": 0,
+       "domain": "x.com",
+       "render_ms": 404
+      }
+     }
+    }
+   },
+   "bespoke": {
+    "checks": [
+     {
+      "name": "live logged-in jar",
+      "status": "NOT-YET",
+      "detail": "operator OAuth3 vault connect required (PARITY_JAR unset)"
+     }
+    ],
+    "evidence": {}
+   },
+   "green": false
+  },
+  {
+   "capability": "egress binding",
+   "assertion": "VPN egress IP (not a datacenter IP) on both",
+   "pool": {
+    "checks": [
+     {
+      "name": "per-lease egress locked to the jar's domain",
+      "status": "NOT-YET",
+      "detail": "unimplemented: BrowserPool carries no per-lease egress/proxy config (RFC 0028 open question 'Egress binding')"
+     }
+    ],
+    "evidence": {}
+   },
+   "bespoke": {
+    "checks": [
+     {
+      "name": "egress IP is the expected VPN (not datacenter)",
+      "status": "NOT-YET",
+      "detail": "observed ip=66.220.6.107, org='AS6939 Hurricane Electric LLC'; the VPN expectation is operator-provided (PARITY_EGRESS_EXPECT)"
+     }
+    ],
+    "evidence": {
+     "GET /twitter/ip": {
+      "http": 200,
+      "body": {
+       "ip": "66.220.6.107",
+       "org": "AS6939 Hurricane Electric LLC",
+       "city": "Salinas",
+       "region": "California",
+       "country": "US",
+       "proxy": null
+      }
+     }
+    }
+   },
+   "green": false
+  },
+  {
+   "capability": "isolation (parity-PLUS)",
+   "assertion": "no cross-session bleed \u2014 each read returns only its own account",
+   "pool": {
+    "checks": [
+     {
+      "name": "pool size >= 2 (two concurrent leases)",
+      "status": "PASS",
+      "detail": "pool size=2 \u2014 cannot run two concurrent leases"
+     },
+     {
+      "name": "each read contains only its own account",
+      "status": "PASS",
+      "detail": "twitter read='@parity-tw', youtube read='@parity-yt'"
+     },
+     {
+      "name": "leases truly held concurrently (pool busy == 2 observed)",
+      "status": "PASS",
+      "detail": "max busy observed = 2 (8 samples)"
+     },
+     {
+      "name": "reset clears after both leases",
+      "status": "PASS",
+      "detail": "jar-less read=''"
+     },
+     {
+      "name": "RFC 0028 DECIDED isolation model (fresh container per lease)",
+      "status": "NOT-YET",
+      "detail": "browser_pool.py resets and reuses containers; the decided destroy-per-lease is unimplemented (RFC 0028 Decisions)"
+     }
+    ],
+    "evidence": {
+     "pool_status": {
+      "started": true,
+      "size": 2,
+      "free": 2,
+      "busy": 0,
+      "active_leases": 0,
+      "image": "denoland/deno:latest"
+     },
+     "twitter_read": {
+      "body": "@parity-tw",
+      "max_active": 1,
+      "lease": {
+       "id": "bl-840558337c9a",
+       "slot": 1,
+       "domain": "x.com",
+       "render_ms": 402
+      }
+     },
+     "youtube_read": {
+      "body": "@parity-yt",
+      "max_active": 1,
+      "lease": {
+       "id": "bl-1d72b8ffec62",
+       "slot": 0,
+       "domain": "youtube.com",
+       "render_ms": 401
+      }
+     }
+    }
+   },
+   "bespoke": {
+    "checks": [
+     {
+      "name": "two subjects isolated",
+      "status": "CANNOT",
+      "detail": "structural: the bespoke engine is one Brave with one global session (RFC 0028 Problem) \u2014 it cannot pass this row; that is the migration's justification"
+     }
+    ],
+    "evidence": {}
+   },
+   "green": false
+  }
+ ]
+}

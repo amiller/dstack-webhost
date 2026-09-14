@@ -8,7 +8,7 @@ import sys
 import tempfile
 import time
 
-sys.path.insert(0, "/tmp/rw-133")
+sys.path.insert(0, "/tmp/rw-143")
 import test_daemon as td
 
 FIELDS = ("running", "container_state", "exit_code", "restart_count",
