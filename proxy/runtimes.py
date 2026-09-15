@@ -124,6 +124,11 @@ def _shared_broker_binds() -> list[str]:
     if not BROKER_HOST_PATH:
         return []
     return [f"{BROKER_HOST_PATH}:{BROKER_MOUNT_IN_APP}:ro"]
+
+
+def _shared_config_key(runtime: str) -> str:
+    """bun runs on deno's shared runtime container: one container serves deno+bun."""
+    return "deno" if runtime == "bun" else runtime
 # Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").
 # Empty string keeps Docker's default (runc).
 CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
@@ -382,8 +387,7 @@ class RuntimeManager:
     async def refresh(self, runtime: str):
         if runtime == "static" or runtime == "dockerfile":
             return
-        # bun shares deno's router
-        config_key = runtime
+        config_key = _shared_config_key(runtime)
         if config_key not in RUNTIME_CONFIG:
             return
         config = RUNTIME_CONFIG[config_key]
@@ -794,9 +798,7 @@ class RuntimeManager:
     def get_route(self, runtime: str, mode: str) -> tuple[str, int] | None:
         if runtime == "static" or runtime == "dockerfile" or runtime == "image":
             return None
-        config_key = runtime
-        if runtime == "bun":
-            config_key = "deno"
+        config_key = _shared_config_key(runtime)
         if mode not in ("dev", "attested"):
             mode = "dev"
         key = (config_key, mode)
@@ -805,42 +807,48 @@ class RuntimeManager:
             return None
         return (ip, RUNTIME_CONFIG[config_key]["port"])
 
-    def get_project_liveness(self, project) -> dict:
-        """Return liveness info for a project: {running, container_id, backend}.
-
-        This is the single source of truth for project liveness, used by both
-        GET /_api/routes and GET /_api/status to ensure consistent reporting.
-        """
-        result = {"running": False, "container_id": None, "backend": None}
-
+    def _project_container_name(self, project) -> str | None:
+        """Name of the container that serves this project. None when the daemon
+        serves it itself (static) or when nothing ever creates one for it."""
         if project.runtime == "static":
-            result["running"] = True
-            result["backend"] = "static files"
-        elif project.runtime == "dockerfile":
-            cid = project.container_id
-            result["container_id"] = cid
-            result["running"] = bool(cid)
-            result["backend"] = f"container:{cid or 'unknown'}"
-        elif project.runtime == "image" or project.isolation == "container":
-            # Image runtime or isolated container (deno/bun with isolation:container)
-            route = self.image_routes.get(project.name)
-            cid = self.image_cids.get(project.name)
-            result["container_id"] = cid
-            if route:
-                result["running"] = True
-                result["backend"] = f"{route[0]}:{route[1]}"
-            else:
-                result["backend"] = "runtime not running"
-        else:
-            # Shared runtime (deno/bun/node/python)
-            route = self.get_route(project.runtime, project.mode)
-            if route:
-                result["running"] = True
-                result["backend"] = f"{route[0]}:{route[1]}"
-            else:
-                result["backend"] = "runtime not running"
+            return None
+        if project.runtime == "image":
+            return f"tee-image-{project.name}-{project.mode}"
+        if project.isolation == "container":
+            return f"tee-isolated-{project.name}-{project.mode}"
+        config_key = _shared_config_key(project.runtime)
+        if config_key not in RUNTIME_CONFIG:
+            return None
+        return f"tee-runtime-{config_key}-{project.mode}"
 
-        return result
+    async def get_project_liveness(self, project) -> dict:
+        """Liveness for a project: {running, container_id, backend,
+        container_state, exit_code, restart_count} — the single source of truth
+        for GET /_api/routes and GET /_api/status.
+
+        The container half is read from the engine at request time: the stored
+        `container_id` and the in-memory route maps both outlive a container
+        that died on its own, which is exactly the outage this exists to expose
+        (#133). `container_state` is docker's own word for it, None for static
+        projects (the daemon serves them, nothing to inspect) and "missing"
+        when no container exists. `backend` is the in-memory route, so it only
+        names an address while that container is actually running.
+        """
+        if project.runtime == "static":
+            return {"running": True, "container_id": None, "backend": "static files",
+                    "container_state": None, "exit_code": None, "restart_count": None}
+        cname = self._project_container_name(project)
+        live = await self.docker.container_state(cname) if cname else None
+        if live is None:
+            return {"running": False, "container_id": None, "backend": "runtime not running",
+                    "container_state": "missing", "exit_code": None, "restart_count": None}
+        if project.runtime == "image" or project.isolation == "container":
+            route = self.image_routes.get(project.name)
+        else:
+            route = self.get_route(project.runtime, project.mode)
+        live["backend"] = (f"{route[0]}:{route[1]}"
+                           if route and live["running"] else "runtime not running")
+        return live
 
     async def get_container_id(self, project) -> str | None:
         """Resolve a project's live container id for logs/inspect. Prefers the
@@ -868,7 +876,7 @@ class RuntimeManager:
             elif p.isolation == "container" and p.runtime in ("deno", "bun"):
                 isolated_projects.append(p)
             elif p.runtime not in ("static", "dockerfile"):
-                runtimes_needed.add(p.runtime)
+                runtimes_needed.add(_shared_config_key(p.runtime))
         # Recover each project independently — a single failure (e.g. a transient image
         # pull 500) must NOT abort startup and take down the daemon + every other app.
         for rt in runtimes_needed:

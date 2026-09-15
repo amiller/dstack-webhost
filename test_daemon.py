@@ -134,6 +134,7 @@ def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
         "DAEMON_TUNNEL_DIR": os.path.join(tmpdir, "tunnels"),
         "DAEMON_TOKEN_DIR": os.path.join(tmpdir, "tokens"),
         "PROXY_SOCKET_DIR": os.path.join(tmpdir, "proxy"),
+        "DAEMON_DEBUG_SESSION_DIR": os.path.join(tmpdir, "debug-sessions"),
         "DOCKER_SOCKET": "/var/run/docker.sock",
         "DSTACK_SOCKET": "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
@@ -1058,6 +1059,93 @@ export default (req: Request, ctx: {env: Record<string,string>}) => {
     api_delete("/projects/test-iso-b")
 
 
+def test_status_live_container_state():
+    print("\n--- Test: /_api/status reads live container state from docker (#133) ---")
+
+    def entry(name):
+        for p in api_get("/status").json():
+            if p["name"] == name:
+                return p
+
+    # Running: an image-runtime project whose container is up.
+    resp = api_post("/projects", json={
+        "name": "test-status", "runtime": "image", "image": "nginx:alpine",
+        "image_port": 80, "source": "image://nginx", "ref": "alpine",
+        "commit_sha": "status-133", "tree_hash": "status-133"})
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    for _ in range(20):
+        up = entry("test-status")
+        if up and up["running"]:
+            break
+        time.sleep(0.5)
+    assert up["container_state"] == "running", up
+    assert up["exit_code"] is None, up
+    assert up["container_id"], up
+    assert up["commit_sha"] == "status-133", "the manifest pin must survive the liveness join"
+
+    # Shared-runtime project: its container is the runtime container, and the
+    # id comes from docker, not from the stored manifest field.
+    shared = entry("test-deno")
+    cid = subprocess.run(["docker", "inspect", "tee-runtime-deno-dev", "--format", "{{.Id}}"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert shared["container_state"] == "running", shared
+    assert shared["container_id"] == cid, shared
+
+    # Bun is served by the same shared deno container — a bun deploy must not
+    # fork a tee-runtime-bun-* container the status lookup can never see.
+    repo = create_test_repo("test-bun", {
+        "project.json": json.dumps({"runtime": "bun"}).encode(),
+        "index.ts": b'export default (req: Request) => new Response(\n    JSON.stringify({ok: true, runtime: "bun"}),\n    {headers: {"content-type": "application/json"}});\n',
+    })
+    resp = api_post("/projects", json={"name": "test-bun", "source": repo})
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    bun = entry("test-bun")
+    assert bun["running"] is True and bun["container_state"] == "running", bun
+    cid = subprocess.run(["docker", "inspect", "tee-runtime-deno-dev", "--format", "{{.Id}}"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert bun["container_id"] == cid, bun
+    forked = subprocess.run(["docker", "inspect", "tee-runtime-bun-dev"],
+                            capture_output=True)
+    assert forked.returncode != 0, "refresh(bun) must not create tee-runtime-bun-dev"
+    time.sleep(4)
+    resp = requests.get(f"{INGRESS}/test-bun/hello")
+    assert resp.status_code == 200, f"bun ingress: {resp.status_code} {resp.text}"
+    assert resp.json()["runtime"] == "bun", resp.text
+
+    # Exited: an app whose entry throws at module load. The manifest is
+    # unchanged and nothing is redeployed — only docker knows it is dead.
+    repo = create_test_repo("test-status-dead", {
+        "project.json": json.dumps({"runtime": "deno", "isolation": "container"}).encode(),
+        "server.ts": b'throw new Error("crash on load");\n',
+    })
+    resp = api_post("/projects", json={"name": "test-status-dead", "source": repo})
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    for _ in range(20):
+        dead = entry("test-status-dead")
+        if dead and dead["container_state"] == "exited":
+            break
+        time.sleep(0.5)
+    assert dead["running"] is False, dead
+    assert dead["exit_code"] == 1, dead
+    assert dead["backend"] == "runtime not running", dead
+
+    # Missing: the container is gone entirely, but the project is still listed.
+    subprocess.run(["docker", "rm", "-f", "tee-image-test-status-dev"],
+                   capture_output=True, check=True)
+    gone = entry("test-status")
+    assert gone is not None, "a project with no container must not be omitted"
+    assert gone["running"] is False and gone["container_state"] == "missing", gone
+    assert gone["container_id"] is None, gone
+
+    # Static projects are served by the daemon itself: running, no container.
+    assert all(p["running"] and p["container_state"] is None
+               for p in api_get("/status").json() if p["runtime"] == "static")
+
+    for name in ("test-status", "test-status-dead", "test-bun"):
+        resp = api_delete(f"/projects/{name}")
+        assert resp.status_code == 200, f"teardown {name}: {resp.status_code} {resp.text}"
+
+
 def test_volume_adoption():
     print("\n--- Test: image-runtime adopts an existing named volume ---")
     vol = "tee-test-adopt-vol"
@@ -1931,6 +2019,7 @@ def main():
         test_runtime_selection()
         test_deploy_image()
         test_ingress_image()
+        test_status_live_container_state()
         test_volume_adoption()
         test_per_project_isolation()
         test_per_project_network_isolation()
