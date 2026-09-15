@@ -124,6 +124,11 @@ def _shared_broker_binds() -> list[str]:
     if not BROKER_HOST_PATH:
         return []
     return [f"{BROKER_HOST_PATH}:{BROKER_MOUNT_IN_APP}:ro"]
+
+
+def _shared_config_key(runtime: str) -> str:
+    """bun runs on deno's shared runtime container: one container serves deno+bun."""
+    return "deno" if runtime == "bun" else runtime
 # Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").
 # Empty string keeps Docker's default (runc).
 CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
@@ -382,8 +387,7 @@ class RuntimeManager:
     async def refresh(self, runtime: str):
         if runtime == "static" or runtime == "dockerfile":
             return
-        # bun shares deno's router
-        config_key = runtime
+        config_key = _shared_config_key(runtime)
         if config_key not in RUNTIME_CONFIG:
             return
         config = RUNTIME_CONFIG[config_key]
@@ -787,9 +791,7 @@ class RuntimeManager:
     def get_route(self, runtime: str, mode: str) -> tuple[str, int] | None:
         if runtime == "static" or runtime == "dockerfile" or runtime == "image":
             return None
-        config_key = runtime
-        if runtime == "bun":
-            config_key = "deno"
+        config_key = _shared_config_key(runtime)
         if mode not in ("dev", "attested"):
             mode = "dev"
         key = (config_key, mode)
@@ -807,7 +809,7 @@ class RuntimeManager:
             return f"tee-image-{project.name}-{project.mode}"
         if project.isolation == "container":
             return f"tee-isolated-{project.name}-{project.mode}"
-        config_key = "deno" if project.runtime == "bun" else project.runtime
+        config_key = _shared_config_key(project.runtime)
         if config_key not in RUNTIME_CONFIG:
             return None
         return f"tee-runtime-{config_key}-{project.mode}"
@@ -867,7 +869,7 @@ class RuntimeManager:
             elif p.isolation == "container" and p.runtime in ("deno", "bun"):
                 isolated_projects.append(p)
             elif p.runtime not in ("static", "dockerfile"):
-                runtimes_needed.add(p.runtime)
+                runtimes_needed.add(_shared_config_key(p.runtime))
         # Recover each project independently — a single failure (e.g. a transient image
         # pull 500) must NOT abort startup and take down the daemon + every other app.
         for rt in runtimes_needed:

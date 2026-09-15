@@ -1090,6 +1090,27 @@ def test_status_live_container_state():
     assert shared["container_state"] == "running", shared
     assert shared["container_id"] == cid, shared
 
+    # Bun is served by the same shared deno container — a bun deploy must not
+    # fork a tee-runtime-bun-* container the status lookup can never see.
+    repo = create_test_repo("test-bun", {
+        "project.json": json.dumps({"runtime": "bun"}).encode(),
+        "index.ts": b'export default (req: Request) => new Response(\n    JSON.stringify({ok: true, runtime: "bun"}),\n    {headers: {"content-type": "application/json"}});\n',
+    })
+    resp = api_post("/projects", json={"name": "test-bun", "source": repo})
+    assert resp.status_code == 201, f"Deploy failed: {resp.status_code} {resp.text}"
+    bun = entry("test-bun")
+    assert bun["running"] is True and bun["container_state"] == "running", bun
+    cid = subprocess.run(["docker", "inspect", "tee-runtime-deno-dev", "--format", "{{.Id}}"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert bun["container_id"] == cid, bun
+    forked = subprocess.run(["docker", "inspect", "tee-runtime-bun-dev"],
+                            capture_output=True)
+    assert forked.returncode != 0, "refresh(bun) must not create tee-runtime-bun-dev"
+    time.sleep(4)
+    resp = requests.get(f"{INGRESS}/test-bun/hello")
+    assert resp.status_code == 200, f"bun ingress: {resp.status_code} {resp.text}"
+    assert resp.json()["runtime"] == "bun", resp.text
+
     # Exited: an app whose entry throws at module load. The manifest is
     # unchanged and nothing is redeployed — only docker knows it is dead.
     repo = create_test_repo("test-status-dead", {
