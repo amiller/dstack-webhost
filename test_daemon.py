@@ -170,6 +170,7 @@ def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
         "DAEMON_TUNNEL_DIR": os.path.join(tmpdir, "tunnels"),
         "DAEMON_TOKEN_DIR": os.path.join(tmpdir, "tokens"),
         "PROXY_SOCKET_DIR": os.path.join(tmpdir, "proxy"),
+        "DAEMON_DEBUG_SESSION_DIR": os.path.join(tmpdir, "debug-sessions"),
         "DOCKER_SOCKET": "/var/run/docker.sock",
         "DSTACK_SOCKET": "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
