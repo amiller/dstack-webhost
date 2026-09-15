@@ -58,6 +58,9 @@ class AppInfo:
     source: SourceInfo = field(default_factory=SourceInfo)
     image_digest: str = ""
     binding_quote: dict = field(default_factory=dict)  # Daemon's promotion quote binding tree_hash
+    # RFC 0027 report-data-quote block: the binding quote, its report_data, and the
+    # preimage that produced it, so a consumer can recompute rather than be told.
+    binding: dict = field(default_factory=dict)
     operator_debug: OperatorDebugInfo = field(default_factory=OperatorDebugInfo)
 
 
@@ -80,6 +83,8 @@ class EvidenceBundle:
     schema_version: str = SCHEMA_VERSION
     platform_quote: dict = field(default_factory=dict)
     webhost_app_id: str = ""
+    # RFC 0027: "daemon-vouched" | "app-cvm" ("" = no per-app binding)
+    attestation_kind: str = ""
     onchain: OnchainInfo = field(default_factory=OnchainInfo)
     gateway: GatewayInfo = field(default_factory=GatewayInfo)
     app: AppInfo = field(default_factory=AppInfo)
@@ -91,6 +96,7 @@ class EvidenceBundle:
             "schema_version": self.schema_version,
             "platform_quote": self.platform_quote,
             "webhost_app_id": self.webhost_app_id,
+            "attestation_kind": self.attestation_kind,
             "onchain": asdict(self.onchain),
             "gateway": asdict(self.gateway),
             "app": {
@@ -118,12 +124,14 @@ class EvidenceBundle:
         src = app.get("source") or {}
         od = app.get("operator_debug")
         binding_quote = app.get("binding_quote")
+        binding = app.get("binding")
         platform_quote = data.get("platform_quote")
 
         return cls(
             schema_version=data.get("schema_version", SCHEMA_VERSION),
             platform_quote=platform_quote if isinstance(platform_quote, dict) else {},
             webhost_app_id=data.get("webhost_app_id", ""),
+            attestation_kind=data.get("attestation_kind", ""),
             onchain=OnchainInfo(**(data.get("onchain") or {})),
             gateway=GatewayInfo(**(data.get("gateway") or {})),
             app=AppInfo(
@@ -131,6 +139,7 @@ class EvidenceBundle:
                 source=SourceInfo(**src),
                 image_digest=app.get("image_digest", ""),
                 binding_quote=binding_quote if isinstance(binding_quote, dict) else {},
+                binding=binding if isinstance(binding, dict) else {},
                 operator_debug=OperatorDebugInfo(**(od if isinstance(od, dict) else {})),
             ),
             audit=data.get("audit") or [],
