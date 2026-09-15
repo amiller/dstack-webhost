@@ -717,6 +717,10 @@ def test_stats_endpoints():
     odd = _derive_stats({"blkio_stats": {"io_service_bytes_recursive": [
         {"op": "Total", "value": 10}]}})
     assert odd["blk_read"] is None and odd["blk_write"] is None, odd
+    # empty one-shot body (200, no JSON): engine has no sample yet, right
+    # after start — every field unreported, never a crash/500 on the row
+    empty = _derive_stats(None)
+    assert all(v is None for v in empty.values()), empty
     # shared-runtime tenant: served by a container it shares with co-tenants
     srow = fleet["test-deno"]
     assert srow["running"] is True and srow.get("shared") is True, srow

@@ -61,10 +61,17 @@ def _redact_env(data: dict) -> dict:
     return data
 
 
-def _derive_stats(raw: dict) -> dict:
+def _derive_stats(raw: dict | None) -> dict:
     """Docker one-shot stats → the per-tenant fields. A field the platform did
     not report is None, never 0 — an absent counter is a finding (issue #120:
     what Sentry accounts for under runsc is exactly the question), not a zero."""
+    if raw is None:
+        # The engine answers 200 with an empty body while the container's stats
+        # collector has no sample yet (right after start); every field is then
+        # unreported. Raising here 500s the row — the flaky shape seen live.
+        return {"cpu_pct": None, "mem_bytes": None, "mem_limit": None,
+                "net_rx": None, "net_tx": None, "blk_read": None,
+                "blk_write": None, "pids": None}
     out: dict = {}
     cpu, pre = raw.get("cpu_stats") or {}, raw.get("precpu_stats") or {}
     usage, pre_usage = cpu.get("cpu_usage") or {}, pre.get("cpu_usage") or {}
