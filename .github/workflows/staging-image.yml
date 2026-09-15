@@ -1,0 +1,45 @@
+# Builds and pushes the daemon image on every push to staging (issue #146), so a
+# staging roll needs no ghcr credential on the shipping machine:
+# `ship-fix.sh staging --no-build` resolves this tag's digest anonymously and deploys.
+name: staging-image
+on:
+  push:
+    branches: [staging]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Log in to ghcr
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push
+        id: push
+        env:
+          IMG: ghcr.io/amiller/tee-socket-proxy
+        run: |
+          # Tag contract with ship-fix.sh: staging-<first 7 hex of the sha>. NOT
+          # `git rev-parse --short`, whose width is object-count dependent — a shallow
+          # checkout says 7 chars, a full clone 8, and the widths must never disagree.
+          SHORT="${GITHUB_SHA:0:7}"
+          TAG="$IMG:staging-$SHORT"
+          docker build --build-arg GIT_COMMIT="$SHORT" -t "$TAG" .
+          PUSH_LOG=$(mktemp)
+          docker push "$TAG" | tee "$PUSH_LOG"
+          SHA=$(sed -n 's/.*digest: \(sha256:[a-f0-9]\{64\}\).*/\1/p' "$PUSH_LOG" | tail -1)
+          rm -f "$PUSH_LOG"
+          [ -n "$SHA" ] || { echo "push printed no digest — refusing to guess what was pushed" >&2; exit 1; }
+          echo "digest=$SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "## staging image"
+            echo "- tag: \`$TAG\`"
+            echo "- digest: \`$IMG@$SHA\`"
+            echo "- commit: \`$SHORT\`"
+            echo "Ship it: \`ship-fix.sh staging --no-build\` (no ghcr login needed)."
+          } >> "$GITHUB_STEP_SUMMARY"
