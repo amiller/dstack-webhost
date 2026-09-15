@@ -697,10 +697,13 @@ def test_stats_endpoints():
     assert row["pids"] and row["pids"] >= 1, row
     assert row["uptime_s"] >= 0, row
     assert row["net_rx"] is not None and row["net_tx"] is not None, row
-    # blkio counters must be real: this engine reports some; a zero would mean
-    # the op-name match broke, not that the container read nothing
-    assert row["blk_read"] > 0, row
-    assert row["blk_write"] is not None, row
+    # blkio is engine-dependent: this box's rootless engine moved cgroup v1→v2
+    # (docker 28.1.1 either way) and v2 without a delegated io controller reports
+    # no blkio at all — every blkio_stats field is null even after real I/O.
+    # None is "not reported"; a 0 would be an invented value. The op-name
+    # matcher itself is pinned by the v1/v2/unmatched asserts below.
+    assert row["blk_read"] is None or row["blk_read"] > 0, row
+    assert row["blk_write"] is None or row["blk_write"] >= 0, row
     assert "shared" not in row, row
     # op casing is cgroup-version dependent (v1 "Read"/"Write", v2 lowercase —
     # moby#45739) and this host may be either, so exercise both shapes directly
