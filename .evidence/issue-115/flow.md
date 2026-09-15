@@ -388,3 +388,33 @@ Standing state unchanged from §11: the operator ask (§5 runbook — pod token 
 one explicit sentence) is not repeated here; no worker assertion of the full `## Acceptance`
 and no `ready-to-merge` label, for the reasons §11 records. New head SHA means the rework
 attempt count restarts at this head.
+
+## §13. 2026-09-15 rework pass: verdict 3c54fb4e843e consumed for real — branch current with staging
+
+§12 predicted the "UNKNOWN against `staging` — rebase it" verdict was GitHub's transient
+mergeable state; it kept recurring anyway (09-15 12:25Z, nine hours after the last push)
+because staging itself kept moving — three more commits (`fbbb079d`, `00983ebd`, `b98b854d`)
+landed past this branch's base. This pass made the branch actually current:
+
+- **Merged `origin/staging` into `staging-115`** (no conflicts) → `dcf69aca`, contains
+  staging tip `b98b854d`; delivered as a fast-forward push (no history rewritten). PR diff
+  vs staging unchanged: 2 files (`examples/runsc-prelaunch/prelaunch.sh` +15/−2, this file).
+- **Full suite first-hand at `dcf69aca`**: exit 0, `=== ALL TESTS PASSED ===` (67 ✓), real
+  docker (`DOCKER_HOST=unix:///var/run/docker.sock` per §12), log
+  `~/paseo-batch/out/134/test_daemon-merge-dcf69aca.log`. `pytest proxy/`: 23 passed.
+  New required knob, found as a first failure and root-caused: staging's #135 gave
+  `DebugSessionStore` a root-only default (`/var/lib/tee-daemon/debug-sessions`,
+  `proxy/main.py:39`), and `start_daemon()` doesn't set `DAEMON_DEBUG_SESSION_DIR`, so the
+  daemon now dies at startup on any non-root dev box with `PermissionError` — same shape as
+  the documented `BROKER_SOCKET_DIR` gotcha. Exported the knob for this run (the override
+  exists for exactly this); the hermeticity gap in `test_daemon.py` is flagged for the
+  owner, not fixed here — this PR's diff stays the script half of #115.
+- **mergeable after push**: `MERGEABLE`/`CLEAN` on six consecutive polls 10 s apart —
+  the transient UNKNOWN does not recur while staging stands still.
+- Live pod, this pass: `/_api/version` → `c7270819`; `/_api/substrate` → `available_runtimes`
+  incl. `runsc`, `runsc-hostnet`; `POST /_api/projects` (no token) → 401. Unchanged from §12.
+
+Standing verdict `3220258a819f` (no worker asserts the `## Acceptance`) is unchanged for the
+reasons §11 records; the operator ask (§5) is not repeated. No `ready-to-merge`. Head SHA
+changed twice this pass (`002820b1` → `dcf69aca` → the commit adding this section), so the
+rework attempt count restarts at the final head.
