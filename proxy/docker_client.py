@@ -158,6 +158,13 @@ class DockerClient:
     # to hold the substrate. Recovery treats a failure here as "skip that project".
     PULL_TIMEOUT = 120
 
+    async def stats(self, cid: str) -> dict:
+        status, data = await self._json_request(
+            "GET", f"/containers/{cid}/stats?stream=false")
+        if status >= 400:
+            raise RuntimeError(f"stats failed ({status}): {data}")
+        return data
+
     async def exec(self, cid: str, cmd: list[str]) -> str:
         if not cmd or len(cmd) > 32 or any(not isinstance(arg, str) or not arg or len(arg) > 4096 for arg in cmd):
             raise ValueError("cmd must contain 1 to 32 non-empty strings of at most 4096 characters")
