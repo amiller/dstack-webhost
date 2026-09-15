@@ -1917,9 +1917,35 @@ def test_provisioner_flow():
     print("  approved, unfrozen, promotable; audit has create/freeze/approve ✓")
 
 
+def test_provisioner_atomic_promote_refused():
+    """RFC 0034 guard on the atomic path (#138 review): a create-scoped token
+    cannot promote, even with the matching tree hash."""
+    print("\n--- Test: provisioner atomic promote refused ---")
+    resp = api_post("/tokens", json={"scope": "create", "ttl": 600, "max_pending": 2})
+    assert resp.status_code == 201, resp.text
+    prov = {"Authorization": f"Bearer {resp.json()['token']}"}
+
+    def create(manifest):
+        return requests.post(f"{API}/projects", headers=prov, files={
+            "manifest": (None, json.dumps(manifest), "application/json"),
+            "files": ("app.tar.gz", make_tarball({"index.html": b"v1"}), "application/gzip")})
+
+    resp = create({"name": "prov-atomic", "runtime": "static", "source": "tarball://local"})
+    assert resp.status_code == 201, resp.text
+    tree_hash = resp.json()["tree_hash"]
+
+    resp = create({"name": "prov-atomic-2", "runtime": "static", "source": "tarball://local",
+                   "expect_tree_hash": tree_hash, "promote": True})
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["error"] == "pending approval"
+    assert api_get("/projects/prov-atomic-2").status_code == 404
+    assert api_get("/projects/prov-atomic").json()["mode"] == "dev"
+    print("  matching-hash atomic promote refused before deploy, project never created \u2713")
+
+
 def test_teardown():
     print("\n--- Test: teardown ---")
-    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-keepenv", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp", "hello-pending", "hello-pending-2", "test-atomic", "test-atomic-mismatch"]:
+    for name in ["test-static", "test-caps", "test-deno", "test-auto", "test-tarball", "test-image", "test-vol", "test-iso-a", "test-iso-b", "test-passthru", "test-iso-passthru", "test-redeploy-img", "test-redact", "test-keepenv", "net-a", "net-b", "data-iso", "rfc-test", "test-opdebug", "test-opdebug-off", "tier0-src", "test-exp", "hello-pending", "hello-pending-2", "prov-atomic", "test-atomic", "test-atomic-mismatch"]:
         resp = api_delete(f"/projects/{name}")
         if resp.status_code == 200:
             print(f"  Torn down: {name}")
@@ -2005,6 +2031,7 @@ def main():
         test_rfc0017_export_import()
         test_rfc0017_bootstrap()
         test_provisioner_flow()
+        test_provisioner_atomic_promote_refused()
         test_teardown()
         # Issue #77 parity board runs on its own daemon with a 2-slot pool so the
         # isolation row holds two genuinely concurrent leases.

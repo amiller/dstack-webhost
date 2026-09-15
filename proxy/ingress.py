@@ -840,7 +840,7 @@ class Ingress:
             tok = request.get("api_token")
             provisioned = bool(tok and tok.scope == "create")
             if provisioned:
-                denied = self._check_provision(tok, manifest.get("name", ""))
+                denied = self._check_provision(tok, manifest)
                 if denied:
                     return denied
             project = await self._deploy_request(manifest, files_data)
@@ -863,7 +863,8 @@ class Ingress:
             log.error("deploy failed: %s", traceback.format_exc())
             return web.json_response({"error": str(e)}, status=500)
 
-    def _check_provision(self, tok, name: str) -> web.Response | None:
+    def _check_provision(self, tok, manifest: dict) -> web.Response | None:
+        name = manifest.get("name", "")
         if not NAME_RE.match(name or "") or name in RESERVED_NAMES:
             return web.json_response({"error": f"Invalid project name: {name!r}"}, status=400)
         try:
@@ -873,6 +874,10 @@ class Ingress:
             pass
         if len(pending.pending_by(self.store, tok.id)) >= (tok.max_pending or pending.DEFAULT_MAX_PENDING):
             return web.json_response({"error": "too many unapproved projects for this token"}, status=429)
+        if manifest.get("promote"):
+            # RFC 0034: a provisioned project is pending until the owner approves,
+            # so it cannot be promoted — not atomically at create time either.
+            return web.json_response({"error": "pending approval"}, status=403)
         return None
 
     async def _api_approve(self, name: str) -> web.Response:
