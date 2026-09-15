@@ -43,10 +43,14 @@ class AuditLogManager:
         """Load audit entries from disk for a project.
 
         Entries written before #61's chain existed carry no hashes at all. They are
-        unverifiable by construction, so a LEADING run of them is adopted: each is
-        anchored by its computed hash so later entries chain onto it, and the adoption
-        is logged. Without this, any daemon whose audit dir predates #61 refuses to
-        boot — which is how webhost-staging went down on 2026-08-24 (`attested-demo`).
+        unverifiable by construction, so any run of them is adopted: each is anchored
+        by its computed hash so later entries chain onto it, and the adoption is
+        logged. Without this, any daemon whose audit dir predates #61 refuses to
+        boot — which is how webhost-staging went down on 2026-08-24 (`attested-demo`),
+        and again on 2026-09-09 (`dsmack-coordinator`) when a ledger-era daemon had
+        been rolled back to a pre-ledger one, which appended hashless entries AFTER
+        hashed ones. `.head` therefore names the last entry written with a hash, and a
+        hashless tail after it is adopted rather than read as truncation.
 
         Adoption does not open a hole in a ledger that has one: blanking a later
         entry's hashes only reconstructs the same value, and editing its content
@@ -56,6 +60,7 @@ class AuditLogManager:
         """
         entries = []
         legacy = 0
+        head_on_disk = ""  # hash of the last entry that was written WITH a hash
         audit_file = self._audit_file(project_name)
         if os.path.exists(audit_file):
             with open(audit_file, "r") as f:
@@ -63,7 +68,7 @@ class AuditLogManager:
                     if line.strip():
                         entry = AuditEntry(**json.loads(line))
                         expected = self._entry_hash(entry)
-                        if not entry.entry_hash and not entry.prev_hash and legacy == len(entries):
+                        if not entry.entry_hash and not entry.prev_hash:
                             entry.prev_hash = entries[-1].entry_hash if entries else ""
                             entry.entry_hash = self._entry_hash(entry)
                             legacy += 1
@@ -74,6 +79,7 @@ class AuditLogManager:
                         if entry.entry_hash != expected:
                             raise ValueError(f"Audit entry tampered for {project_name}")
                         entries.append(entry)
+                        head_on_disk = entry.entry_hash
         if legacy:
             log.info("audit %s: adopted %d pre-ledger entries (no hash on disk)",
                      project_name, legacy)
@@ -81,7 +87,7 @@ class AuditLogManager:
         if os.path.exists(head_file):
             with open(head_file) as f:
                 head = f.read().strip()
-            if head != (entries[-1].entry_hash if entries else ""):
+            if head != head_on_disk:
                 raise ValueError(f"Audit ledger truncated for {project_name}")
         return entries
 
