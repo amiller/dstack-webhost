@@ -1,1 +1,229 @@
-{"tasks":[{"id":"0001-1","title":"Network separation","rfc":"0001-platform-vision","description":"Create tee-apps-dev and tee-apps-attested networks, enforce isolation in the Docker proxy","status":"done"},{"id":"0001-2","title":"Mode field on projects","rfc":"0001-platform-vision","description":"Add mode: dev|attested to the project manifest, default to dev on deploy","status":"done"},{"id":"0001-3","title":"Promotion API","rfc":"0001-platform-vision","description":"POST /_api/projects/<name>/promote with source hash recording","status":"done"},{"id":"0001-4","title":"Audit log","rfc":"0001-platform-vision","description":"Make it per-project, enable only for attested mode","status":"done"},{"id":"0001-5","title":"Verification page","rfc":"0001-platform-vision","description":"Static endpoint that walks the trust chain","status":"done"},{"id":"0001-6","title":"Agent skill","rfc":"0001-platform-vision","description":"Verification skill that can be pointed at any dstack-webhost instance","status":"done"},{"id":"0001-7","title":"Developer guide","rfc":"0001-platform-vision","description":"Step-by-step from local TypeScript to attested production","status":"done"},{"id":"0002-1","title":"Port binding in project manifest","rfc":"0002-multi-routing","description":"Add listen.port and listen.protocol fields to project config, default to 8080/http","status":"done"},{"id":"0002-2","title":"Port-based routing","rfc":"0002-multi-routing","description":"When a project specifies a port, bind that port and route all traffic directly to the container (no path-based routing)","status":"done"},{"id":"0002-3","title":"TCP proxy mode","rfc":"0002-multi-routing","description":"Add raw TCP stream proxy for non-HTTP services, bidirectional byte forwarding","status":"done"},{"id":"0002-4","title":"Routing table endpoint","rfc":"0002-multi-routing","description":"GET /_api/routes returns the current routing table with port, protocol, project mapping","status":"done"},{"id":"0002-5","title":"Port conflict detection","rfc":"0002-multi-routing","description":"Prevent two projects from binding the same port, return clear error on deploy","status":"done"},{"id":"0003-1","title":"Tunnel API","rfc":"0003-temporary-proxy-access","description":"POST /_api/tunnels creates a temporary reverse proxy entry with timeout and optional auth","status":"done"},{"id":"0003-2","title":"Tunnel proxy handler","rfc":"0003-temporary-proxy-access","description":"Route requests matching /<tunnel-id>/... to the backend URL, remove route after timeout","status":"done"},{"id":"0003-3","title":"WebSocket relay","rfc":"0003-temporary-proxy-access","description":"Support WS upgrade on tunnel endpoints for interactive sessions","status":"done"},{"id":"0003-4","title":"Tunnel lifecycle management","rfc":"0003-temporary-proxy-access","description":"Auto-cleanup of expired tunnels, GET /_api/tunnels to list active, DELETE /_api/tunnels/<id> to revoke","status":"done"},{"id":"0004-1","title":"Add X-Forwarded-For and proxy headers to ingress","rfc":"0004-ingress-proxy-headers","description":"Add X-Forwarded-For, X-Real-IP, X-Forwarded-Proto headers in proxy/ingress.py _proxy() before forwarding. Handle chained proxies by appending.","status":"done"},{"id":"0005-1","title":"Rewrite ingress for streaming and WebSocket support","rfc":"0005-streaming-websocket-ingress","description":"Replace buffered request/response in _proxy() with StreamResponse. Handle Connection: Upgrade for WebSocket. Support SSE, chunked transfer, large uploads. Most impactful change.","status":"done"},{"id":"0006-1","title":"Add structured request logging to ingress","rfc":"0006-request-logging","description":"Log every proxied request with method, path, status, duration_ms, client_ip, upstream target. JSON format. INFO for success, WARNING for 4xx, ERROR for 5xx.","status":"done"},{"id":"0007-1","title":"Implement Deno runtime hot-reload on file change","rfc":"0007-deno-hot-reload","description":"Add Deno.watchFs() on projects dir to detect new/changed files and re-import modules without container restart. Debounce 500ms. Keep old module on import failure.","status":"done"},{"id":"0008-1","title":"Standardize multipart deploy API format","rfc":"0008-consistent-deploy-api","description":"Reconcile running daemon vs repo code. Make multipart/form-data canonical with manifest + files fields. Add backward compat for JSON body. Validate and return clear errors.","status":"done"},{"id":"0009-1","title":"Add health check endpoint and post-deploy verification","rfc":"0009-runtime-health-checks","description":"Add /_health endpoint to Deno router. Poll after deploy with exponential backoff (30s timeout). Return error with container logs if unhealthy.","status":"done"},{"id":"0010-1","title":"Fix refresh() to restart runtime when projects remain","rfc":"0010-reliable-runtime-restart","description":"refresh() should restart container even when remaining projects exist, so redeployed code gets picked up. Add grace period for draining in-flight requests.","status":"done"},{"id":"0011-1","title":"Add git to Deno runtime container image","rfc":"0011-git-in-deno-runtime","description":"Add git to Deno Dockerfile. Add error checking on git clone exit code. Validate cloned dir is non-empty.","status":"done"},{"id":"0012-1","title":"Switch tunnel relay from polling to WebSocket","rfc":"0012-tunnel-latency","description":"Replace poll/relay with persistent WebSocket between tunnel client and server. Add reconnection and heartbeat. Keep polling as fallback. Depends on RFC 0005.","status":"done"},{"id":"0013-1","title":"Move tunnel auth from URL to headers","rfc":"0013-tunnel-header-auth","description":"Accept Authorization: Bearer header as alternative to URL path auth. Deprecate URL-based auth with warning log.","status":"done"},{"id":"0014-1","title":"Pass project dir as env var instead of import.meta.url","rfc":"0014-volume-mount-env-var","description":"Set __PROJECT_DIR env var when router imports handler modules. Update docs to prefer env var over import.meta.url. Keep backward compat.","status":"done"}],"summary":"Extracted 27 tasks from 14 RFCs: 0001 (7 tasks), 0002 (5 tasks), 0003 (4 tasks), 0004-0014 (1 task each). 22 tasks completed, 5 in backlog."}
+{
+  "tasks": [
+    {
+      "id": "0001-1",
+      "title": "Network separation",
+      "rfc": "0001-platform-vision",
+      "description": "Create tee-apps-dev and tee-apps-attested networks, enforce isolation in the Docker proxy",
+      "status": "done"
+    },
+    {
+      "id": "0001-2",
+      "title": "Mode field on projects",
+      "rfc": "0001-platform-vision",
+      "description": "Add mode: dev|attested to the project manifest, default to dev on deploy",
+      "status": "done"
+    },
+    {
+      "id": "0001-3",
+      "title": "Promotion API",
+      "rfc": "0001-platform-vision",
+      "description": "POST /_api/projects/<name>/promote with source hash recording",
+      "status": "done"
+    },
+    {
+      "id": "0001-4",
+      "title": "Audit log",
+      "rfc": "0001-platform-vision",
+      "description": "Make it per-project, enable only for attested mode",
+      "status": "done"
+    },
+    {
+      "id": "0001-5",
+      "title": "Verification page",
+      "rfc": "0001-platform-vision",
+      "description": "Static endpoint that walks the trust chain",
+      "status": "done"
+    },
+    {
+      "id": "0001-6",
+      "title": "Agent skill",
+      "rfc": "0001-platform-vision",
+      "description": "Verification skill that can be pointed at any dstack-webhost instance",
+      "status": "done"
+    },
+    {
+      "id": "0001-7",
+      "title": "Developer guide",
+      "rfc": "0001-platform-vision",
+      "description": "Step-by-step from local TypeScript to attested production",
+      "status": "done"
+    },
+    {
+      "id": "0002-1",
+      "title": "Port binding in project manifest",
+      "rfc": "0002-multi-routing",
+      "description": "Add listen.port and listen.protocol fields to project config, default to 8080/http",
+      "status": "done"
+    },
+    {
+      "id": "0002-2",
+      "title": "Port-based routing",
+      "rfc": "0002-multi-routing",
+      "description": "When a project specifies a port, bind that port and route all traffic directly to the container (no path-based routing)",
+      "status": "done"
+    },
+    {
+      "id": "0002-3",
+      "title": "TCP proxy mode",
+      "rfc": "0002-multi-routing",
+      "description": "Add raw TCP stream proxy for non-HTTP services, bidirectional byte forwarding",
+      "status": "done"
+    },
+    {
+      "id": "0002-4",
+      "title": "Routing table endpoint",
+      "rfc": "0002-multi-routing",
+      "description": "GET /_api/routes returns the current routing table with port, protocol, project mapping",
+      "status": "done"
+    },
+    {
+      "id": "0002-5",
+      "title": "Port conflict detection",
+      "rfc": "0002-multi-routing",
+      "description": "Prevent two projects from binding the same port, return clear error on deploy",
+      "status": "done"
+    },
+    {
+      "id": "0003-1",
+      "title": "Tunnel API",
+      "rfc": "0003-temporary-proxy-access",
+      "description": "POST /_api/tunnels creates a temporary reverse proxy entry with timeout and optional auth",
+      "status": "done"
+    },
+    {
+      "id": "0003-2",
+      "title": "Tunnel proxy handler",
+      "rfc": "0003-temporary-proxy-access",
+      "description": "Route requests matching /<tunnel-id>/... to the backend URL, remove route after timeout",
+      "status": "done"
+    },
+    {
+      "id": "0003-3",
+      "title": "WebSocket relay",
+      "rfc": "0003-temporary-proxy-access",
+      "description": "Support WS upgrade on tunnel endpoints for interactive sessions",
+      "status": "done"
+    },
+    {
+      "id": "0003-4",
+      "title": "Tunnel lifecycle management",
+      "rfc": "0003-temporary-proxy-access",
+      "description": "Auto-cleanup of expired tunnels, GET /_api/tunnels to list active, DELETE /_api/tunnels/<id> to revoke",
+      "status": "done"
+    },
+    {
+      "id": "0004-1",
+      "title": "Add X-Forwarded-For and proxy headers to ingress",
+      "rfc": "0004-ingress-proxy-headers",
+      "description": "Add X-Forwarded-For, X-Real-IP, X-Forwarded-Proto headers in proxy/ingress.py _proxy() before forwarding. Handle chained proxies by appending.",
+      "status": "done"
+    },
+    {
+      "id": "0005-1",
+      "title": "Rewrite ingress for streaming and WebSocket support",
+      "rfc": "0005-streaming-websocket-ingress",
+      "description": "Replace buffered request/response in _proxy() with StreamResponse. Handle Connection: Upgrade for WebSocket. Support SSE, chunked transfer, large uploads. Most impactful change.",
+      "status": "done"
+    },
+    {
+      "id": "0006-1",
+      "title": "Add structured request logging to ingress",
+      "rfc": "0006-request-logging",
+      "description": "Log every proxied request with method, path, status, duration_ms, client_ip, upstream target. JSON format. INFO for success, WARNING for 4xx, ERROR for 5xx.",
+      "status": "done"
+    },
+    {
+      "id": "0007-1",
+      "title": "Implement Deno runtime hot-reload on file change",
+      "rfc": "0007-deno-hot-reload",
+      "description": "Add Deno.watchFs() on projects dir to detect new/changed files and re-import modules without container restart. Debounce 500ms. Keep old module on import failure.",
+      "status": "done"
+    },
+    {
+      "id": "0008-1",
+      "title": "Standardize multipart deploy API format",
+      "rfc": "0008-consistent-deploy-api",
+      "description": "Reconcile running daemon vs repo code. Make multipart/form-data canonical with manifest + files fields. Add backward compat for JSON body. Validate and return clear errors.",
+      "status": "done"
+    },
+    {
+      "id": "0009-1",
+      "title": "Add health check endpoint and post-deploy verification",
+      "rfc": "0009-runtime-health-checks",
+      "description": "Add /_health endpoint to Deno router. Poll after deploy with exponential backoff (30s timeout). Return error with container logs if unhealthy.",
+      "status": "done"
+    },
+    {
+      "id": "0010-1",
+      "title": "Fix refresh() to restart runtime when projects remain",
+      "rfc": "0010-reliable-runtime-restart",
+      "description": "refresh() should restart container even when remaining projects exist, so redeployed code gets picked up. Add grace period for draining in-flight requests.",
+      "status": "done"
+    },
+    {
+      "id": "0011-1",
+      "title": "Add git to Deno runtime container image",
+      "rfc": "0011-git-in-deno-runtime",
+      "description": "Add git to Deno Dockerfile. Add error checking on git clone exit code. Validate cloned dir is non-empty.",
+      "status": "done"
+    },
+    {
+      "id": "0012-1",
+      "title": "Switch tunnel relay from polling to WebSocket",
+      "rfc": "0012-tunnel-latency",
+      "description": "Replace poll/relay with persistent WebSocket between tunnel client and server. Add reconnection and heartbeat. Keep polling as fallback. Depends on RFC 0005.",
+      "status": "done"
+    },
+    {
+      "id": "0013-1",
+      "title": "Move tunnel auth from URL to headers",
+      "rfc": "0013-tunnel-header-auth",
+      "description": "Accept Authorization: Bearer header as alternative to URL path auth. Deprecate URL-based auth with warning log.",
+      "status": "done"
+    },
+    {
+      "id": "0014-1",
+      "title": "Pass project dir as env var instead of import.meta.url",
+      "rfc": "0014-volume-mount-env-var",
+      "description": "Set __PROJECT_DIR env var when router imports handler modules. Update docs to prefer env var over import.meta.url. Keep backward compat.",
+      "status": "done"
+    },
+    {
+      "id": "0032-1",
+      "title": "caps module: Biscuit verifier + file store",
+      "rfc": "0032-capability-storage-module",
+      "description": "Library form: volume-backed file tree, Biscuit mint/verify (path-prefix + ops + expiry caveats), claim links. Port from storage-bakeoff/caps-server (root key from dstack KMS in attested mode, not Static env).",
+      "status": "done"
+    },
+    {
+      "id": "0032-2",
+      "title": "caps module: revocation denylist + issuance log",
+      "rfc": "0032-capability-storage-module",
+      "description": "sqlite: revoked Biscuit block-ids (subtree revoke) + issuance log for grant inventory; revoke button on owner UI.",
+      "status": "done"
+    },
+    {
+      "id": "0032-3",
+      "title": "caps module: ucanto identity-bound verifier",
+      "rfc": "0032-capability-storage-module",
+      "description": "Second credential type: UCAN delegation chains to a DID, signed invocations, revocation via validateAuthorization CID denylist. Port from landscape/ucanto exp1-5.",
+      "status": "done"
+    },
+    {
+      "id": "0032-4",
+      "title": "caps module: acceptance test on staging",
+      "rfc": "0032-capability-storage-module",
+      "description": "Bake-off scenario as CI-able script vs a staging pod: roundtrip, link claim, attenuation refusal, stranger refusal, section scoping, revocation kills link, inventory enumerates grants.",
+      "status": "done"
+    },
+    {
+      "id": "0032-5",
+      "title": "TEE co-signer extension (rung 3)",
+      "rfc": "0032-capability-storage-module",
+      "description": "Attested approver pod signing resource-bound Biscuit third-party blocks per use; composes with RFC 0024 mutual attestation. Extension \u2014 after 0031-1..4.",
+      "status": "todo"
+    }
+  ],
+  "summary": "Extracted 27 tasks from 14 RFCs: 0001 (7 tasks), 0002 (5 tasks), 0003 (4 tasks), 0004-0014 (1 task each). 22 tasks completed, 5 in backlog."
+}

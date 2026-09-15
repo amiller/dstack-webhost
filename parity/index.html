@@ -1,0 +1,203 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>browser parity board — issue #77</title><style>
+body{font:14px/1.45 -apple-system,Segoe UI,sans-serif;margin:2rem;max-width:70rem;color:#1f2328}
+h1{font-size:1.4rem} .banner{padding:.7rem 1rem;border-radius:8px;margin:1rem 0}
+.notready{background:#fff8c5;border:1px solid #d4a72c}.ready{background:#dafbe1;border:1px solid #1a7f37}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #d0d7de;padding:.5rem;vertical-align:top;text-align:left}
+.c{display:inline-block;padding:.1rem .5rem;border-radius:10px;font-size:.8rem;margin-right:.3rem}
+details{margin-top:.3rem}pre{background:#f6f8fa;padding:.5rem;overflow:auto;font-size:.75rem}
+.meta{color:#57606a;font-size:.85rem} ul{margin:.2rem 0;padding-left:1.1rem}
+</style></head><body>
+<h1>Browser parity board — bespoke twitter-debug Brave vs the RFC 0028 leased pool</h1>
+<div class="banner notready"><b>CUTOVER: NOT READY.</b> the bespoke Brave is NOT retired and the flag is NOT flipped until every row is green, including isolation; red and NOT-YET rows are the remaining work</div>
+<div class="meta">generated 2026-08-30T03:26:20+00:00 · pool <code>http://localhost:18080</code> · bespoke <code>https://pod.dstack.soc1024.com/twitter-debug</code></div>
+<ul class="meta"><li>RFC 0028 decided ephemeral-per-lease + a metering hook; the pool implements reset-and-reuse with no metering — remaining work, tracked by the isolation row.</li><li>RFC 0018 broker jar-injection is unwired (issue #50): /_api/browser/render accepts a raw jar.</li><li>twitter-debug's /twitter/setjar was removed; bespoke jar injection is now owner-approved OAuth3 vault connect.</li></ul>
+<table><tr><th>capability</th><th>parity assertion</th><th>bespoke (twitter-debug)</th><th>pool (RFC 0028)</th></tr>
+<tr><td><b>liveness</b></td><td>green</td><td><ul><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>GET /twitter/health</b> — jarLoaded=False</li></ul><details><summary>evidence</summary><pre>{
+ &quot;GET /twitter/health&quot;: {
+  &quot;http&quot;: 200,
+  &quot;body&quot;: {
+   &quot;ok&quot;: true,
+   &quot;jarLoaded&quot;: false
+  }
+ }
+}</pre></details></td><td><ul><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>GET /_api/browser/pool green</b> — started, size=2</li><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>a lease renders (health alone is not parity)</b> — lease bl-16f3576547f2 slot 0 in 412ms</li></ul><details><summary>evidence</summary><pre>{
+ &quot;GET /_api/browser/pool&quot;: {
+  &quot;http&quot;: 200,
+  &quot;body&quot;: {
+   &quot;started&quot;: true,
+   &quot;size&quot;: 2,
+   &quot;free&quot;: 2,
+   &quot;busy&quot;: 0,
+   &quot;active_leases&quot;: 0,
+   &quot;image&quot;: &quot;denoland/deno:latest&quot;
+  }
+ },
+ &quot;POST /_api/browser/render&quot;: {
+  &quot;http&quot;: 200,
+  &quot;body&quot;: {
+   &quot;body&quot;: &quot;@liveness&quot;,
+   &quot;max_active&quot;: 1,
+   &quot;lease&quot;: {
+    &quot;id&quot;: &quot;bl-16f3576547f2&quot;,
+    &quot;slot&quot;: 0,
+    &quot;domain&quot;: &quot;parity.internal&quot;,
+    &quot;render_ms&quot;: 412
+   }
+  }
+ }
+}</pre></details></td></tr>
+<tr><td><b>inject jar</b></td><td>a known jar renders logged-in on both</td><td><ul><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>jar loaded (OAuth3 vault connect)</b> — POST /twitter/oauth3/connect then approve in the OAuth3 popup — /twitter/setjar was removed; injection is owner-approved now</li></ul><details><summary>evidence</summary><pre>{
+ &quot;GET /twitter/oauth3/status&quot;: {
+  &quot;http&quot;: 200,
+  &quot;body&quot;: {
+   &quot;connected&quot;: false,
+   &quot;jarLoaded&quot;: false,
+   &quot;count&quot;: 0,
+   &quot;pending&quot;: null,
+   &quot;server&quot;: &quot;https://pod.dstack.soc1024.com/oauth3&quot;
+  }
+ }
+}</pre></details></td><td><ul><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>seeded jar renders logged-in</b> — render returned &#x27;@parity-seed&#x27; for jar &#x27;@parity-seed&#x27;</li><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>reset clears (no bleed into the next lease)</b> — jar-less render returned &#x27;&#x27;</li><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>broker jar-inject (RFC 0018)</b> — /_api/browser/render accepts a raw jar; the scoped broker delegation is unwired (issue #50 open)</li></ul><details><summary>evidence</summary><pre>{
+ &quot;request&quot;: {
+  &quot;domain&quot;: &quot;x.com&quot;,
+  &quot;jar&quot;: &quot;@parity-seed&quot;,
+  &quot;url&quot;: &quot;/me&quot;
+ },
+ &quot;response&quot;: {
+  &quot;body&quot;: &quot;@parity-seed&quot;,
+  &quot;max_active&quot;: 1,
+  &quot;lease&quot;: {
+   &quot;id&quot;: &quot;bl-1c5fbf503de2&quot;,
+   &quot;slot&quot;: 1,
+   &quot;domain&quot;: &quot;x.com&quot;,
+   &quot;render_ms&quot;: 411
+  }
+ }
+}</pre></details></td></tr>
+<tr><td><b>logged-in screenshot</b></td><td>x.com/home shows the account (a known @handle visible), non-blank</td><td><ul><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>GET /twitter/shot non-blank (serving)</b> — saved bespoke-x-home.png (71192 bytes); jarLoaded=False</li><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>known handle visible</b> — live logged-in jar unavailable — operator OAuth3 vault connect required (PARITY_JAR); the saved frame is the signed-out wall</li></ul><details><summary>evidence</summary><pre>{
+ &quot;GET /twitter/health&quot;: {
+  &quot;body&quot;: {
+   &quot;ok&quot;: true,
+   &quot;jarLoaded&quot;: false
+  }
+ },
+ &quot;GET /twitter/shot&quot;: {
+  &quot;http&quot;: 200,
+  &quot;content-type&quot;: &quot;image/png&quot;
+ }
+}</pre></details></td><td><ul><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>live logged-in jar</b> — operator-provided jar unavailable (PARITY_JAR unset)</li><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>real browser bridge</b> — pool runs the Deno bridge double (PARITY_REAL_BRIDGE unset); a real Neko/Chromium bridge image is required for a real x.com/home frame</li></ul><details><summary>evidence</summary><pre>{}</pre></details></td></tr>
+<tr><td><b>DOM reconstruct (reify)</b></td><td>>=N timeline entries with text, same order-of-magnitude</td><td><ul><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>live logged-in jar</b> — operator OAuth3 vault connect required (PARITY_JAR unset)</li></ul><details><summary>evidence</summary><pre>{}</pre></details></td><td><ul><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>live logged-in jar</b> — operator-provided jar unavailable (PARITY_JAR unset)</li><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>real browser bridge</b> — pool runs the Deno bridge double (PARITY_REAL_BRIDGE unset)</li></ul><details><summary>evidence</summary><pre>{}</pre></details></td></tr>
+<tr><td><b>driven browser actions</b></td><td>a scripted task reaches the same end state</td><td><ul><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>live logged-in jar</b> — operator OAuth3 vault connect required (PARITY_JAR unset); browser-driving is lock+cooldown&#x27;d on the single bespoke Brave</li></ul><details><summary>evidence</summary><pre>{}</pre></details></td><td><ul><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>driven task reaches its end state through the lease</b> — end_state={&#x27;steps_done&#x27;: 3}, lease=bl-83164d6a174e</li><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>real driven task (same end state on both engines)</b> — needs the real bridge + live jar on the pool and the secret-gated /twitter/browser on the bespoke side</li></ul><details><summary>evidence</summary><pre>{
+ &quot;request&quot;: {
+  &quot;url&quot;: &quot;/home&quot;,
+  &quot;op&quot;: {
+   &quot;op&quot;: &quot;drive&quot;,
+   &quot;steps&quot;: [
+    &quot;navigate https://x.com/home&quot;,
+    &quot;click compose&quot;,
+    &quot;type parity&quot;
+   ]
+  }
+ },
+ &quot;response&quot;: {
+  &quot;body&quot;: &quot;@driver&quot;,
+  &quot;max_active&quot;: 1,
+  &quot;end_state&quot;: {
+   &quot;steps_done&quot;: 3
+  },
+  &quot;lease&quot;: {
+   &quot;id&quot;: &quot;bl-83164d6a174e&quot;,
+   &quot;slot&quot;: 1,
+   &quot;domain&quot;: &quot;x.com&quot;,
+   &quot;render_ms&quot;: 402
+  }
+ }
+}</pre></details></td></tr>
+<tr><td><b>write / post</b></td><td>a post (or dry-run) lands, asserted present</td><td><ul><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>live logged-in jar</b> — operator OAuth3 vault connect required (PARITY_JAR unset)</li></ul><details><summary>evidence</summary><pre>{}</pre></details></td><td><ul><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>dry-run post lands, asserted present</b> — end_state={&#x27;posted&#x27;: &#x27;parity board probe (dry-run 1788060377)&#x27;, &#x27;dry_run&#x27;: True}, read-back entries=[{&#x27;text&#x27;: &#x27;parity board probe (dry-run 1788060377)&#x27;}]</li><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>post is account-scoped (invisible to another jar)</b> — other jar timeline=[]</li><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>reset clears the post</b> — post-reset timeline=[]</li><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>real post (non-dry-run)</b> — needs the real bridge + live jar on the pool; the bespoke side needs X-Debug-Secret and posts FOR REAL (PARITY_POST_TEXT)</li></ul><details><summary>evidence</summary><pre>{
+ &quot;post_response&quot;: {
+  &quot;body&quot;: &quot;@writer&quot;,
+  &quot;max_active&quot;: 1,
+  &quot;end_state&quot;: {
+   &quot;posted&quot;: &quot;parity board probe (dry-run 1788060377)&quot;,
+   &quot;dry_run&quot;: true
+  },
+  &quot;entries&quot;: [
+   {
+    &quot;text&quot;: &quot;parity board probe (dry-run 1788060377)&quot;
+   }
+  ],
+  &quot;lease&quot;: {
+   &quot;id&quot;: &quot;bl-dd5fad395a14&quot;,
+   &quot;slot&quot;: 0,
+   &quot;domain&quot;: &quot;x.com&quot;,
+   &quot;render_ms&quot;: 402
+  }
+ },
+ &quot;other_jar_timeline&quot;: {
+  &quot;body&quot;: &quot;@reader&quot;,
+  &quot;max_active&quot;: 1,
+  &quot;entries&quot;: [],
+  &quot;lease&quot;: {
+   &quot;id&quot;: &quot;bl-9f5860858a47&quot;,
+   &quot;slot&quot;: 1,
+   &quot;domain&quot;: &quot;x.com&quot;,
+   &quot;render_ms&quot;: 402
+  }
+ },
+ &quot;post_reset_timeline&quot;: {
+  &quot;body&quot;: &quot;&quot;,
+  &quot;max_active&quot;: 1,
+  &quot;entries&quot;: [],
+  &quot;lease&quot;: {
+   &quot;id&quot;: &quot;bl-91bea6bb1dd8&quot;,
+   &quot;slot&quot;: 0,
+   &quot;domain&quot;: &quot;x.com&quot;,
+   &quot;render_ms&quot;: 404
+  }
+ }
+}</pre></details></td></tr>
+<tr><td><b>egress binding</b></td><td>VPN egress IP (not a datacenter IP) on both</td><td><ul><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>egress IP is the expected VPN (not datacenter)</b> — observed ip=66.220.6.107, org=&#x27;AS6939 Hurricane Electric LLC&#x27;; the VPN expectation is operator-provided (PARITY_EGRESS_EXPECT)</li></ul><details><summary>evidence</summary><pre>{
+ &quot;GET /twitter/ip&quot;: {
+  &quot;http&quot;: 200,
+  &quot;body&quot;: {
+   &quot;ip&quot;: &quot;66.220.6.107&quot;,
+   &quot;org&quot;: &quot;AS6939 Hurricane Electric LLC&quot;,
+   &quot;city&quot;: &quot;Salinas&quot;,
+   &quot;region&quot;: &quot;California&quot;,
+   &quot;country&quot;: &quot;US&quot;,
+   &quot;proxy&quot;: null
+  }
+ }
+}</pre></details></td><td><ul><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>per-lease egress locked to the jar&#x27;s domain</b> — unimplemented: BrowserPool carries no per-lease egress/proxy config (RFC 0028 open question &#x27;Egress binding&#x27;)</li></ul><details><summary>evidence</summary><pre>{}</pre></details></td></tr>
+<tr><td><b>isolation (parity-PLUS)</b></td><td>no cross-session bleed — each read returns only its own account</td><td><ul><li><span class="c" style="background:#57606a;color:#fff">CANNOT</span><b>two subjects isolated</b> — structural: the bespoke engine is one Brave with one global session (RFC 0028 Problem) — it cannot pass this row; that is the migration&#x27;s justification</li></ul><details><summary>evidence</summary><pre>{}</pre></details></td><td><ul><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>pool size &gt;= 2 (two concurrent leases)</b> — pool size=2 — cannot run two concurrent leases</li><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>each read contains only its own account</b> — twitter read=&#x27;@parity-tw&#x27;, youtube read=&#x27;@parity-yt&#x27;</li><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>leases truly held concurrently (pool busy == 2 observed)</b> — max busy observed = 2 (8 samples)</li><li><span class="c" style="background:#1a7f37;color:#fff">PASS</span><b>reset clears after both leases</b> — jar-less read=&#x27;&#x27;</li><li><span class="c" style="background:#bf8700;color:#fff">NOT-YET</span><b>RFC 0028 DECIDED isolation model (fresh container per lease)</b> — browser_pool.py resets and reuses containers; the decided destroy-per-lease is unimplemented (RFC 0028 Decisions)</li></ul><details><summary>evidence</summary><pre>{
+ &quot;pool_status&quot;: {
+  &quot;started&quot;: true,
+  &quot;size&quot;: 2,
+  &quot;free&quot;: 2,
+  &quot;busy&quot;: 0,
+  &quot;active_leases&quot;: 0,
+  &quot;image&quot;: &quot;denoland/deno:latest&quot;
+ },
+ &quot;twitter_read&quot;: {
+  &quot;body&quot;: &quot;@parity-tw&quot;,
+  &quot;max_active&quot;: 1,
+  &quot;lease&quot;: {
+   &quot;id&quot;: &quot;bl-840558337c9a&quot;,
+   &quot;slot&quot;: 1,
+   &quot;domain&quot;: &quot;x.com&quot;,
+   &quot;render_ms&quot;: 402
+  }
+ },
+ &quot;youtube_read&quot;: {
+  &quot;body&quot;: &quot;@parity-yt&quot;,
+  &quot;max_active&quot;: 1,
+  &quot;lease&quot;: {
+   &quot;id&quot;: &quot;bl-1d72b8ffec62&quot;,
+   &quot;slot&quot;: 0,
+   &quot;domain&quot;: &quot;youtube.com&quot;,
+   &quot;render_ms&quot;: 401
+  }
+ }
+}</pre></details></td></tr>
+</table></body></html>

@@ -1,0 +1,44 @@
+# ship-fix.sh --no-build verification — 2026-09-09T19:11:40Z, zed (uid swarm)
+# Real ghcr (anonymous, package is public). phala is stubbed (logs argv, touches no CVM);
+# the staging compose is a stub in $HOME mirroring the real file's image-pin line.
+# Happy path forces TAG to staging-0b830666 (a real tag CI-equivalent); all downstream code is as shipped.
+
+## TEST 1 (acceptance 3): HEAD not CI-built -> refuse, name the tag, change nothing
+$ bash ship-fix.sh staging --no-build   (HEAD=5c5dd3ec)
+==> 1/4 build: skipped (--no-build — CI built the image on the push to staging)
+==> 2/4 resolve digest of ghcr.io/amiller/tee-socket-proxy:staging-5c5dd3e from ghcr (package is public: anonymous pull, no ghcr login)
+no CI-built image for this commit: ghcr.io/amiller/tee-socket-proxy:staging-5c5dd3e (ghcr HTTP 404) — push 5c5dd3ec to staging so CI builds it, or ship without --no-build
+exit=1
+compose sha256 unchanged: OK
+phala invocations: 0
+
+## TEST 2 (acceptance 2 mechanics): existing tag -> resolve, repin, deploy; NO docker build/push
+==> 1/4 build: skipped (--no-build — CI built the image on the push to staging)
+==> 2/4 resolve digest of ghcr.io/amiller/tee-socket-proxy:staging-0b830666 from ghcr (package is public: anonymous pull, no ghcr login)
+    resolved: ghcr.io/amiller/tee-socket-proxy@sha256:8724ffa39e503b9dc4be373a05cfe77c26efdebb5706c8bbc7d0630fdfca5d29
+==> 3/4 point staging compose at the new digest
+3:    image: ghcr.io/amiller/tee-socket-proxy@sha256:8724ffa39e503b9dc4be373a05cfe77c26efdebb5706c8bbc7d0630fdfca5d29
+==> 4/4 upgrade webhost-staging CVM (restarts every service in the compose; sealed env re-supplied)
+
+DONE (staging -> webhost-staging).
+exit=0
+compose image line now:     image: ghcr.io/amiller/tee-socket-proxy@sha256:8724ffa39e503b9dc4be373a05cfe77c26efdebb5706c8bbc7d0630fdfca5d29
+independent check (docker manifest inspect --verbose): sha256:8724ffa39e503b9dc4be373a05cfe77c26efdebb5706c8bbc7d0630fdfca5d29
+phala invoked with: PHALA-STUB argv: deploy --cvm-id webhost-staging -c /home/swarm/projects/hermes-agent/docker-compose.webhost-staging.yaml -e /home/swarm/projects/hermes-agent/deploy-notes/.env.webhost-staging --wait
+docker build|push lines in transcript: 0
+
+## TEST 3: --no-build is staging-only
+--no-build is staging-only: CI builds images only on pushes to staging
+exit=1
+
+## TEST 4: unknown option refused
+unknown option '--frobnicate' (only --no-build)
+exit=1
+
+## TEST 5: compose without a digest pin -> refuse to deploy stale image
+==> 1/4 build: skipped (--no-build — CI built the image on the push to staging)
+==> 2/4 resolve digest of ghcr.io/amiller/tee-socket-proxy:staging-0b830666 from ghcr (package is public: anonymous pull, no ghcr login)
+    resolved: ghcr.io/amiller/tee-socket-proxy@sha256:8724ffa39e503b9dc4be373a05cfe77c26efdebb5706c8bbc7d0630fdfca5d29
+==> 3/4 point staging compose at the new digest
+compose was not repinned to ghcr.io/amiller/tee-socket-proxy@sha256:8724ffa39e503b9dc4be373a05cfe77c26efdebb5706c8bbc7d0630fdfca5d29 — no ghcr.io/amiller/tee-socket-proxy@sha256 pin to replace; refusing to deploy a stale image
+exit=1
