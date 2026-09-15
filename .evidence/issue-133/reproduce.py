@@ -44,12 +44,35 @@ try:
     r = td.api_post("/projects", json={"name": "status-deno", "source": repo})
     print(f"== POST /_api/projects (shared-runtime deno app) -> HTTP {r.status_code}")
 
+    repo = td.create_test_repo("status-bun", {
+        "project.json": json.dumps({"runtime": "bun"}).encode(),
+        "index.ts": b'export default (req) => new Response("bun up");\n',
+    })
+    r = td.api_post("/projects", json={"name": "status-bun", "source": repo})
+    print(f"== POST /_api/projects (shared-runtime bun app) -> HTTP {r.status_code}")
+
     for _ in range(40):
-        if status("status-demo")["running"] and status("status-deno")["running"]:
+        if (status("status-demo")["running"] and status("status-deno")["running"]
+                and status("status-bun")["running"]):
             break
         time.sleep(0.5)
-    show("GET /_api/status  [both up]", {"status-demo (image)": status("status-demo"),
-                                         "status-deno (shared deno)": status("status-deno")})
+    show("GET /_api/status  [all up]", {"status-demo (image)": status("status-demo"),
+                                         "status-deno (shared deno)": status("status-deno"),
+                                         "status-bun (shared bun)": status("status-bun")})
+
+    print("\n== bun shares deno's container (#143 review fix): the id /_api/status")
+    print("   reports for status-bun is tee-runtime-deno-dev's live id, and no")
+    print("   tee-runtime-bun-dev container exists")
+    shared_id = subprocess.run(
+        ["docker", "inspect", "tee-runtime-deno-dev", "--format", "{{.Id}}"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    forked = subprocess.run(["docker", "inspect", "tee-runtime-bun-dev"],
+                            capture_output=True)
+    show("bun liveness == the shared deno container", {
+        "status-bun.container_id": status("status-bun")["container_id"],
+        "tee-runtime-deno-dev Id": shared_id,
+        "docker inspect tee-runtime-bun-dev exit": forked.returncode,
+        "GET /status-bun/hello": td.requests.get(f"{td.INGRESS}/status-bun/hello").status_code})
 
     print("\n== docker kill tee-image-status-demo-dev   (the daemon is not told)")
     subprocess.run(["docker", "kill", "tee-image-status-demo-dev"], check=True)
@@ -67,12 +90,14 @@ try:
     show("GET /_api/status  [no container]", status("status-demo"))
 
     print("\n== docker kill tee-runtime-deno-dev  (shared runtime container; every")
-    print("   deno project served by it dies with it)")
+    print("   deno AND bun project served by it dies with it)")
     subprocess.run(["docker", "kill", "tee-runtime-deno-dev"], check=True)
     time.sleep(1)
-    show("GET /_api/status  [status-deno, shared runtime dead]", status("status-deno"))
+    show("GET /_api/status  [status-deno + status-bun, shared runtime dead]",
+         {"status-deno": status("status-deno"), "status-bun": status("status-bun")})
 
     td.api_delete("/projects/status-demo")
     td.api_delete("/projects/status-deno")
+    td.api_delete("/projects/status-bun")
 finally:
     td.stop_daemon()

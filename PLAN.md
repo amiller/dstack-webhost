@@ -214,3 +214,21 @@ behavior change — no code touched.
       `devices: ["/dev/net/tun"]`, RFC 0025). Deliberate deviation from the issue's
       "egress: true where VPN routing is needed": documented as deployed-real (main line)
       rather than unconditionally, because this branch's code would silently no-op it.
+
+---
+
+# PR #143 review — bun projects normalized onto deno's shared container
+
+PLAN — checkboxes derived from the reviewer's verdict (2026-09-15T02:59Z).
+
+- [x] `_shared_config_key()` is the single bun→deno normalization; `refresh`,
+      `get_route`, `_project_container_name` and `recover_all` all use it —
+      `refresh("bun")` no longer creates `tee-runtime-bun-{mode}`, which
+      ingress never routed to and `/_api/status` never inspected.
+- [x] Bun status test in `test_daemon.py::test_status_live_container_state`:
+      shared-container id equality, no `tee-runtime-bun-dev` fork, bun ingress
+      through the shared container.
+- [x] Full `test_daemon.py` green on real docker at the merged tree
+      (53 tests, `=== ALL TESTS PASSED ===`), including the bun section.
+- [x] Tier 1 transcript regenerated at the merged tree, pinned `e0175701`,
+      bun liveness == shared deno container demonstrated over HTTP.
