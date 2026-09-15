@@ -700,10 +700,11 @@ def test_stats_endpoints():
     # blkio is engine-dependent: this box's rootless engine moved cgroup v1→v2
     # (docker 28.1.1 either way) and v2 without a delegated io controller reports
     # no blkio at all — every blkio_stats field is null even after real I/O.
-    # None is "not reported"; a 0 would be an invented value. The op-name
-    # matcher itself is pinned by the v1/v2/unmatched asserts below.
-    assert row["blk_read"] is None or row["blk_read"] > 0, row
-    assert row["blk_write"] is None or row["blk_write"] >= 0, row
+    # A present sample may still carry 0 read bytes (young container, page
+    # cache), so the live row pins only the shape — None or a real int; the
+    # not-an-invented-0 guarantee lives in the v1/v2/unmatched asserts below.
+    for k in ("blk_read", "blk_write"):
+        assert row[k] is None or (isinstance(row[k], int) and row[k] >= 0), row
     assert "shared" not in row, row
     # op casing is cgroup-version dependent (v1 "Read"/"Write", v2 lowercase —
     # moby#45739) and this host may be either, so exercise both shapes directly
