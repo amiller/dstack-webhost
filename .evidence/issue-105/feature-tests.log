@@ -1,0 +1,688 @@
+[tee-daemon] Recovered 0 tracked containers
+[tee-daemon] Startup network reclaim released 0 subnet(s)
+[tee-daemon] Docker proxy listening on /tmp/tee-daemon-test-y4x1h7ow/proxy/docker.sock
+[tee-daemon] dstack socket not found — dstack proxy + broker disabled
+[tee-daemon] Recovered 0 active tunnels
+[tee-daemon] Recovered 0 scoped API tokens
+[tee-daemon] Recovery complete
+[tee-daemon] Ingress + API listening on :18080 (default)
+[tee-daemon] tee-daemon running
+[proxy.browser_pool] Pulling browser image denoland/deno:latest...
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:54 -0500] "GET / HTTP/1.1" 200 220 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:54 -0500] "GET /_api/version HTTP/1.1" 200 231 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:54 -0500] "GET /_api/projects HTTP/1.1" 401 195 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:54 -0500] "GET /_api/projects HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:54 -0500] "GET /_api/projects HTTP/1.1" 200 160 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:54 -0500] "GET / HTTP/1.1" 200 220 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-static container=- image=static
+[proxy.deploy] Deployed test-static from /tmp/tee-daemon-test-y4x1h7ow/repos/test-static.git@HEAD (87ac15765815)
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:54 -0500] "POST /_api/projects HTTP/1.1" 201 895 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /test-static/ HTTP/1.1" 200 210 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /test-static/.git/HEAD HTTP/1.1" 403 118 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects/test-static HTTP/1.1" 200 890 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-static container=- image=static
+[proxy.deploy] Deployed test-static from /tmp/tee-daemon-test-y4x1h7ow/repos/test-static.git@HEAD (e5cb0ef75188)
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects/test-static/redeploy HTTP/1.1" 200 907 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /test-static/ HTTP/1.1" 200 179 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-atomic container=- image=static
+[proxy.deploy] Deployed test-atomic from /tmp/tee-daemon-test-y4x1h7ow/repos/test-atomic.git@HEAD (01c129e9d039)
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 201 895 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-atomic container=- image=static
+[proxy.deploy] Deployed test-atomic from /tmp/tee-daemon-test-y4x1h7ow/repos/test-atomic.git@HEAD (01c129e9d039)
+[proxy.audit] AUDIT promote project=test-atomic container=- image=-
+[proxy.deploy] Promoted test-atomic to attested mode (commit: 01c129e9d039, tree_hash: c735422e0af8, kind: none)
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 201 900 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects/test-atomic/audit HTTP/1.1" 200 2024 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-atomic container=- image=static
+[proxy.deploy] Deployed test-atomic from /tmp/tee-daemon-test-y4x1h7ow/repos/test-atomic.git@HEAD (01c129e9d039)
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 201 895 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=test-atomic-mismatch container=- image=static
+[proxy.deploy] Deployed test-atomic-mismatch from /tmp/tee-daemon-test-y4x1h7ow/repos/test-atomic.git@HEAD (01c129e9d039)
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 400 324 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects/test-atomic-mismatch HTTP/1.1" 200 899 "-" "python-requests/2.34.2"
+[proxy.tokens] Created scoped API token tok-hE3N4eV9OiY scope=projects/test-static expires=2026-09-15T12:07:55.479136+00:00
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/tokens HTTP/1.1" 201 447 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects/test-static HTTP/1.1" 200 890 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/routes HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/tokens HTTP/1.1" 403 199 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/tokens HTTP/1.1" 200 368 "-" "python-requests/2.34.2"
+[proxy.tokens] Revoked scoped API token tok-hE3N4eV9OiY
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "DELETE /_api/tokens/tok-hE3N4eV9OiY HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects/test-static HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/routes HTTP/1.1" 200 549 "-" "python-requests/2.34.2"
+[proxy.tokens] Created scoped API token tok-KBWFfMH4vIE scope=create expires=2026-09-15T12:07:55.487219+00:00
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/tokens HTTP/1.1" 201 433 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects HTTP/1.1" 403 212 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects/test-tarball/redeploy HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=hello-pending container=- image=static
+[proxy.deploy] Deployed hello-pending from tarball://local@HEAD ()
+[proxy.tokens] Created scoped API token tok-N_wWhy1kdBU scope=projects/hello-pending expires=2027-09-15T11:57:55.493780+00:00
+[proxy.audit] AUDIT create project=hello-pending container=- image=-
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 201 1003 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects/hello-pending HTTP/1.1" 403 201 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 409 226 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=hello-pending-2 container=- image=static
+[proxy.deploy] Deployed hello-pending-2 from tarball://local@HEAD ()
+[proxy.tokens] Created scoped API token tok-gs6E7aM8rZY scope=projects/hello-pending-2 expires=2027-09-15T11:57:55.499283+00:00
+[proxy.audit] AUDIT create project=hello-pending-2 container=- image=-
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 201 1004 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 429 230 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects HTTP/1.1" 400 211 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects/hello-pending HTTP/1.1" 200 922 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects/hello-pending/promote HTTP/1.1" 403 195 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects/hello-pending/approve HTTP/1.1" 403 199 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /_api/projects?pending=1 HTTP/1.1" 200 1690 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /hello-pending/ HTTP/1.1" 200 138 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=hello-pending container=- image=static
+[proxy.deploy] Deployed hello-pending from tarball://local@HEAD ()
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "POST /_api/projects/hello-pending/redeploy HTTP/1.1" 200 940 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:57:55 -0500] "GET /hello-pending/ HTTP/1.1" 200 138 "-" "python-requests/2.34.2"
+[proxy.browser_pool] Browser slot 0 -> 9e208958f5f7 (172.20.0.2:3000)
+[proxy.browser_pool] Browser pool ready: 1 slot(s)
+[proxy.pending] pending deadline passed for hello-pending; freezing
+[proxy.audit] AUDIT freeze project=hello-pending container=- image=-
+[proxy.pending] pending deadline passed for hello-pending-2; freezing
+[proxy.audit] AUDIT freeze project=hello-pending-2 container=- image=-
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /hello-pending/ HTTP/1.1" 503 204 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /_api/projects/hello-pending HTTP/1.1" 200 921 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT approve project=hello-pending container=- image=-
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "POST /_api/projects/hello-pending/approve HTTP/1.1" 200 840 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /_api/projects/hello-pending HTTP/1.1" 200 840 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /hello-pending/ HTTP/1.1" 200 138 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "POST /_api/projects/hello-pending/approve HTTP/1.1" 400 192 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT promote project=hello-pending container=- image=-
+[proxy.deploy] Promoted hello-pending to attested mode (commit: , tree_hash: 7c39c3c160a8, kind: none)
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "POST /_api/projects/hello-pending/promote HTTP/1.1" 200 845 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /_api/projects/hello-pending/audit HTTP/1.1" 200 2887 "-" "python-requests/2.34.2"
+[proxy.tokens] Created scoped API token tok-Uoe_H4CQlJU scope=create expires=2026-09-15T12:08:06.508260+00:00
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "POST /_api/tokens HTTP/1.1" 201 433 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT deploy project=prov-atomic container=- image=static
+[proxy.deploy] Deployed prov-atomic from tarball://local@HEAD ()
+[proxy.tokens] Created scoped API token tok-0irmIw5kOts scope=projects/prov-atomic expires=2027-09-15T11:58:06.510951+00:00
+[proxy.audit] AUDIT create project=prov-atomic container=- image=-
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "POST /_api/projects HTTP/1.1" 201 1000 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "POST /_api/projects HTTP/1.1" 403 195 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /_api/projects/prov-atomic-2 HTTP/1.1" 404 220 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /_api/projects/prov-atomic HTTP/1.1" 200 919 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /_api/audit HTTP/1.1" 200 9226 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-static container=- image=-
+[proxy.runtimes] Released network tee-proj-test-static-dev
+[proxy.deploy] Torn down test-static
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-static HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-caps/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-caps HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-deno/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-deno HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-auto/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-auto HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-tarball/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-tarball HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-image/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-image HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-vol/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-vol HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-iso-a/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-iso-a HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-iso-b/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-iso-b HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-passthru/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-passthru HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-iso-passthru/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-iso-passthru HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-redeploy-img/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-redeploy-img HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-redact/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-redact HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-keepenv/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-keepenv HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/net-a/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/net-a HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/net-b/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/net-b HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/data-iso/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/data-iso HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/rfc-test/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/rfc-test HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-opdebug/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-opdebug HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-opdebug-off/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-opdebug-off HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/tier0-src/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/tier0-src HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[aiohttp.server] Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/swarm/projects/tee-daemon/.venv/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 145, in handle
+    return await self._handle_api(request, path[4:].lstrip("/"))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 735, in _handle_api
+    return await self._api_teardown(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/ingress.py", line 953, in _api_teardown
+    await teardown(self.store, self.docker, self.audit_manager, self.tracker,
+  File "/tmp/pr138/proxy/deploy.py", line 450, in teardown
+    project = store.load(name)
+              ^^^^^^^^^^^^^^^^
+  File "/tmp/pr138/proxy/projects.py", line 105, in load
+    with open(os.path.join(self._project_dir(name), "project.json")) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tee-daemon-test-y4x1h7ow/projects/test-exp/project.json'
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-exp HTTP/1.1" 500 246 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=hello-pending container=- image=-
+[proxy.runtimes] Released network tee-proj-hello-pending-attested
+[proxy.deploy] Torn down hello-pending
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/hello-pending HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=hello-pending-2 container=- image=-
+[proxy.runtimes] Released network tee-proj-hello-pending-2-dev
+[proxy.deploy] Torn down hello-pending-2
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/hello-pending-2 HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=prov-atomic container=- image=-
+[proxy.runtimes] Released network tee-proj-prov-atomic-dev
+[proxy.deploy] Torn down prov-atomic
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/prov-atomic HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-atomic container=- image=-
+[proxy.runtimes] Released network tee-proj-test-atomic-dev
+[proxy.deploy] Torn down test-atomic
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-atomic HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[proxy.audit] AUDIT teardown project=test-atomic-mismatch container=- image=-
+[proxy.runtimes] Released network tee-proj-test-atomic-mismatch-dev
+[proxy.deploy] Torn down test-atomic-mismatch
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "DELETE /_api/projects/test-atomic-mismatch HTTP/1.1" 200 171 "-" "python-requests/2.34.2"
+[aiohttp.access] 127.0.0.1 [15/Sep/2026:06:58:06 -0500] "GET /_api/projects HTTP/1.1" 200 160 "-" "python-requests/2.34.2"
+[tee-daemon] Shutting down
+
+--- Test: version endpoint ---
+  Version: dev commit: effd1172 ✓
+
+--- Test: API auth ---
+  Auth: 401/403/200/200 ✓
+
+--- Test: deploy static from git ---
+  Deployed: commit=87ac15765815 tree=4671cbe7cdd0
+
+--- Test: static serving ---
+  Content verified
+
+--- Test: .git path blocked ---
+  .git blocked ✓
+
+--- Test: redeploy after git push ---
+  Redeploy: changed=True, new commit=e5cb0ef75188
+  Content updated ✓
+
+--- Test: atomic deploy and promote ---
+  Matching hash promoted and audit marked ✓
+  Ordinary deploy still resets mode to dev ✓
+  Mismatch named expected/actual and stayed dev ✓
+
+--- Test: scoped, revocable API tokens ---
+  scoped allow/deny, revoke, owner compatibility ✓
+
+--- Test: RFC 0034 provisioner token + pending approval ---
+  created hello-pending, deadline in 8s
+  409 on existing name, 429 past max_pending, 400 on reserved name ✓
+  per-project token works, promote/approve refused while pending ✓
+  redeploy with tarball via per-project token ✓
+  frozen after deadline ✓
+  approved, unfrozen, promotable; audit has create/freeze/approve ✓
+
+--- Test: provisioner atomic promote refused ---
+  matching-hash atomic promote refused before deploy, project never created ✓
+
+--- Test: audit log ---
+  10 deploys (10 git-sourced with commit + tree_hash) ✓
+
+--- Test: teardown ---
+  Torn down: test-static
+  Torn down: hello-pending
+  Torn down: hello-pending-2
+  Torn down: prov-atomic
+  Torn down: test-atomic
+  Torn down: test-atomic-mismatch
+  All projects removed ✓
+=== FEATURE TESTS PASSED ===
