@@ -28,7 +28,13 @@ This blocks the iconic relying-party demo on the project's front page and breaks
 4. Do not change the `_check_auth` implementation itself. Only change which endpoints route through it.
 
 ## Testing & Validation Requirements
-- With no `Authorization` header, `GET /_api/verification/<attested-name>` returns 200 and the full payload.
+- With no `Authorization` header, `GET /_api/verification/<attested-name>` returns 200, and the body
+  contains **only** the fields this RFC names as public evidence (identity + provenance:
+  `name, runtime, mode, source, ref, commit_sha, tree_hash, deployed_at`). Assert on CONTENT, not
+  just status: deploy a project carrying a sentinel value in `env` and assert the sentinel appears
+  in no response body on any endpoint this RFC opens. `env` must never appear.
+  *(Amended 2026-07-21 — see Revisions. The original bullet read "returns 200 and the full payload",
+  which specified the leak as the acceptance criterion.)*
 - With no `Authorization` header, `GET /_api/verification/<dev-mode-name>` returns 404 (not 401, to avoid leaking the existence of dev projects).
 - With no `Authorization` header, `POST /_api/projects` still returns 401.
 - With no `Authorization` header, `GET /_api/projects` (list) still returns 401, since enumerating includes dev projects.
@@ -45,3 +51,32 @@ This blocks the iconic relying-party demo on the project's front page and breaks
 - Rate limiting on the public endpoints (worth doing eventually; not required to unblock the verifier).
 - Caching headers (same).
 - A `/_api/instance` endpoint for the daemon's own attestation (separate RFC).
+
+## Revisions
+
+An RFC that opens a trust boundary is a live document: what is learned about that boundary afterwards
+belongs here, in the thing the next implementer reads, not only in the commit that fixed it.
+
+### 2026-07-21 — this RFC specified a secret leak, and did so for three months
+
+**What happened.** Making these endpoints public was implemented as a *routing* change. The payloads
+they already returned were not revisited. Those payloads were `asdict(project)`, which includes
+`project.env`. From 2026-04-25 every attested project published its secrets to anyone who asked —
+`BRIDGE_SECRET`, `OPENVPN_USER`/`PASS`, `OVPN_CONFIG_BASE64`, `ZAI_API_KEY`, OAuth client secrets,
+neko passwords. Fixed 2026-07-21 in `156a82a6`; the payload is now a projection, not a serialization.
+
+**Why this RFC is the right place to record it.** The same defect was correctly diagnosed on
+2026-06-18 (`1bb89b7f`) on a sibling public route — root cause stated exactly, in a commit message.
+That finding never reached this document. Eight days later `3c09e7e9` added the HTML renderer and
+faithfully implemented what this RFC still asked for: *the full payload*. The spec outlived the
+review, so the review did not count.
+
+**The rule this yields.** An RFC that changes an endpoint's AUDIENCE owes a specification of what
+crosses the boundary, not only who may cross it. Reachability tests verify that the door opens; they
+are silent on what is behind it. On a boundary deliberately opened, content review is the only control
+left — and it was the one nobody wrote down.
+
+**Still open** (tracked separately, not fixed by `156a82a6`): `_api_status` guards the same
+serialization behind a caller-supplied `public: bool` flag, so safety is opt-in; `_api_aggregate_status`
+serializes `env` on an authenticated route. Both are the same pattern, and the sweep after 2026-06-18
+is the sweep that should have caught this one.

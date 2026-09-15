@@ -9,7 +9,7 @@ node_modules/
 .venv/
 smithers.db*
 deploy/
-workflows/
+/workflows/
 tsconfig.json
 package.json
 package-lock.json
