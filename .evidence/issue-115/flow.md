@@ -354,3 +354,37 @@ label stays — the honest-stop rule (a green label over missing evidence is the
 rig exists to prevent). One comment on the PR states this and names the operator's two
 remaining commands.
 
+
+## §12. 2026-09-14 rework pass: consumed verdict 3c54fb4e843e ("UNKNOWN against `staging` — rebase it")
+
+Staging had drifted 176 commits past this branch's base (3c4f1bb7). Both actions were
+performed first-hand this spawn:
+
+- **Rebase done and verified:** `git rebase origin/staging` replayed all four commits onto
+  `a8f7f8bc` (staging tip, fetched fresh via the broker bundle) with zero conflicts; PR-owned
+  paths byte-identical (`git diff` old-head new-head on `examples/runsc-prelaunch/` and
+  `.evidence/issue-115/` — empty). The rebased tree then passed the **full overseer suite
+  first-hand from this account**: `test_daemon.py`, exit 0, `=== ALL TESTS PASSED ===`
+  (67 ✓), real docker. This supersedes §9/§11's "suite not runnable from the swarm account" —
+  the account now holds the `docker` group; the only remaining gotcha is that its default
+  docker context is a *rootless* daemon, so the suite must run with
+  `DOCKER_HOST=unix:///var/run/docker.sock` to match the daemon-under-test (otherwise
+  `test_runtime_selection`'s `docker inspect` queries the wrong daemon and fails on
+  "No such object" — environmental, first failure today, root-caused and gone after the
+  env fix). Stub matrix re-run at the rebased script, five scenarios: all-three →
+  `done`/0; `runsc` missing → exit 1; `runsc-hostuds` missing → exit 1; Docker daemon down
+  post-restart → Docker's own stderr, exit 1; sha512 mismatch → mismatch printed, exit 1.
+- **But rewritten history cannot be delivered here:** the brokered push (`swarm-push`)
+  refuses non-fast-forward pushes to origin by design, so the rebased branch was rejected
+  (`! [rejected] staging-115 (non-fast-forward)`). Delivered instead as a **merge of
+  `origin/staging` into `staging-115`** (`44d20a26`), the same shape that cleared this
+  verdict on oauth3-server#186: the branch now contains staging tip `a8f7f8bc`, and
+  `git diff <rebased-tree> <merge-tree>` is **empty** — the verified tree above is exactly
+  the tree now on the branch, so the suite pass and stub matrix apply to it verbatim.
+  PR diff vs staging unchanged: 2 files (`examples/runsc-prelaunch/prelaunch.sh` +15/-2,
+  `.evidence/issue-115/flow.md`), byte-identical to `0effb98c`'s.
+
+Standing state unchanged from §11: the operator ask (§5 runbook — pod token or CVM shell or
+one explicit sentence) is not repeated here; no worker assertion of the full `## Acceptance`
+and no `ready-to-merge` label, for the reasons §11 records. New head SHA means the rework
+attempt count restarts at this head.
