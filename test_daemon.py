@@ -10,6 +10,7 @@ import sys
 import tarfile
 import tempfile
 import time
+from datetime import datetime, timezone
 
 import requests
 from playwright.sync_api import sync_playwright
@@ -1973,8 +1974,11 @@ def test_notify_receiver():
     assert r.status_code == 200, r.text
     r.raise_for_status()
     deadline = envelope["deadline"]
+    # the receiver formats with JS toISOString(): UTC, millisecond precision
+    iso = datetime.fromtimestamp(deadline, timezone.utc).isoformat(
+        timespec="milliseconds").replace("+00:00", "Z")
     want = (f"project hooked-proj created by tok-abc123, "
-            f"pending until {time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(deadline))}; "
+            f"pending until {iso}; "
             f"approve: POST /_api/projects/hooked-proj/approve")
     msgs = messages()
     assert msgs == [{"body": want}], msgs
