@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 NETWORK_DEV = "tee-apps-dev"
 NETWORK_ATTESTED = "tee-apps-attested"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+RESERVED_NAMES = {"create", "about", "_about", "t", "_api"}  # scope word + ingress-intercepted paths
 # The sentinel every project-returning API response writes over env values. It is a marker that
 # a secret was WITHHELD, never a value: deploy() refuses to store it (see below), so a client that
 # round-trips a fetched manifest gets a loud 400 instead of silently overwriting a live secret.
@@ -173,6 +174,14 @@ async def run_build_step(docker: DockerClient, runtime: str, entry: str, files_d
     log.info("Build complete")
 
 
+def _prior_approval(store: ProjectStore, name: str):
+    # A redeploy must not launder a pending/frozen project into an approved one.
+    try:
+        return store.load(name).approval
+    except FileNotFoundError:
+        return None
+
+
 async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
                  tracker: ContainerTracker, rtm: RuntimeManager,
                  manifest: dict, files_data: bytes | None = None) -> Project:
@@ -180,7 +189,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     ref = manifest.get("ref", "")
     name = manifest.get("name", "")
 
-    if not name or not NAME_RE.match(name):
+    if not name or not NAME_RE.match(name) or name in RESERVED_NAMES:
         raise ValueError(f"Invalid project name: {name!r}")
 
     # 2026-08-24: deploy-prod-core.sh built its manifest from GET /_api/projects/oauth3, which
@@ -313,6 +322,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         cap_add=cap_add, devices=devices, operator_debug=operator_debug,
         egress=bool(manifest.get("egress", False)),
         egress_provider=bool(manifest.get("egress_provider", False)),
+        approval=_prior_approval(store, name),
     )
     store.save(project)
 
@@ -407,6 +417,7 @@ async def _deploy_image(store: ProjectStore, docker: DockerClient,
         operator_debug=operator_debug,
         egress=bool(manifest.get("egress", False)),
         egress_provider=bool(manifest.get("egress_provider", False)),
+        approval=_prior_approval(store, name),
     )
     store.save(project)
 
