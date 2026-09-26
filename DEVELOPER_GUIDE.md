@@ -124,9 +124,40 @@ Treat it like cutting a release — deliberate, not automatic. Subsequent redepl
 # Re-pull from source (latest commit on the same ref)
 curl -X POST $CVM/_api/projects/my-app/redeploy -H "Authorization: Bearer $TOKEN"
 
+# Or push a new tarball to a tarball-deployed project
+curl -X POST $CVM/_api/projects/my-app/redeploy -H "Authorization: Bearer $TOKEN" -F "files=@app.tgz"
+
 # Tear down
 curl -X DELETE $CVM/_api/projects/my-app -H "Authorization: Bearer $TOKEN"
 ```
+
+## Create a project without the owner token (RFC 0034)
+
+Deploy scripts should not carry the owner token. Mint one long-lived **create** token and
+keep it in one place; it can only create projects that do not exist yet.
+
+```bash
+curl -X POST $CVM/_api/tokens -H "Authorization: Bearer $OWNER" \
+  -d '{"scope":"create","ttl":31536000,"max_pending":5}' | jq -r .token > ~/.config/dstack-webhost/provisioner
+```
+
+Creating with it returns the project plus a per-project token (`projects/<name>` scope,
+one year) in the `token` field. Save that beside the project and use it for every later
+`redeploy`, `logs`, `promote`, `DELETE`. `examples/hello-pending/deploy.sh` is the whole flow.
+
+The new project serves immediately but is **pending**: `approval: {status: "pending",
+deadline, created_by}`. It cannot be promoted, and at the deadline (`DAEMON_PENDING_TTL`,
+default 7 days) it is frozen: container stopped, files and volumes kept, `/<name>/`
+answers 503 `pending expired`. The owner reviews and approves:
+
+```bash
+curl $CVM/_api/projects?pending=1 -H "Authorization: Bearer $OWNER"
+curl -X POST $CVM/_api/projects/my-app/approve -H "Authorization: Bearer $OWNER"
+```
+
+A create token can hold at most `max_pending` unapproved projects (default 5); the next
+create returns 429. Set `DAEMON_NOTIFY_HOOK` (an executable, or an `http…` URL) on the
+daemon to receive a JSON envelope on `create`, `approve`, and `freeze`.
 
 ## API surface
 
@@ -147,8 +178,10 @@ Authenticated (`Authorization: Bearer $TOKEN`):
 |---|---|
 | `GET /_api/projects` | All projects, including dev. |
 | `POST /_api/projects` | Deploy. |
-| `POST /_api/projects/<name>/promote` | Dev → attested. |
-| `POST /_api/projects/<name>/redeploy` | Re-pull from source. |
+| `POST /_api/projects/<name>/promote` | Dev → attested. Refused (403) while pending. |
+| `POST /_api/projects/<name>/redeploy` | Re-pull from source, or multipart `files` to push a tarball. |
+| `POST /_api/projects/<name>/approve` | Owner only: clear pending, unfreeze. |
+| `POST /_api/tokens` | Owner only: mint a scoped token (`projects/<name>`, or `create` with `max_pending`). |
 | `DELETE /_api/projects/<name>` | Tear down. |
 
 ## Signing users in

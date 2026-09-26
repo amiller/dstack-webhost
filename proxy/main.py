@@ -21,6 +21,7 @@ from .broker import BrokerStore, BrokerProxy
 from .browser_pool import BrowserPool, parse_binds
 from . import ingress as ingress_mod
 from . import deploy as deploy_mod
+from . import pending
 from .ingress import Ingress
 
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
@@ -39,6 +40,7 @@ TOKEN_DIR = os.environ.get("DAEMON_TOKEN_DIR", "/var/lib/tee-daemon/tokens")
 BROKER_DIR = os.environ.get("DAEMON_BROKER_DIR", "/var/lib/tee-daemon/broker")
 CREDS_DIR = os.environ.get("DAEMON_CREDS_DIR", "/var/lib/tee-daemon/creds")
 INGRESS_PORT = int(os.environ.get("INGRESS_PORT", "8080"))
+SWEEP_INTERVAL = int(os.environ.get("DAEMON_SWEEP_INTERVAL", "60"))
 
 
 def _resolve_commit() -> str:
@@ -275,11 +277,15 @@ async def start():
     # Background task: cleanup expired short-lived grants
     async def cleanup_expired_grants():
         while True:
-            await asyncio.sleep(60)  # Check every minute
+            await asyncio.sleep(SWEEP_INTERVAL)
             tunnel_store.cleanup_expired()
             token_store.cleanup_expired()
             if dstack_sock:
                 broker_store.cleanup_expired()
+            try:
+                await pending.sweep(store, rtm, audit_manager)
+            except Exception as e:
+                log.error("pending sweep failed: %s", e)
 
     cleanup_task = asyncio.create_task(cleanup_expired_grants())
 
