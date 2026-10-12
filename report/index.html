@@ -87,7 +87,7 @@
   <h1>What the swarm can show you, walked and dated</h1>
   <div class="fresh">
     <span class="oldest">oldest evidence on this page: 0m ago</span>
-    <span class="assembled">html assembled 2026-10-11 19:30 CDT (assembly time is not evidence freshness)</span>
+    <span class="assembled">html assembled 2026-10-12 07:31 CDT (assembly time is not evidence freshness)</span>
   </div>
 <section class="block"><h2>Your asks</h2>
 <p class="cap">Open <code>operator-ask</code> issues across the repos — the things you asked to see, each with its current flow status. This section leads the report so an evaporated plan is visible, not forgotten.</p>
@@ -97,6 +97,8 @@
 </section>
 <section class="block"><h2>What improved since yesterday</h2>
 <p class="cap">PRs merged in the last 24h, grouped by repo. Where the PR committed a <code>.evidence/issue-&lt;N&gt;/</code> gallery, it renders inline below; otherwise it is labelled "merged, no flow evidence" — the report curates merge-time proof, it never fabricates it.</p>
+<p class="err">could not fetch teleport-computer/oauth3-server merges (rc=1): HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)</p>
+<p class="err">could not fetch amiller/dstack-webhost merges (rc=1): HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)</p>
 <p class="cap">Nothing merged in the last 24h.</p>
 </section>
 <section class="block"><h2>Flows <span class="tag">signed-in, walked click-by-click on staging</span></h2>
@@ -243,63 +245,15 @@
 <p>Nothing merged this week.</p>
 <h3>Lane health over time</h3>
 <table class="swarm-table"><tr><th>lane</th><th>runs logged</th><th>pass rate</th><th>latest</th></tr>
-<tr><td><b>browser-pool</b></td><td>431</td><td>431/431</td><td style="color:#00838a">10-12T00:30 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
-<tr><td><b>e2e-verifier</b></td><td>431</td><td>17/431</td><td style="color:#c2185b">10-12T00:30 — FAIL: e2e-flow engine exited 1</td></tr>
-<tr><td><b>login-with-everything</b></td><td>431</td><td>287/431</td><td style="color:#00838a">10-12T00:30 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
+<tr><td><b>browser-pool</b></td><td>432</td><td>432/432</td><td style="color:#00838a">10-12T12:30 — BACKEND-OK: pool /health up + lease returns a bridge — backend reachable, no user journey </td></tr>
+<tr><td><b>e2e-verifier</b></td><td>432</td><td>17/432</td><td style="color:#c2185b">10-12T12:30 — FAIL: e2e-flow engine exited 1</td></tr>
+<tr><td><b>login-with-everything</b></td><td>432</td><td>288/432</td><td style="color:#00838a">10-12T12:30 — PASS: live at https://78ffc78c25e0c8a9e64bb3a969ba6f226abae62d-8080.dstack-pha-prod7.phala</td></tr>
 </table>
 <p class="cap" style="color:#57606a">History collection started 2026-07-06; each 30-min refresh appends a snapshot.</p>
 <h3>Agent census</h3><p>0 running, 6 idle/stopped on the paseo daemon right now.</p>
 <h3>Next — open <code>ready</code> work</h3>
 <p>No open ready-labeled issues — the queue is empty.</p>
-
-section.work{ margin-top:14px; }
-section.work h2{ font-size:16px; border-bottom:1px solid var(--rule,#d8d4cc); padding-bottom:4px; }
-section.work h3{ font-size:13.5px; margin:18px 0 2px; }
-section.work .last-run{ float:right; font-size:12px; color:var(--faint,#6e6a62); font-variant-numeric:tabular-nums; }
-section.work .sub.stale{ background:var(--fail-bg,#fbe9eb); border-left:4px solid var(--fail-fg,#b00020);
-  padding:8px 12px; border-radius:6px; }
-section.work .sub.stale h3{ color:var(--fail-fg,#b00020); margin-top:0; }
-section.work table.smoke-tbl{ font-size:13px; }
-section.work td.verify{ font-weight:600; white-space:nowrap; }
-section.work .v-pass{ color:#0b7a44; } section.work .v-fail{ color:var(--fail-fg,#b00020); }
-section.work .v-unknown{ color:var(--faint,#6e6a62); }
-section.work .badge{ font-size:11px; padding:1px 7px; border-radius:999px; white-space:nowrap; }
-section.work .b-merged{ background:#e3f3e8; color:#0b7a44; }
-section.work .b-open{ background:#e7f0fb; color:#1f6feb; }
-section.work .b-closed{ background:#f1ecea; color:#6e6a62; }
-section.work .b-ask{ background:#fde8e8; color:#b00020; }
-section.work .none{ color:var(--faint,#6e6a62); font-style:italic; }
-section.work .cap{ color:var(--faint,#6e6a62); font-size:12px; margin:6px 0 0; }
-section.work a{ color:#1f6feb; }
-<section class="work"><h2 id="work">Work — the autonomous loop</h2><p class="cap">What the loop is doing: recent runs (issue → branch → verify → PR), PR merge + pass/fail state, and the ready/operator-ask queue. Sourced live from <code>gh</code> + <code>~/paseo-batch/out</code>; any section whose substance is &gt;24h old or absent turns RED.</p>
-<div class="sub stale"><span class="last-run" title="2026-08-28 00:13 UTC">last run 45d ago</span><h3>Recent runs — STALE</h3><table class="smoke-tbl"><thead><tr><th>issue</th><th>title</th><th>branch</th><th>verify</th><th>PR · merge</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/issues/103">#103</a></td><td>staging-B: second oauth3 core instance as migration destination</td><td><code>staging-103</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/104">#104</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/85">#85</a></td><td>envoy-browser rig: screenshots degrade under Brave memory/process accu</td><td><code>staging-85</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/128">#128</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/38">#38</a></td><td>Otter demo: activity log noisy with frequent poll entries — coalesce +</td><td><code></code></td><td class="verify v-unknown">unknown</td><td>— </td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/6">#6</a></td><td>Attested gVisor (runsc) tenants can&#x27;t reach the broker unix socket — n</td><td><code>staging-6</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/127">#127</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/121">#121</a></td><td>&quot;tenant&quot; is used for containers, but a tenant is a user — the word hid</td><td><code>staging-121</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/123">#123</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/120">#120</a></td><td>No per-tenant resource visibility: CPU, memory and network are unmeasu</td><td><code>staging-120</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/122">#122</a> <span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/116">#116</a></td><td>gVisor with a working network: register runsc-hostnet (--network=host)</td><td><code>staging-116</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/117">#117</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/106">#106</a></td><td>version identity must be baked at build and asserted at boot</td><td><code>staging-106</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/113">#113</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/43">#43</a></td><td>Pod homepage should point visitors to the interesting apps deployed on</td><td><code>staging-43</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/111">#111</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/22">#22</a></td><td>Implement RFC 0019 — Managed Hosting via TeeSQL / AttestMesh</td><td><code>staging-22</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/110">#110</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/13">#13</a></td><td>Promote isolation-probe to attested + feature it as the worked example</td><td><code>staging-13</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/109">#109</a> <span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/issues/2">#2</a></td><td>isolation:container tenants have no outbound DNS under runsc</td><td><code>staging-2</code></td><td class="verify v-pass">pass</td><td><a href="https://github.com/amiller/dstack-webhost/pull/108">#108</a> <span class="badge b-merged">merged</span></td></tr></tbody></table><p class="cap">Each row is one ready-queue iteration from the result.json lane logs; verify = test_daemon.py / unit result recorded by that run.</p></div>
-<div class="sub "><span class="last-run" title="2026-10-12 00:30 UTC">last run 0m ago</span><h3>Pull requests</h3><table class="smoke-tbl"><thead><tr><th>PR</th><th>title</th><th>branch</th><th>verify</th><th>state</th></tr></thead><tbody><tr><td><a href="https://github.com/amiller/dstack-webhost/pull/149">#149</a></td><td>notify: a DAEMON_NOTIFY_HOOK receiver that posts one Matrix mess</td><td><code>staging-147</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/145">#145</a></td><td>RFC 0034: create-scoped provisioner token + pending approval</td><td><code>rfc-0034</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/143">#143</a></td><td>status: read live container state from docker at request time (#</td><td><code>staging-133</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/142">#142</a></td><td>deploy: refuse an env that carries the redaction sentinel (#132)</td><td><code>staging-132</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/140">#140</a></td><td>deploy: never destroy files_dir on a failed or non-git clone (#1</td><td><code>staging-130</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/138">#138</a></td><td>feat: atomically deploy and promote with tree pin</td><td><code>staging-105</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/134">#134</a></td><td>prelaunch: abort on failed docker restart or unregistered runsc </td><td><code>staging-115</code></td><td class="verify ">—</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/122">#122</a></td><td>per-tenant resource stats: /_api/stats + /_api/projects/&lt;name&gt;/s</td><td><code>staging-120</code></td><td class="verify v-pass">pass</td><td><span class="badge b-open">open</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/139">#139</a></td><td>docs(#119): a project is one container — multi-process workloads</td><td><code>staging-119</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/135">#135</a></td><td>RFC 0026: add scoped per-project debug sessions</td><td><code>staging-58</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/136">#136</a></td><td>rfcs: add 0023 — staging CVM roles (webhost-staging vs hermes-st</td><td><code>staging-59</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/148">#148</a></td><td>ci: build+push the daemon image on every push to staging; ship-f</td><td><code>staging-146</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/137">#137</a></td><td>browser parity e2e suite + published board — the cutover gate (#</td><td><code>staging-77</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr>
-<tr><td><a href="https://github.com/amiller/dstack-webhost/pull/141">#141</a></td><td>runtimes: give isolated (deno/bun) containers the same restart p</td><td><code>staging-131</code></td><td class="verify ">—</td><td><span class="badge b-merged">merged</span></td></tr></tbody></table></div>
-<div class="sub "><span class="last-run" title="2026-10-12 00:30 UTC">last run 0m ago</span><h3>Queue — ready + operator-ask</h3><p class="none">No ready or operator-ask issues — the queue is empty.</p></div>
-</section>
+<p class="err">Work dashboard: generation failed — see out/smoke/work-section.err</p>
 </div>
 </section>
   <footer>
