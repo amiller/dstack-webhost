@@ -34,6 +34,8 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0028](0028-browser-render-pool.md) | Browser Runtime & Render Pool | Draft |
 | [0029](0029-attested-with-declared-debug.md) | Attested Apps with Declared Operator Debug | Draft |
 | [0030](0030-acceptance-must-verify.md) | Acceptance Must Verify, Not Ping (who verifies the verifier) | Draft |
+| [0033](0033-oauth3-pod-login.md) | OAuth3 as the Pod's Browser Login | Draft |
+| [0034](0034-self-service-project-creation.md) | Self-Service Project Creation (provisioner token + pending approval) | Implemented |
 
 ## Conventions
 

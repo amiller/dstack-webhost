@@ -13,11 +13,12 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-MAX_TTL = 86400
+MAX_TTL = 400 * 86400
 DEFAULT_TTL = 3600
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 API_PREFIXES = {
     "audit",
+    "create",  # RFC 0034: may only POST /_api/projects for a new name
     "attest",
     "projects",
     "routes",
@@ -37,6 +38,7 @@ class ApiToken:
     expires_at: str
     revoked: bool
     secret_hash: str
+    max_pending: int = 0  # RFC 0034: create-scope cap on unapproved projects (0 = default)
 
     def is_expired(self) -> bool:
         try:
@@ -60,7 +62,7 @@ class TokenStore:
     def _token_path(self, token_id: str) -> str:
         return os.path.join(self.base_dir, f"{token_id}.json")
 
-    def create(self, scope: str, ttl: int) -> tuple[ApiToken, str]:
+    def create(self, scope: str, ttl: int, max_pending: int = 0) -> tuple[ApiToken, str]:
         if ttl <= 0 or ttl > MAX_TTL:
             raise ValueError(f"TTL must be between 1 and {MAX_TTL} seconds")
 
@@ -80,6 +82,7 @@ class TokenStore:
             expires_at=(now + timedelta(seconds=ttl)).isoformat(),
             revoked=False,
             secret_hash=_hash_secret(bearer),
+            max_pending=max_pending,
         )
         self._tokens[token_id] = token
         self._save_token(token)
@@ -179,6 +182,8 @@ def scope_allows(scope: str, api_path: str) -> bool:
     path = api_path.strip("/")
     if not normalized:
         return False
+    if normalized == "create":
+        return path == "projects"
     return path == normalized or path.startswith(normalized + "/")
 
 
