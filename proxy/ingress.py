@@ -146,6 +146,25 @@ def _network_isolation(runtime: str, available: dict) -> str:
     return "netns"
 
 
+APP_LABEL = "tee-daemon.project."
+
+
+def _container_stats(s: dict) -> dict:
+    """Docker stats (cgroup v2) -> bytes and a CPU percent over the ~1s sample.
+    working_set = usage - inactive_file, as `docker stats` reports. Under gVisor
+    the sandbox's guest memory is memfd-backed, so it shows up as shmem."""
+    m, st = s["memory_stats"], s["memory_stats"]["stats"]
+    cpu, pre = s["cpu_stats"], s["precpu_stats"]
+    cpu_delta = cpu["cpu_usage"]["total_usage"] - pre["cpu_usage"]["total_usage"]
+    sys_delta = cpu["system_cpu_usage"] - pre["system_cpu_usage"]
+    return {
+        "usage": m["usage"], "limit": m["limit"],
+        "working_set": m["usage"] - st["inactive_file"],
+        "anon": st["anon"], "file": st["file"], "shmem": st["shmem"],
+        "cpu_percent": round(100 * cpu_delta / sys_delta * cpu["online_cpus"], 1),
+    }
+
+
 class Ingress:
     def __init__(self, store: ProjectStore, docker: DockerClient,
                  audit_manager: AuditLogManager, tracker: ContainerTracker,
@@ -656,7 +675,7 @@ class Ingress:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
-        owner_only = path == "tokens" or path.startswith("tokens/")
+        owner_only = path in ("tokens", "stats") or path.startswith("tokens/")
         denied = self._check_auth(request, path, owner_only=owner_only)
         if denied:
             return denied
@@ -696,6 +715,9 @@ class Ingress:
 
         if path == "routes" and method == "GET":
             return await self._api_routes()
+
+        if path == "stats" and method == "GET":
+            return await self._api_stats()
 
         # RFC 0017: fleet export/import (authed)
         if path == "export" and method == "GET":
@@ -957,6 +979,22 @@ class Ingress:
                 {"error": "no container for project (not running?)"}, status=404)
         text = await self.docker.logs(cid, tail=tail)
         return web.Response(text=text, content_type="text/plain")
+
+    async def _api_stats(self) -> web.Response:
+        """Memory/CPU per managed container (issue #151), owner-only, read-only.
+
+        Shared runtime containers run many apps in one process, so they are
+        reported once with the list of apps they host. Includes the daemon itself."""
+        containers = await self.docker.list_containers("tee-proxy.managed=true")
+        rows = [(c["Names"][0].lstrip("/"), c["Id"], sorted(
+            k.removeprefix(APP_LABEL) for k in c["Labels"] if k.startswith(APP_LABEL)))
+            for c in containers]
+        rows.append(("tee-daemon", os.environ["HOSTNAME"], []))
+        stats = await asyncio.gather(*(self.docker.stats(cid) for _, cid, _ in rows))
+        out = [{"container": name, "id": cid[:12], "apps": apps, **_container_stats(s)}
+               for (name, cid, apps), s in zip(rows, stats)]
+        out.sort(key=lambda r: r["working_set"], reverse=True)
+        return web.json_response(out)
 
     async def _api_all_audit(self) -> web.Response:
         """Get audit entries for all known projects."""

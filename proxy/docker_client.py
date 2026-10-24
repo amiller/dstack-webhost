@@ -253,6 +253,19 @@ class DockerClient:
         if status >= 400:
             raise RuntimeError(f"ensure_volume failed ({status}): {data}")
 
+    async def list_containers(self, label: str) -> list[dict]:
+        filters = json.dumps({"label": [label]})
+        status, data = await self._json_request("GET", "/containers/json", params={"filters": filters})
+        if status >= 400:
+            raise RuntimeError(f"list containers failed ({status}): {data}")
+        return data
+
+    async def stats(self, cid: str) -> dict:
+        status, data = await self._json_request("GET", f"/containers/{cid}/stats?stream=false", timeout=30)
+        if status >= 400:
+            raise RuntimeError(f"stats failed ({status}): {data}")
+        return data
+
     async def container_exists(self, name: str) -> str | None:
         status, data = await self._json_request("GET", f"/containers/{name}/json")
         if status == 200:
