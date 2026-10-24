@@ -146,7 +146,7 @@ class DockerClient:
         return _demux_docker_stream(body)
 
     # A pull that never returns must not be able to stall a boot. Docker Hub throttling an
-    # anonymous pull looks exactly like this, and 300s of it per broken tenant is a long time
+    # anonymous pull looks exactly like this, and 300s of it per broken app is a long time
     # to hold the substrate. Recovery treats a failure here as "skip that project".
     PULL_TIMEOUT = 120
 
@@ -222,7 +222,7 @@ class DockerClient:
         """Remove a network. True if it went away, False if Docker still wants it.
 
         404 counts as success — the goal is that it is gone. 403/409 mean containers
-        are still attached, which is a live tenant and not ours to disturb."""
+        are still attached, which is a live app and not ours to disturb."""
         status, data = await self._json_request("DELETE", f"/networks/{name}")
         if status in (204, 404):
             return True

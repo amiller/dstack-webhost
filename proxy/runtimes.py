@@ -43,7 +43,7 @@ DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 # must NOT get that. Each project gets its OWN subdir (one project-scoped
 # DstackProxy per project — see dstack_proxy.DstackProxyManager), and a
 # project's container is mounted ONLY its own subdir, so it cannot reach
-# another project's broker socket (cross-tenant key derivation, issue #7).
+# another project's broker socket (cross-app key derivation, issue #7).
 # Under Docker-in-Docker the daemon can't bind its own container path into a
 # sibling, so the operator points BROKER_HOST_PATH at the host path that backs
 # BROKER_SOCKET_DIR (e.g. bind-mount /var/run/tee-broker:/var/run/broker and set
@@ -118,7 +118,7 @@ def _project_broker_binds(project) -> list[str]:
 
 
 def _shared_broker_binds() -> list[str]:
-    """Shared runtime (one container, many projects): co-tenants are co-trust by
+    """Shared runtime (one container, many projects): co-hosted apps are co-trust by
     construction (shared V8/fs/env), so per-project isolation is moot here —
     mount the broker parent read-only for reachability."""
     if not BROKER_HOST_PATH:
@@ -131,7 +131,7 @@ CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
 
 async def verify_configured_runtime(docker: DockerClient):
     """Refuse to start when DAEMON_CONTAINER_RUNTIME names a runtime Docker
-    does not have — otherwise tenants silently land in a weaker sandbox than
+    does not have — otherwise apps silently land in a weaker sandbox than
     /_api/substrate advertises."""
     rt = CONTAINER_RUNTIME
     if not rt:
@@ -451,7 +451,7 @@ class RuntimeManager:
                 binds.append(f"{DATA_VOLUME_NAME}:{DATA_VOLUME_MOUNT_IN_RUNTIME}:rw")
                 data_root = DATA_VOLUME_MOUNT_IN_RUNTIME
 
-            # Expose the broker to shared-runtime tenants that need it. Co-tenants
+            # Expose the broker to shared-runtime apps that need it. Co-hosted apps
             # here are co-trust (one V8 isolate, shared fs/env), so the broker
             # parent is mounted whole rather than per-project.
             if BROKER_HOST_PATH and any(_project_needs_broker(p) for p in mode_projects):
@@ -485,10 +485,10 @@ class RuntimeManager:
             ]
 
             # Shared-runtime containers stay on the docker default OCI runtime,
-            # not DAEMON_CONTAINER_RUNTIME. Co-tenants here are co-trust by
+            # not DAEMON_CONTAINER_RUNTIME. Co-hosted apps here are co-trust by
             # construction (one V8 isolate, shared env, shared FS), so the
             # kernel-CVE-class protection runsc adds doesn't pay off. (runsc
-            # tenants get explicit GVISOR_DNS — docker_client.)
+            # apps get explicit GVISOR_DNS — docker_client.)
             # Per-project containers (image-runtime, isolation:container) keep
             # CONTAINER_RUNTIME.
             cid = await self.docker.create_container(
@@ -518,7 +518,7 @@ class RuntimeManager:
 
         Docker allocates every bridge network a subnet from default-address-pools —
         by default about thirty of them. A daemon that creates one network per project
-        and never removes one runs the pool dry, and then every new tenant fails at
+        and never removes one runs the pool dry, and then every new app fails at
         create_network with a 404 that says nothing about the real cause. The
         containers are cleaned up already; this is the address space they were using."""
         net_name = f"tee-proj-{project_name}-{mode}"
@@ -538,7 +538,7 @@ class RuntimeManager:
 
     async def reclaim_orphan_networks(self) -> int:
         """Release tee-proj-* networks nothing is attached to. Safe to run at startup:
-        a network with a live tenant on it reports containers and is skipped."""
+        a network with a live app on it reports containers and is skipped."""
         released = 0
         try:
             for net in await self.docker.list_networks("tee-proj-"):

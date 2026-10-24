@@ -4,8 +4,8 @@ Each proxy instance is scoped to ONE project (``project_id``). ``GetKey`` never
 trusts a caller-supplied ``path``: it reads a ``name`` (a single safe path
 component) and constructs the key path server-side as
 ``/tee-daemon/projects/<project_id>/<name>``. The daemon serves one such proxy
-per project on its own socket (see :class:`DstackProxyManager`), so a tenant can
-only ever derive its OWN project's keys — closing the cross-tenant derivation
+per project on its own socket (see :class:`DstackProxyManager`), so an app can
+only ever derive its OWN project's keys — closing the cross-app derivation
 flaw (#7). A project's container is mounted only its own broker dir, so it
 cannot even reach another project's socket.
 """
@@ -52,7 +52,7 @@ class DstackProxy:
 
         if method == "GetKey":
             # The key path is derived from THIS proxy's bound project identity,
-            # never from a caller-supplied field — a tenant cannot name another
+            # never from a caller-supplied field — an app cannot name another
             # project's key path (issue #7). Any legacy `path` is ignored.
             name = body.get("name", "")
             if not _valid_key_name(name):

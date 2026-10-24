@@ -148,7 +148,7 @@ against `OAUTH3_NODE` (as feedling does), obtains the OAuth3 JWT, and presents i
 `_check_auth` verifies the JWT **locally** with the enclave's `JWT_SECRET` (the exact HS256 check
 of `auth.ts:34-44`) and grants owner scope iff `role == 'owner'` (and, if bound, `tenant_id ==
 OAUTH3_OWNER`). *Cost:* the OAuth3 JWT lives in browser JS **and** the daemon must hold the
-enclave's `JWT_SECRET` — which makes the daemon a **co-issuer** that can mint tokens for any tenant
+enclave's `JWT_SECRET` — which makes the daemon a **co-issuer** that can mint tokens for any user
 (`signJWT`, `auth.ts:26-32`). That couples two apps' trust domains and is the wrong default.
 
 **(B) Daemon-brokered login → session cookie (recommended, no secret sharing).** The daemon is the

@@ -102,6 +102,6 @@ choice (RFC 0019), out of scope here.
 ## Out of Scope
 - The appraisal / opinionated-judgment layer — that is one policy on top of these
   facts, for humans who want a verdict (separate later RFC).
-- Per-app hardware quotes / per-tenant CVMs (deployment granularity, RFC 0019).
+- Per-app hardware quotes / per-app CVMs (deployment granularity, RFC 0019).
 - Any human "is it safe" UI as a *trust* mechanism (`verify.md` is dev-only).
 - Secret/credential delegation (RFC 0018).

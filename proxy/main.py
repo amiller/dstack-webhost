@@ -99,7 +99,7 @@ async def start():
 
     # Hand back address space from projects that no longer exist. Networks outlive the
     # containers that used them, so a daemon that has deployed more projects than the
-    # pool has subnets will fail to start any new tenant — with a create_network 404
+    # pool has subnets will fail to start any new app — with a create_network 404
     # that names an address pool and not the reason. Skips anything still in use.
     reclaimed = await rtm.reclaim_orphan_networks()
     log.info("Startup network reclaim released %d subnet(s)", reclaimed)
@@ -160,9 +160,9 @@ async def start():
     await audit_manager.replay_anchors()
 
     # Recovery runs in the BACKGROUND; the ingress binds without waiting for it.
-    # Awaiting it here meant one tenant's slow image pull held the whole pod dark:
+    # Awaiting it here meant one app's slow image pull held the whole pod dark:
     # 2026-08-25, oauth3-prod7 sat unreachable for fifteen minutes on
-    # `Pulling alpine for project caps-probe` — one long-broken tenant, thirty-three
+    # `Pulling alpine for project caps-probe` — one long-broken app, thirty-three
     # healthy ones unreachable, and nothing served until it gave up. A project that
     # has not been recovered yet answers 502 for a moment, which is strictly better
     # than every project answering nothing.

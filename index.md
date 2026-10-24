@@ -25,13 +25,13 @@ A single CVM holds as many of each as you like. Most apps stay private. You shar
 
 ## See it live, then verify it yourself
 
-The worked example is the [isolation probe](isolation-probe.md): a small tenant on hermes-staging that exposes its own kernel-namespace view so a relying party can corroborate the substrate's runtime claim from inside one tenant.
+The worked example is the [isolation probe](isolation-probe.md): a small app on hermes-staging that exposes its own kernel-namespace view so a relying party can corroborate the substrate's runtime claim from inside one app.
 
 Start with the [live probe](https://915c8197b20b831c52cf97a9fb7e2e104cdc6ae8-8080.dstack-pha-prod7.phala.network/probe/), then read the [probe walkthrough](isolation-probe.md). The CVM's root page serves the list of attested apps with [verifier](verify.md) links beside each one.
 
 ## Things you might build
 
-- **Multi-tenant isolation, verifiable.** Two tenants of the same CVM, sandboxed from each other under `sysbox-runc`. A small probe app exposes its own kernel-namespace view so a relying party can corroborate the substrate's runtime claim from inside one tenant — covered on [the isolation probe page](isolation-probe.md).
+- **Multi-app isolation, verifiable.** Two apps on the same CVM, sandboxed from each other under `sysbox-runc`. A small probe app exposes its own kernel-namespace view so a relying party can corroborate the substrate's runtime claim from inside one app — covered on [the isolation probe page](isolation-probe.md).
 - **Prompt receipts.** Call a model provider through a TEE function and emit the response together with a signed record of the exact prompt and response.
 - **Timelock encryption.** Hold an encrypted message and only release the key after a deadline. The TEE seals the key; a quorum of clocks gates the release. A working demo runs on hermes-staging.
 
@@ -52,7 +52,7 @@ The substance lives in the RFC log. Issues there track the work in flight.
 - [Developer guide](DEVELOPER_GUIDE.md) — deploying a project
 - [Audit guide](audit.md) — auditing a deployed project, agent-runnable
 - [Verifier skill](verify-skill.md) — for an agent handed just a URL: walk the chain, produce a verdict
-- [Isolation probe](isolation-probe.md) — a sample tenant that corroborates the substrate's OCI-runtime claim from inside one container
+- [Isolation probe](isolation-probe.md) — a sample app that corroborates the substrate's OCI-runtime claim from inside one container
 - [GitHub repo](https://github.com/amiller/dstack-webhost)
 
 Open a [GitHub issue](https://github.com/amiller/dstack-webhost/issues). Most of the design is still up for revision.

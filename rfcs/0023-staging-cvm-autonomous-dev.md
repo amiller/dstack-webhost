@@ -36,7 +36,7 @@ build without risking production.
 ## Implementation
 1. **Provision the staging CVM** on pha-prod (same cluster as today) with its own `cvm-id`
    (e.g. `webhost-staging`), its own owner token, and its own external named volumes. It hosts
-   only test projects the loop deploys — no co-tenant production apps.
+   only test projects the loop deploys — no co-hosted production apps.
 2. **Parameterize `ship-fix.sh` by target.** `staging` → the staging cvm-id/compose/env/token;
    `prod` → the existing `hermes-staging` wiring. The prod target is absent from the loop's
    environment, so the loop *cannot* deploy to prod even by mistake.

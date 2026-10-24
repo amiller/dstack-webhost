@@ -4,7 +4,7 @@ The logged-in browser is a first-class daemon runtime: a *pool* of isolated
 browser-bridge containers on the pod's internal network. A browser-path read
 **leases** one, the requester's cookie jar is injected for that lease only, the
 browser is driven, and the container is **reset** (cookies/storage cleared)
-before it returns to the pool. This is the multi-tenant fix for the old single
+before it returns to the pool. This is the multi-user fix for the old single
 shared CVM whose `browserFeed` read whatever was logged in (a non-owner saw the
 owner's timeline), with no isolation, reset, or fairness.
 

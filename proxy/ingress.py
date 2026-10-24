@@ -65,7 +65,7 @@ API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
 # Headers this proxy never forwards upstream.
 HOP_HEADERS = ("host", "transfer-encoding", "accept-encoding")
 
-# Headers that claim who the client is. A tenant reading one is trusting whoever set it.
+# Headers that claim who the client is. An app reading one is trusting whoever set it.
 FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "x-forwarded-proto", "x-forwarded-host")
 
 # Peers whose forwarded headers we believe, by address. Empty means "believe nobody".
@@ -84,8 +84,8 @@ FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "x-forwarded-proto", "x-for
 # It forwards nothing rather than invent it.
 #
 # What this DOES fix now: the ingress passes a client's own X-Forwarded-For through verbatim
-# (verified against the live pod -- `-H "X-Forwarded-For: 1.2.3.4"` reached the tenant
-# unchanged), so a tenant reading it reads a value the caller picked. Stripped unless the peer
+# (verified against the live pod -- `-H "X-Forwarded-For: 1.2.3.4"` reached the app
+# unchanged), so an app reading it reads a value the caller picked. Stripped unless the peer
 # is named here.
 TRUSTED_PROXIES = frozenset(
     p.strip() for p in os.environ.get("TRUSTED_PROXY_IPS", "").split(",") if p.strip()
@@ -108,7 +108,7 @@ MIME_TYPES = {
 
 
 def _network_isolation(runtime: str, available: dict) -> str:
-    """How tenant network syscalls are mediated: "host" (passthrough to the
+    """How app network syscalls are mediated: "host" (passthrough to the
     container netns/host kernel stack), "sandbox" (gVisor netstack), "netns"
     (kernel netns + Docker bridge, runc-family). Derived from Docker's own
     runtime registration — a name like runsc-hostnet doesn't say it alone."""

@@ -327,7 +327,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     project.image_digest = digest
     store.save(project)
 
-    # Record every deploy — dev projects share the CVM with attested tenants,
+    # Record every deploy — dev projects share the CVM with attested apps,
     # so their mutations must be auditable too.
     audit = audit_manager.get_audit_log(name)
     await audit.record(AuditEntry(
@@ -451,7 +451,7 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
     await rtm.remove_project_broker(name)
     # The containers are gone; hand back the subnet too. Without this every project
     # ever deployed keeps a network for the life of the daemon, and the address pool
-    # runs out — after which new tenants fail at create_network.
+    # runs out — after which new apps fail at create_network.
     await rtm.remove_project_network(name, project.mode)
 
     log.info("Torn down %s", name)

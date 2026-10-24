@@ -18,10 +18,10 @@ that a verifier cannot see.
 ## Problem
 
 `create_container` (`proxy/docker_client.py`) intentionally exposes no
-`CapAdd`/`Devices`/`Privileged`, and the tenant docker-proxy strips
-`NetworkMode`. So a kernel-TUN VPN cannot run as a tenant. The only options were
+`CapAdd`/`Devices`/`Privileged`, and the app docker-proxy strips
+`NetworkMode`. So a kernel-TUN VPN cannot run as an app. The only options were
 a standalone (non-daemon) CVM or a blanket capability grant — the latter being
-*invisible privilege*: a tenant silently gets `NET_ADMIN` and you must trust the
+*invisible privilege*: an app silently gets `NET_ADMIN` and you must trust the
 operator. We want the privilege to be a **legible, verifiable claim** instead,
 in the spirit of the capability-statement work (consumer-checkable evidence).
 
@@ -48,7 +48,7 @@ in the spirit of the capability-statement work (consumer-checkable evidence).
      pinned **`image@sha256` digest** (immutable code). The audit entry now
      includes `cap_add`/`devices` and the image digest.
 
-4. **Defense in depth.** The tenant-facing docker-proxy also strips
+4. **Defense in depth.** The app-facing docker-proxy also strips
    `CapAdd`/`Devices`/`Privileged`, so the *only* path to caps is the daemon's
    own gated create.
 
@@ -56,7 +56,7 @@ in the spirit of the capability-statement work (consumer-checkable evidence).
 
 `CAP_NET_ADMIN` is a per-network-namespace capability. Each project container
 runs in its own netns on its own bridge (`tee-proj-<name>-<mode>`). A
-NET_ADMIN tenant:
+NET_ADMIN app:
 
 - **Can** manage *its own* netns — bring up `tun0`, set routes/iptables (the VPN
   use case). Confined to its namespace.
@@ -67,8 +67,8 @@ NET_ADMIN tenant:
 - **Residual:** caps + `/dev/net/tun` enlarge the shared-host-kernel attack
   surface (netlink/netfilter/tun). Namespace confinement holds for behavior, not
   for a kernel CVE. This is the standard "VPN sidecar with NET_ADMIN" profile,
-  acceptable for an attested, source-visible tenant inside a TEE. Note `runsc`
-  (gVisor) may not support `/dev/net/tun`; a TUN tenant runs under `runc`/`sysbox`.
+  acceptable for an attested, source-visible app inside a TEE. Note `runsc`
+  (gVisor) may not support `/dev/net/tun`; a TUN app runs under `runc`/`sysbox`.
 
 ## Manifest example
 

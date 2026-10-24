@@ -14,14 +14,14 @@ single Neko CVM with one global session that any pod user could read and any one
 Today `oauth3/browser.ts` drives one external CVM (`login-with-everything`) over its bridge:
 - **Single shared session.** `browserFeed` reads *whatever is currently logged in* and does not inject
   per-user cookies — so a non-owner who connects timeline-peek sees the **owner's** timeline. It's
-  single-tenant wearing a multi-tenant costume.
+  single-user wearing a multi-user costume.
 - **No isolation / no reset.** Concurrent `/session` calls clobber one global `currentSession`; a jar
   from one user lingers for the next.
 - **No fairness.** One slow `/eval` or `/navigate` (30–90 s) occupies the only browser — any user can
   starve the pool of one.
 - **Was wide open.** The bridge had no auth and was public (`/eval` = arbitrary JS in the logged-in
   browser). Closed as an **interim** by a shared-secret lock (bridge Bearer + lwa-net exemption +
-  stripped `/health` + removed root-SSH sidecar), but that's a stopgap on a single-tenant box.
+  stripped `/health` + removed root-SSH sidecar), but that's a stopgap on a single-user box.
 
 ## Design
 1. **A `browser` runtime in the daemon** (`proxy/runtimes.py`), alongside `deno`/`image`. The daemon
@@ -47,7 +47,7 @@ Today `oauth3/browser.ts` drives one external CVM (`login-with-everything`) over
 | **Credential broker** — scoped, expiring jar delegations | **spec'd** (RFC 0018), impl pending | how a leased browser gets *only* this user's jar |
 | Attestation evidence | **spec'd** (0020) | so the render is verifiable |
 | **`browser` runtime type** (spawn Neko+bridge as a managed runtime) | **new** | the core of this RFC |
-| **Lease/pool/queue + per-lease reset** | **new** | isolation + fairness (the multi-tenant fix) |
+| **Lease/pool/queue + per-lease reset** | **new** | isolation + fairness (the multi-user fix) |
 | oauth3 `browser.ts` → pod pool endpoint (drop the external CVM) | **new** (small) | cutover |
 
 So: the substrate exists; the **new work is the browser runtime + the lease/pool/reset layer**, riding

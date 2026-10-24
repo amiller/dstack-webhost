@@ -16,7 +16,7 @@ against the MVP slice is the operator's to file.
 
 ---
 
-# Issue #2 — isolation:container tenants have no outbound DNS under runsc
+# Issue #2 — isolation:container apps have no outbound DNS under runsc
 
 PLAN — checkboxes derived from the issue's `## Acceptance`.
 
@@ -26,11 +26,11 @@ iptables DNAT makes it reachable; under gVisor the Sentry's netstack never appli
 so `127.0.0.11` is a dead address → every hostname `fetch()` fails → ingress 500.
 
 ## Where the fix goes (differs from the issue's *proposed* location — acceptance is what binds)
-The issue proposes `docker_proxy.py::_handle_create`, but daemon-created tenant containers never
+The issue proposes `docker_proxy.py::_handle_create`, but daemon-created app containers never
 traverse that handler: `proxy/main.py` builds `DockerClient(DOCKER_SOCK)` (the REAL socket) and
 `runtimes.py::start_isolated` / `start_image` create containers through it directly. The proxy
-handler only serves the tenant-facing `PROXY_SOCKET_DIR/docker.sock`. The real chokepoint for
-the symptom is `docker_client.py::create_container` — every daemon tenant create flows through
+handler only serves the app-facing `PROXY_SOCKET_DIR/docker.sock`. The real chokepoint for
+the symptom is `docker_client.py::create_container` — every daemon app create flows through
 it (isolated, image-runtime, browser pool).
 
 ## Diff
@@ -42,14 +42,14 @@ it (isolated, image-runtime, browser pool).
 - [x] `proxy/test_docker_client.py`: unit test — runsc create carries `Dns`, runc/shared does
       not (gating is the safety property; runsc is not installed on this box).
 - [x] `test_daemon.py::test_dns_probe`: acceptance-shaped e2e — same fetch-handler source
-      deployed `isolation:container` AND `isolation:shared` both serve 200; isolated tenant
+      deployed `isolation:container` AND `isolation:shared` both serve 200; isolated app
       keeps its `tee-proj-*` bridge (inspect).
 
 ## Evidence (Tier 1 — container/network behavior over HTTP, no UI)
 - [x] BEFORE on real runsc: deploy `dns-probe` via the webhost-staging API (unpatched daemon,
       runsc-backed) → record the 500/dns-error transcript + staging `/_api/version` pin.
 - [x] AFTER mechanism on local daemon @ this PR's commit (`/_api/version` pinned): container
-      tenant fetches `https://example.com` → 200 + body; shared → 200; `docker inspect` shows
+      app fetches `https://example.com` → 200 + body; shared → 200; `docker inspect` shows
       `tee-proj-*` network intact; NAT-path check: a container on a `tee-proj-*` bridge with
       `--dns 8.8.8.8` resolves + fetches (the exact mechanism the fix relies on).
 - [x] Full `test_daemon.py` green under flock; log to `~/paseo-batch/out/2/test.log`.
