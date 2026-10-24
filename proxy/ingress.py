@@ -107,6 +107,32 @@ MIME_TYPES = {
 }
 
 
+async def _stream_upstream(request: web.Request, url: str, body: bytes, headers) -> web.StreamResponse:
+    """Stream an upstream response through in chunks. Buffering whole bodies leaked:
+    an aborted client download pinned the full buffer in a traceback cycle until a
+    gen-2 GC, and the pod OOMed (2026-10-24)."""
+    async with aiohttp.ClientSession() as session:
+        async with session.request(request.method, url,
+                                   data=body if body else None,
+                                   headers=headers) as resp:
+            out = web.StreamResponse(status=resp.status)
+            out.content_type = resp.content_type
+            if resp.content_length is not None:
+                out.content_length = resp.content_length
+            # Forward the upstream's CORS headers — otherwise they're dropped here and
+            # browser extensions / verifiers can't call proxied app APIs. These are public
+            # app endpoints; default permissive when the app set nothing.
+            out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
+            for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
+                if resp.headers.get(h):
+                    out.headers[h] = resp.headers[h]
+            await out.prepare(request)
+            async for chunk in resp.content.iter_chunked(65536):
+                await out.write(chunk)
+            await out.write_eof()
+            return out
+
+
 def _network_isolation(runtime: str, available: dict) -> str:
     """How app network syscalls are mediated: "host" (passthrough to the
     container netns/host kernel stack), "sandbox" (gVisor netstack), "netns"
@@ -313,30 +339,14 @@ class Ingress:
 
         ext = os.path.splitext(requested)[1].lower()
         ct = MIME_TYPES.get(ext, "application/octet-stream")
-        with open(requested, "rb") as f:
-            return web.Response(body=f.read(), content_type=ct)
+        return web.FileResponse(requested, headers={"Content-Type": ct})
 
     async def _proxy(self, request: web.Request, ip: str, port: int,
                      path: str) -> web.Response:
         body = await request.read()
         headers = forward_headers(request)
         url = f"http://{ip}:{port}{path}"
-        async with aiohttp.ClientSession() as session:
-            async with session.request(request.method, url,
-                                       data=body if body else None,
-                                       headers=headers) as resp:
-                resp_body = await resp.read()
-                # Forward the upstream's CORS headers — otherwise they're dropped here and
-                # browser extensions / verifiers can't call proxied app APIs. These are public
-                # app endpoints; default permissive when the app set nothing.
-                out = web.Response(
-                    body=resp_body, status=resp.status,
-                    content_type=resp.content_type)
-                out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
-                for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
-                    if resp.headers.get(h):
-                        out.headers[h] = resp.headers[h]
-                return out
+        return await _stream_upstream(request, url, body, headers)
 
     def update_port_map(self):
         """Update the port map based on current projects.
@@ -476,22 +486,7 @@ class Ingress:
         body = await request.read()
         headers = forward_headers(request)
         url = f"{tunnel.backend}{subpath}"
-        async with aiohttp.ClientSession() as session:
-            async with session.request(request.method, url,
-                                       data=body if body else None,
-                                       headers=headers) as resp:
-                resp_body = await resp.read()
-                # Forward the upstream's CORS headers — otherwise they're dropped here and
-                # browser extensions / verifiers can't call proxied app APIs. These are public
-                # app endpoints; default permissive when the app set nothing.
-                out = web.Response(
-                    body=resp_body, status=resp.status,
-                    content_type=resp.content_type)
-                out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
-                for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
-                    if resp.headers.get(h):
-                        out.headers[h] = resp.headers[h]
-                return out
+        return await _stream_upstream(request, url, body, headers)
 
     async def _proxy_websocket(self, request: web.Request, backend_url: str, path: str) -> web.Response:
         """Proxy WebSocket connection to backend."""
