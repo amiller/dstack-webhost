@@ -19,7 +19,8 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
-from .deploy import deploy, teardown, promote, unpromote, import_bundle, REDACTED
+from .deploy import deploy, teardown, promote, unpromote, import_bundle, REDACTED, NAME_RE, RESERVED_NAMES
+from . import pending
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
@@ -202,6 +203,8 @@ class Ingress:
             project = self.store.load(name)
         except FileNotFoundError:
             return web.json_response({"error": "not found"}, status=404)
+        if project.approval and project.approval["status"] == "frozen":
+            return web.json_response({"error": "pending expired"}, status=503)
 
         subpath = "/" + parts[1] if len(parts) > 1 else "/"
 
@@ -241,6 +244,8 @@ class Ingress:
             project = self.store.load(project_name)
         except FileNotFoundError:
             return web.json_response({"error": "project not found"}, status=404)
+        if project.approval and project.approval["status"] == "frozen":
+            return web.json_response({"error": "pending expired"}, status=503)
 
         subpath = "/" + path if path else "/"
 
@@ -572,8 +577,10 @@ class Ingress:
             return None
         if owner_only:
             return web.json_response({"error": "owner token required"}, status=403)
-        if not self.token_store.authenticate(token, api_path):
+        tok = self.token_store.authenticate(token, api_path)
+        if not tok:
             return web.json_response({"error": "invalid token or scope"}, status=403)
+        request["api_token"] = tok
         return None
 
     async def _substrate_info(self) -> dict:
@@ -661,7 +668,7 @@ class Ingress:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
-        owner_only = path == "tokens" or path.startswith("tokens/")
+        owner_only = path == "tokens" or path.startswith("tokens/") or path.endswith("/approve")
         denied = self._check_auth(request, path, owner_only=owner_only)
         if denied:
             return denied
@@ -713,7 +720,7 @@ class Ingress:
             return await self._api_all_audit()
 
         if path == "projects" and method == "GET":
-            return await self._api_list()
+            return await self._api_list(request)
 
         if path == "projects" and method == "POST":
             return await self._api_deploy(request)
@@ -727,9 +734,11 @@ class Ingress:
             if method == "DELETE" and not rest:
                 return await self._api_teardown(name)
             if method == "POST" and rest == "redeploy":
-                return await self._api_redeploy(name)
+                return await self._api_redeploy(name, request)
             if method == "POST" and rest == "promote":
                 return await self._api_promote(name)
+            if method == "POST" and rest == "approve":
+                return await self._api_approve(name)
             if method == "POST" and rest == "unpromote":
                 return await self._api_unpromote(name)
             if method == "GET" and rest == "audit":
@@ -763,8 +772,13 @@ class Ingress:
 
         return web.json_response({"error": "not found"}, status=404)
 
-    async def _api_list(self) -> web.Response:
+    async def _api_list(self, request: web.Request) -> web.Response:
+        tok = request.get("api_token")
+        if tok and tok.scope == "create":
+            return web.json_response({"error": "create token cannot list projects"}, status=403)
         projects = self.store.list()
+        if request.query.get("pending"):
+            projects = [p for p in projects if p.approval]
         return web.json_response([_redact_env(asdict(p)) for p in projects])
 
     async def _api_routes(self) -> web.Response:
@@ -820,14 +834,29 @@ class Ingress:
                     return web.json_response({"error": "missing 'manifest' field"}, status=400)
                 if files_data is None:
                     return web.json_response({"error": "missing 'files' field"}, status=400)
-                project = await deploy(
-                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
-                    manifest, files_data=files_data)
             else:
                 manifest = await request.json()
-                project = await deploy(
-                    self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
-            return web.json_response(_redact_env(asdict(project)), status=201)
+                files_data = None
+            tok = request.get("api_token")
+            provisioned = bool(tok and tok.scope == "create")
+            if provisioned:
+                denied = self._check_provision(tok, manifest.get("name", ""))
+                if denied:
+                    return denied
+            project = await deploy(
+                self.store, self.docker, self.audit_manager, self.tracker, self.rtm,
+                manifest, files_data=files_data)
+            body = _redact_env(asdict(project))
+            if provisioned:
+                # RFC 0034: the new project is pending and gets its own scoped token.
+                pending.mark_pending(project, tok.id)
+                self.store.save(project)
+                _, body["token"] = self.token_store.create(
+                    f"projects/{project.name}", pending.PROJECT_TOKEN_TTL)
+                body["approval"] = project.approval
+                await pending.record(self.audit_manager, project, "create")
+                pending.notify("create", project)
+            return web.json_response(body, status=201)
         except ValueError as e:
             # Bad manifest / port conflict etc. — the message is safe to return.
             return web.json_response({"error": str(e)}, status=400)
@@ -835,6 +864,25 @@ class Ingress:
             import traceback
             log.error("deploy failed: %s", traceback.format_exc())
             return web.json_response({"error": str(e)}, status=500)
+
+    def _check_provision(self, tok, name: str) -> web.Response | None:
+        if not NAME_RE.match(name or "") or name in RESERVED_NAMES:
+            return web.json_response({"error": f"Invalid project name: {name!r}"}, status=400)
+        try:
+            self.store.load(name)
+            return web.json_response({"error": "project exists; a create token cannot replace it"}, status=409)
+        except FileNotFoundError:
+            pass
+        if len(pending.pending_by(self.store, tok.id)) >= (tok.max_pending or pending.DEFAULT_MAX_PENDING):
+            return web.json_response({"error": "too many unapproved projects for this token"}, status=429)
+        return None
+
+    async def _api_approve(self, name: str) -> web.Response:
+        project = self.store.load(name)
+        if not project.approval:
+            return web.json_response({"error": "not pending"}, status=400)
+        await pending.approve(project, self.store, self.rtm, self.audit_manager)
+        return web.json_response(_redact_env(asdict(project)))
 
     async def _api_export(self) -> web.Response:
         """RFC 0017 §1: pin bundle for every project + audit refs. Raw env
@@ -876,8 +924,16 @@ class Ingress:
                        self.rtm, name)
         return web.json_response({"ok": True})
 
-    async def _api_redeploy(self, name: str) -> web.Response:
+    async def _api_redeploy(self, name: str, request: web.Request) -> web.Response:
         project = self.store.load(name)
+        files_data = None
+        if request.headers.get("Content-Type", "").startswith("multipart/"):
+            reader = await request.multipart()
+            part = await reader.next()
+            while part is not None:
+                if part.name == "files":
+                    files_data = await part.read(decode=False)
+                part = await reader.next()
         old_sha = project.commit_sha
         old_digest = project.image_digest
         manifest = {
@@ -899,7 +955,8 @@ class Ingress:
                 "protocol": project.listen.protocol,
             }
         project = await deploy(
-            self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest)
+            self.store, self.docker, self.audit_manager, self.tracker, self.rtm, manifest,
+            files_data=files_data)
         result = _redact_env(asdict(project))
         if project.runtime == "image":
             result["changed"] = project.image_digest != old_digest
@@ -909,6 +966,8 @@ class Ingress:
 
     async def _api_promote(self, name: str) -> web.Response:
         try:
+            if self.store.load(name).approval:
+                return web.json_response({"error": "pending approval"}, status=403)
             project = await promote(self.store, self.audit_manager, self.rtm, name, DSTACK_SOCK)
             return web.json_response(_redact_env(asdict(project)))
         except ValueError as e:
@@ -1199,7 +1258,7 @@ class Ingress:
                 ttl = int(ttl)
             except (TypeError, ValueError):
                 return web.json_response({"error": "ttl must be an integer"}, status=400)
-            token, bearer = self.token_store.create(scope, ttl)
+            token, bearer = self.token_store.create(scope, ttl, int(data.get("max_pending", 0)))
             body = token.public()
             body["token"] = bearer
             return web.json_response(body, status=201)
