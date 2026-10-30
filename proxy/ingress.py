@@ -184,6 +184,10 @@ class Ingress:
 
     async def handle(self, request: web.Request) -> web.Response:
         path = request.path.lstrip("/")
+        project_host = json.loads(os.environ.get("PROJECT_HOSTS", "{}")).get(
+            request.host.lower().removesuffix(":443"))
+        if project_host:
+            path = project_host + "/" + path
 
         if path.startswith("_api"):
             return await self._handle_api(request, path[4:].lstrip("/"))
