@@ -102,3 +102,27 @@ def test_pull_public_sends_no_auth():
         assert "X-Registry-Auth" not in captured["headers"]
     finally:
         _restore_env(saved)
+
+
+def test_stop_waits_for_drain_and_refuses_failed_stop():
+    calls = []
+    dc = DockerClient("/nonexistent/docker.sock")
+
+    async def stop_request(method, path, **kw):
+        calls.append((path, kw["timeout"]))
+        return 204, b""
+
+    dc._raw_request = stop_request
+    asyncio.run(dc.stop("streaming", timeout=300))
+    assert calls == [("/containers/streaming/stop?t=300", 310)]
+
+    async def refused(*args, **kw):
+        return 500, b""
+
+    dc._raw_request = refused
+    try:
+        asyncio.run(dc.stop("streaming"))
+    except RuntimeError as error:
+        assert str(error) == "stop failed (500)"
+    else:
+        raise AssertionError("a failed stop must not proceed to container removal")

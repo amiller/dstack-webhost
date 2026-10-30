@@ -199,7 +199,7 @@ for (const [name, handler] of handlers) {
 }
 console.log("Warmup complete");
 
-  Deno.serve({ port: 3000 }, async (req) => {
+const server = Deno.serve({ port: 3000 }, async (req) => {
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean);
   const name = parts.shift() || "";
@@ -212,6 +212,11 @@ console.log("Warmup complete");
   const newReq = new Request(new URL(subpath, url.origin).toString(),
     {method: req.method, headers: req.headers, body: req.body});
   return handler(newReq, {env: envs.get(name) || {}, dataDir: dataDirs.get(name) || ""});
+});
+Deno.addSignalListener("SIGTERM", async () => {
+  console.log("Draining shared Deno requests");
+  await server.shutdown();
+  Deno.exit(0);
 });
 """
 
@@ -413,7 +418,7 @@ class RuntimeManager:
             # Stop existing
             existing = await self.docker.container_exists(cname)
             if existing:
-                await self.docker.stop(existing)
+                await self.docker.stop(existing, timeout=300 if config_key == "deno" else 5)
                 await self.docker.remove(existing)
                 self.tracker.remove(existing)
 
