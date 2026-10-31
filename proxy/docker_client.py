@@ -124,7 +124,10 @@ class DockerClient:
             raise RuntimeError(f"start failed ({status})")
 
     async def stop(self, cid: str, timeout: int = 5):
-        await self._raw_request("POST", f"/containers/{cid}/stop?t={timeout}")
+        status, _ = await self._raw_request(
+            "POST", f"/containers/{cid}/stop?t={timeout}", timeout=timeout + 10)
+        if status >= 400:
+            raise RuntimeError(f"stop failed ({status})")
 
     async def remove(self, cid: str, force: bool = True):
         await self._raw_request("DELETE", f"/containers/{cid}?force={'true' if force else 'false'}")
