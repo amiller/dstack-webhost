@@ -80,7 +80,7 @@ project it:
 
 1. resolves `files = realpath(/projects/<name>/files)` and `data = realpath(/daemon-data/<name>)`;
 2. walks both and refuses to start the project if any symlink is dangling or resolves outside
-   `files`/`data` (see below);
+   `files`/`data`, or any file has more than one hard link (see below);
 3. spawns
 
    ```
@@ -114,8 +114,12 @@ Facts the design relies on, checked on `denoland/deno:2.9.8`:
   unscoped read and write). Symlinks can still arrive two ways: `git clone` keeps them in
   `files` (tarball deploys already reject them with `filter="data"`), and any app that ran
   under `--allow-all` before this change could have planted one in any `/daemon-data/<x>`.
-  Hence the router-side walk in step 2. It fails closed; a project with an escaping or
-  dangling link does not start and the router logs which path.
+  The same apps could have hard-linked another project's data file into their own data dir
+  (`/daemon-data` is one filesystem). Hence the router-side walk in step 2. It fails closed:
+  a project with an escaping or dangling symlink, or a file with `nlink > 1`, does not start
+  and the router logs the path. Both ends of a planted hard link are refused, since the
+  router cannot tell which side planted it. This does not undo any tampering with another
+  project's data done before the change.
 
 Flag choices that differ from `isolation: container`:
 
@@ -166,7 +170,7 @@ permission semantics, so a Deno upgrade should be a reviewed change with
   access to `/proc` to see it, which they do not have.
 - `DENO_DIR` (module cache) is shared. Only Deno itself writes it; children have no fs
   permission on it. A child can only cause URLs it names to be cached.
-- The symlink walk runs at every runtime refresh and costs one `lstat` per file in each
+- The link walk runs at every runtime refresh and costs one `lstat` per file in each
   project's files and data dirs.
 
 ## Tests
@@ -177,4 +181,6 @@ projects, and real `DstackProxyManager` sockets in front of a fake dstack that r
 `project.json`, b's data, b's code (`import()`), b's router socket, and `Deno.Command`
 all fail with `NotCapable`; a's `ctx.env`, `ctx.dataDir`, `req.url`, POST bodies and gzip
 pass through; b still derives its own key and was warmed up; project c, whose files contain
-`leak -> /run/broker/b/dstack.sock`, is refused while a and b serve.
+`leak -> /run/broker/b/dstack.sock`, and project d, whose data dir holds a hard link into
+another data dir, are refused while a and b serve. Against the old router the same test
+fails at the first cross-project check: a gets b's key.
