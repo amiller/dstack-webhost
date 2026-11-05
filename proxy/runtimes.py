@@ -164,16 +164,20 @@ const DATA_ROOT = "__DATA_ROOT__";
 const PROJECTS = "/projects";
 const BROKER = "/run/broker";
 const RT = "/tmp/tee-rt";
+const STARTUP_MS = 120000;
+// Load-bearing: this shim must stay the child's main module and ENTRY must come
+// from Deno.args. Deno does not permission-check a dynamic import whose specifier
+// is a string literal in the main module, so a literal import here would bypass
+// --allow-read. env arrives on stdin so it never shows up in ps.
 const CHILD = `
-const [ENTRY, DATA, ENV_JSON, LISTEN] = Deno.args;
-const env = JSON.parse(ENV_JSON);
+const [ENTRY, DATA, LISTEN] = Deno.args;
+const env = JSON.parse(await new Response(Deno.stdin.readable).text());
 const handler = (await import(ENTRY)).default;
 if (typeof handler !== "function") throw new Error("default export is not a function");
 // Warmup lets handlers initialize (e.g. background loops that need ctx.env); errors are the handler's own.
 try { await handler(new Request("http://localhost/_warmup"), {env, dataDir: DATA}); } catch {}
 Deno.serve({path: LISTEN, onListen() {}}, (req) => handler(req, {env, dataDir: DATA}));
 `;
-const children = new Map();
 
 // Deno checks permissions on the path as written, without resolving links, so a
 // link planted before this sandbox existed (or kept by git clone) could point a
@@ -198,7 +202,10 @@ async function unsafeLink(dir, roots, hardLinks) {
   return null;
 }
 
-async function start(name, manifest) {
+const apps = new Map();
+let stopping = false;
+
+async function prepare(name, manifest) {
   const files = await Deno.realPath(`${PROJECTS}/${name}/files`);
   let data = "";
   if (DATA_ROOT) {
@@ -212,25 +219,56 @@ async function start(name, manifest) {
   }
   const listenDir = `${RT}/${name}`;
   await Deno.mkdir(listenDir, {recursive: true});
-  const sock = `${listenDir}/http.sock`;
   const own = [data, `${BROKER}/${name}`, listenDir].filter(Boolean);
-  const child = new Deno.Command(Deno.execPath(), {
-    args: ["run", "--no-prompt", "--no-check",
-      `--allow-read=${[files, ...own].join(",")}`, `--allow-write=${own.join(",")}`,
-      "--allow-net", "--allow-import", "--allow-env", "--allow-sys",
-      "--deny-run", "--deny-ffi",
-      `${RT}/_child.ts`, `file://${files}/${manifest.entry || "server.ts"}`, data,
-      JSON.stringify(manifest.env || {}), sock],
-    stdin: "null", stdout: "inherit", stderr: "inherit",
-  }).spawn();
+  return {sock: `${listenDir}/http.sock`, env: JSON.stringify(manifest.env || {}), args: [
+    "run", "--no-prompt", "--no-check",
+    `--allow-read=${[files, ...own].join(",")}`, `--allow-write=${own.join(",")}`,
+    "--allow-net", "--allow-import", "--allow-env", "--allow-sys",
+    "--deny-run", "--deny-ffi",
+    `${RT}/_child.ts`, `file://${files}/${manifest.entry || "server.ts"}`, data, `${listenDir}/http.sock`]};
+}
+
+// Runs one child until it listens, exits, or misses STARTUP_MS (then it is killed).
+// Whenever a child exits it is respawned with backoff; meanwhile its app gets 503.
+async function run(name, cfg, app) {
+  await Deno.remove(cfg.sock).catch(e => { if (!(e instanceof Deno.errors.NotFound)) throw e; });
+  const started = Date.now();
+  const child = new Deno.Command(Deno.execPath(), {args: cfg.args,
+    stdin: "piped", stdout: "inherit", stderr: "inherit"}).spawn();
+  const w = child.stdin.getWriter();
+  await w.write(new TextEncoder().encode(cfg.env));
+  await w.close();
   let exited = false;
-  child.status.then(s => { exited = true; children.delete(name); console.error(`${name}: exited (code ${s.code})`); });
+  child.status.then(s => {
+    exited = true;
+    app.client?.close();
+    app.client = null;
+    if (stopping) return;
+    if (Date.now() - started > 60000) app.failures = 0;
+    const delay = Math.min(60000, 1000 * 2 ** app.failures++);
+    console.error(`${name}: exited (code ${s.code}); restarting in ${delay}ms`);
+    setTimeout(() => run(name, cfg, app), delay);
+  });
   while (!exited) {
-    try { await Deno.lstat(sock); break; } catch { await new Promise(r => setTimeout(r, 50)); }
+    try { await Deno.lstat(cfg.sock); break; } catch {
+      if (Date.now() - started > STARTUP_MS) {
+        console.error(`${name}: not listening after ${STARTUP_MS}ms; killing`);
+        child.kill("SIGKILL");
+        return;
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
   }
-  if (exited) throw new Error("exited before listening");
-  children.set(name, Deno.createHttpClient({proxy: {transport: "unix", path: sock}}));
+  if (exited) return;
+  app.client = Deno.createHttpClient({proxy: {transport: "unix", path: cfg.sock}});
   console.log(`Loaded: ${name}`);
+}
+
+async function start(name, manifest) {
+  const cfg = await prepare(name, manifest);
+  const app = {client: null, failures: 0};
+  apps.set(name, app);
+  await run(name, cfg, app);
 }
 
 await Deno.mkdir(RT, {recursive: true});
@@ -250,23 +288,26 @@ for await (const entry of Deno.readDir(PROJECTS)) {
     .catch(e => console.error(`Failed to load ${entry.name}: ${e.message}`)));
 }
 await Promise.all(pending);
-console.log(`Router ready: ${children.size} projects`);
+console.log(`Router ready: ${[...apps.values()].filter(a => a.client).length}/${apps.size} projects`);
 
 const server = Deno.serve({ port: 3000 }, (req) => {
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean);
   const name = parts.shift() || "";
-  const client = children.get(name);
-  if (!client) {
-    return new Response(JSON.stringify({projects: [...children.keys()]}),
+  const app = apps.get(name);
+  if (!app) {
+    return new Response(JSON.stringify({projects: [...apps.keys()]}),
       {status: 404, headers: {"content-type": "application/json"}});
   }
+  const client = app.client;
+  if (!client) return new Response(`${name} is not running`, {status: 503});
   const subpath = "/" + parts.join("/") + (url.search || "");
   return fetch(new URL(subpath, url.origin), {method: req.method, headers: req.headers,
     body: req.body, client, redirect: "manual"});
 });
 Deno.addSignalListener("SIGTERM", async () => {
   console.log("Draining shared Deno requests");
+  stopping = true;
   await server.shutdown();
   Deno.exit(0);
 });

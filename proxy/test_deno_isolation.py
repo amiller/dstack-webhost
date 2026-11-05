@@ -37,6 +37,7 @@ export default async function (req, ctx) {
   if (u.pathname === "/read") return Response.json(await attempt(() => Deno.readTextFile(q)));
   if (u.pathname === "/import") return Response.json(await attempt(async () => Object.keys(await import(q))));
   if (u.pathname === "/run") return Response.json(await attempt(() => new Deno.Command("cat", {args: [q]}).output()));
+  if (u.pathname === "/crash") setTimeout(() => Deno.exit(1), 10);
   if (u.pathname === "/ctx") {
     await Deno.writeTextFile(`${ctx.dataDir}/mine.txt`, "hello");
     return Response.json({env: ctx.env, dataDir: ctx.dataDir, url: req.url,
@@ -107,7 +108,8 @@ class SharedDenoIsolationTest(unittest.TestCase):
             projects, data = root / "projects", root / "data"
             for name, code, env in [("a", ATTACKER, {"TOKEN": "a-secret"}),
                                     ("b", VICTIM, {"TOKEN": "b-secret"}),
-                                    ("c", "export default () => new Response('c');", {})]:
+                                    ("c", "export default () => new Response('c');", {}),
+                                    ("h", "await new Promise(() => {});", {})]:
                 (projects / name / "files").mkdir(parents=True)
                 (projects / name / "project.json").write_text(json.dumps(
                     {"runtime": "deno", "entry": "server.ts", "env": env}))
@@ -126,11 +128,12 @@ class SharedDenoIsolationTest(unittest.TestCase):
             (data / "e").mkdir()
             (data / "e" / "secret.txt").write_text("e-data")
             os.link(data / "e" / "secret.txt", data / "d" / "e-secret.txt")
-            (projects / "_router.ts").write_text(router.replace("__DATA_ROOT__", "/daemon-data"))
-            serve_brokers(root, ["a", "b", "c", "d"])
+            (projects / "_router.ts").write_text(router.replace("__DATA_ROOT__", "/daemon-data")
+                                                 .replace("const STARTUP_MS = 120000;", "const STARTUP_MS = 3000;"))
+            serve_brokers(root, list("abcdh"))
 
             with mock.patch.object(runtimes, "BROKER_HOST_PATH", str(root / "broker")):
-                binds = runtimes._shared_broker_binds([project(n) for n in "abcd"])
+                binds = runtimes._shared_broker_binds([project(n) for n in "abcdh"])
             vols = [arg for b in binds for arg in ("-v", b)]
             cid = subprocess.check_output([
                 "docker", "run", "-d", "--rm", "-p", "127.0.0.1::3000",
@@ -200,7 +203,30 @@ class SharedDenoIsolationTest(unittest.TestCase):
                 self.assertEqual(get("/d/")[0], 404)
                 status, body = get("/c/")
                 self.assertEqual(status, 404)
-                self.assertEqual(sorted(json.loads(body)["projects"]), ["a", "b"])
+                self.assertEqual(sorted(json.loads(body)["projects"]), ["a", "b", "h"])
+                # A module that never finishes loading is killed at STARTUP_MS and 503s
+                # (the router came up, so it did not hold the others hostage).
+                self.assertEqual(get("/h/")[0], 503)
+                # ctx.env reaches the child on stdin, not argv, so ps does not show it.
+                cmdlines = subprocess.check_output(
+                    ["docker", "exec", cid, "sh", "-c", "cat /proc/[0-9]*/cmdline"], text=True)
+                self.assertIn("--allow-read=", cmdlines)
+                self.assertNotIn("a-secret", cmdlines)
+                # A crashed child comes back (backoff starts at 1s) with the same ctx.
+                get("/a/crash")
+                for _ in range(100):
+                    time.sleep(0.1)
+                    if get("/a/")[0] == 503:
+                        break
+                else:
+                    self.fail("crashed child still routed")
+                for _ in range(100):
+                    time.sleep(0.1)
+                    if get("/a/")[0] == 200:
+                        break
+                else:
+                    self.fail("crashed child was not respawned")
+                self.assertEqual(json.loads(get("/a/ctx")[1])["env"], {"TOKEN": "a-secret"})
             finally:
                 # Root in the container owns what the apps wrote; clean it up from there.
                 subprocess.run(["docker", "exec", cid, "sh", "-c", "rm -rf /daemon-data/*"])
