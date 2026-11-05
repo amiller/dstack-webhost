@@ -7,7 +7,9 @@ component) and constructs the key path server-side as
 per project on its own socket (see :class:`DstackProxyManager`), so an app can
 only ever derive its OWN project's keys — closing the cross-app derivation
 flaw (#7). A project's container is mounted only its own broker dir, so it
-cannot even reach another project's socket.
+cannot even reach another project's socket. In the shared deno runtime every
+co-resident's dir is mounted, and each app's `deno run` permissions cover only
+its own (RFC 0035).
 """
 
 import json

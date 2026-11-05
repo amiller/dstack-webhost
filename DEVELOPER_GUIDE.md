@@ -77,7 +77,7 @@ Drop this in the project's repo root to declare the runtime contract alongside t
 }
 ```
 
-For deno/bun projects that want stronger sandboxing than the shared runtime, add `"isolation": "container"`. Each such project gets its own container running deno with `--allow-read` scoped to its own files, `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`. `manifest.env` is passed via Deno args (not env permission) so handlers still see `ctx.env` but can't read other apps' secrets. The container is placed on a per-project Docker network (`tee-proj-<name>-<mode>`), so siblings are not reachable by IP or container name. `ctx.dataDir` points at `/data`, backed by a per-project named volume — siblings' data is not visible.
+In the shared runtime each deno/bun project already runs in its own `deno run` process that can read only its own files, read and write only its own `ctx.dataDir` and `/run/broker/<name>/`, and cannot spawn processes or load FFI (RFC 0035). It shares the container's network. For deno/bun projects that want stronger sandboxing than that, add `"isolation": "container"`. Each such project gets its own container running deno with `--allow-read` scoped to its own files, `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`. `manifest.env` is passed via Deno args (not env permission) so handlers still see `ctx.env` but can't read other apps' secrets. The container is placed on a per-project Docker network (`tee-proj-<name>-<mode>`), so siblings are not reachable by IP or container name. `ctx.dataDir` points at `/data`, backed by a per-project named volume — siblings' data is not visible.
 
 ## Image runtime (Layer 1)
 

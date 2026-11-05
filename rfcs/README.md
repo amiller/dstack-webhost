@@ -34,6 +34,7 @@ Improvement proposals and design discussions for dstack-webhost.
 | [0028](0028-browser-render-pool.md) | Browser Runtime & Render Pool | Draft |
 | [0029](0029-attested-with-declared-debug.md) | Attested Apps with Declared Operator Debug | Draft |
 | [0030](0030-acceptance-must-verify.md) | Acceptance Must Verify, Not Ping (who verifies the verifier) | Draft |
+| [0035](0035-shared-deno-per-project-isolation.md) | Per-project isolation inside the shared Deno runtime | Draft |
 
 ## Conventions
 

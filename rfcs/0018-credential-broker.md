@@ -232,12 +232,13 @@ string; only the literal handle form `broker:<grant-id>` gets special treatment.
 4. **Caller identity granularity (honest limitation).** In `isolation:container` and
    `image` runtimes each project is its own container, so `BROKER_TOKEN → project` is a
    real per-project binding and `grant.project` is enforceable. In the **shared** deno
-   runtime, many projects run in one `--allow-all` V8 isolate with one env (the known
-   multi-tenancy gap); a single `BROKER_TOKEN` there authenticates "this shared isolate,"
-   not an individual co-hosted app. Co-hosted apps in the shared runtime are co-trust by
-   construction (the `runtimes.py` comment at lines 384–390 already says this), so the
-   `grant.project` check there is advisory. **Real upstream secrets should use
-   `isolation:container`.** This is a documented constraint, not a fallback.
+   runtime, many projects ran in one `--allow-all` V8 isolate with one env (the known
+   multi-tenancy gap); a single `BROKER_TOKEN` there authenticated "this shared isolate,"
+   not an individual co-hosted app. *(Update, RFC 0035: each shared-runtime deno app now
+   runs in its own permission-scoped process and can open only its own
+   `/run/broker/<name>/` sockets. `BROKER_TOKEN` is still not injected in the shared
+   runtime.)* **Real upstream secrets should use `isolation:container`.** This is a
+   documented constraint, not a fallback.
 
 ### 4. Lifecycle + API
 

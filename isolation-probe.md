@@ -40,7 +40,7 @@ The OCI runtime is one layer. dstack-webhost adds three substrate-level mechanis
 - **Per-project named volume.** `isolation: container` apps mount `tee-projdata-<name>` at `/data`. They never see other apps' subdirs of the daemon's shared data volume. ([`proxy/runtimes.py::start_isolated`](https://github.com/amiller/dstack-webhost/blob/main/proxy/runtimes.py))
 - **Scoped Deno permissions.** `isolation: container` deno apps run under `--deny-env`, `--deny-ffi`, `--deny-run`, `--deny-sys`, `--allow-read` scoped to the project's own files. `manifest.env` is passed via Deno args (not env permission), so the handler sees `ctx.env` but cannot read other apps' env values.
 
-The shared deno runtime is *intentionally co-trust*: apps there share a V8 isolate, share `/daemon-data` rw, and share a network. That's the model — opting into the shared runtime is opting into co-trust with its peers. Strong inter-app isolation requires `isolation: container` or `runtime: image`.
+The shared deno runtime runs each app in its own `deno run` process whose permissions cover only its own files, its own `/daemon-data/<name>` and its own `/run/broker/<name>` sockets ([RFC 0035](rfcs/0035-shared-deno-per-project-isolation.md)). Apps there cannot derive each other's keys or read each other's files, env or data, but they share a network namespace and a kernel, and the boundary is Deno's permission checker. Per-project networks and kernel-level separation require `isolation: container` or `runtime: image`.
 
 ## Picking the runtime
 
