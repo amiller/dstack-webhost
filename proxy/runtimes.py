@@ -178,7 +178,10 @@ const children = new Map();
 // Deno checks permissions on the path as written, without resolving links, so a
 // link planted before this sandbox existed (or kept by git clone) could point a
 // child at another project's socket or data. Refuse such a project outright.
-async function unsafeLink(dir, roots) {
+// Hard links are checked only in data dirs: /daemon-data is one filesystem that
+// apps could write under --allow-all, while files/ is written by the daemon (a
+// local git clone legitimately hard-links .git/objects).
+async function unsafeLink(dir, roots, hardLinks) {
   for await (const e of Deno.readDir(dir)) {
     const p = `${dir}/${e.name}`;
     if (e.isSymlink) {
@@ -186,9 +189,9 @@ async function unsafeLink(dir, roots) {
       try { real = await Deno.realPath(p); } catch { return p; } // dangling: target unknown
       if (!roots.some(r => real === r || real.startsWith(r + "/"))) return p;
     } else if (e.isDirectory) {
-      const bad = await unsafeLink(p, roots);
+      const bad = await unsafeLink(p, roots, hardLinks);
       if (bad) return bad;
-    } else if ((await Deno.lstat(p)).nlink > 1) {
+    } else if (hardLinks && (await Deno.lstat(p)).nlink > 1) {
       return p;
     }
   }
@@ -204,7 +207,7 @@ async function start(name, manifest) {
   }
   const roots = [files, data].filter(Boolean);
   for (const r of roots) {
-    const bad = await unsafeLink(r, roots);
+    const bad = await unsafeLink(r, roots, r === data);
     if (bad) throw new Error(`${bad} is a hard link, or a symlink that dangles or leaves the project's own files/data; refusing to start`);
   }
   const listenDir = `${RT}/${name}`;

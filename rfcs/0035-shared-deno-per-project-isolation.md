@@ -80,7 +80,7 @@ project it:
 
 1. resolves `files = realpath(/projects/<name>/files)` and `data = realpath(/daemon-data/<name>)`;
 2. walks both and refuses to start the project if any symlink is dangling or resolves outside
-   `files`/`data`, or any file has more than one hard link (see below);
+   `files`/`data`, or any file in `data` has more than one hard link (see below);
 3. spawns
 
    ```
@@ -116,10 +116,11 @@ Facts the design relies on, checked on `denoland/deno:2.9.8`:
   under `--allow-all` before this change could have planted one in any `/daemon-data/<x>`.
   The same apps could have hard-linked another project's data file into their own data dir
   (`/daemon-data` is one filesystem). Hence the router-side walk in step 2. It fails closed:
-  a project with an escaping or dangling symlink, or a file with `nlink > 1`, does not start
+  a project with an escaping or dangling symlink, or a data file with `nlink > 1`, does not start
   and the router logs the path. Both ends of a planted hard link are refused, since the
   router cannot tell which side planted it. This does not undo any tampering with another
-  project's data done before the change.
+  project's data done before the change. Hard links are not checked in `files/`: the daemon
+  writes it, and a clone from a local path hard-links `.git/objects`.
 
 Flag choices that differ from `isolation: container`:
 
