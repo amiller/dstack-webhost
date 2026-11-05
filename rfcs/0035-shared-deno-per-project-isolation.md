@@ -90,13 +90,24 @@ project it:
      --allow-read=<files>,<data>,/run/broker/<name>,/tmp/tee-rt/<name>
      --allow-write=<data>,/run/broker/<name>,/tmp/tee-rt/<name>
      --allow-net --allow-import --allow-env --allow-sys --deny-run --deny-ffi
-     /tmp/tee-rt/_child.ts <entry-url> <data> <env-json> /tmp/tee-rt/<name>/http.sock
+     /tmp/tee-rt/_child.ts <entry-url> <data> /tmp/tee-rt/<name>/http.sock   (env JSON on stdin)
    ```
 
-   The child shim imports the handler, runs the existing `/_warmup` call, and serves
-   `handler(req, {env, dataDir})` on its unix socket;
+   The child shim reads `env` from stdin, imports the handler, runs the existing `/_warmup`
+   call, and serves `handler(req, {env, dataDir})` on its unix socket. A child that is not
+   listening within 120 s is killed. A child that exits for any reason is respawned with
+   backoff (1 s doubling to 60 s, reset once a run lasts a minute); while it is down its
+   path answers 503, and the other apps keep serving;
 4. proxies `/<name>/...` to that socket with `fetch` and a unix `createHttpClient`, keeping the
    original origin, so `req.url` in the handler is what it was before.
+
+**Invariant: `_child.ts` must stay the child's main module, and the entry specifier must come
+from `Deno.args`.** Deno loads a dynamic import whose specifier is a string literal in the
+main module as part of the module graph, without a permission check, and once loaded any
+module in the process can import it again. Checked on 2.9.8: with
+`--allow-read=/x/a`, a literal `import("file:///x/b/s.ts")` in the main module succeeded, and
+the same literal inside the app (imported via `Deno.args`) then succeeded too; with no
+literal in the main module, the app's import failed. The shim imports nothing by literal.
 
 The handler contract, `ctx.env`, `ctx.dataDir`, warmup, the 404 project list, logs on the
 container's stdout, and the SIGTERM drain are unchanged. `proxy/test_deno_drain.py` passes
@@ -161,16 +172,16 @@ permission semantics, so a Deno upgrade should be a reviewed change with
   `relay-broker-layover` already moved to its own socket (amiller/dsmack#89, signer
   `0x8674…7632`).
 - A child that exits (for example an unhandled rejection) now takes down only its own
-  project; the router drops it from routing and logs the exit code. It comes back on the next
-  refresh (any deploy to that runtime, or a daemon restart). Before, the same crash took down
-  the whole runtime. No respawn loop is added.
+  project, which answers 503 until the router respawns it. Before, the same crash took down
+  the whole runtime. A child that hangs while loading no longer holds up the router; it is
+  killed at the startup timeout and retried with backoff.
 - Memory: one Deno process per project. Measured locally: router 52 MB, idle child 39 MB,
   relay-broker child 225 MB.
 
 ## Residual risks
 
-- `<env-json>` is on the child's argv, as in `isolation: container`. Siblings would need read
-  access to `/proc` to see it, which they do not have.
+- `ctx.env` reaches the child on stdin, so it is not on any argv and `ps` does not print it.
+  (`isolation: container` still passes it on argv.)
 - `DENO_DIR` (module cache) is shared. Only Deno itself writes it; children have no fs
   permission on it. A child can only cause URLs it names to be cached.
 - The link walk runs at every runtime refresh and costs one `lstat` per file in each
@@ -185,5 +196,8 @@ projects, and real `DstackProxyManager` sockets in front of a fake dstack that r
 all fail with `NotCapable`; a's `ctx.env`, `ctx.dataDir`, `req.url`, POST bodies and gzip
 pass through; b still derives its own key and was warmed up; project c, whose files contain
 `leak -> /run/broker/b/dstack.sock`, and project d, whose data dir holds a hard link into
-another data dir, are refused while a and b serve. Against the old router the same test
+another data dir, are refused while a and b serve. Project h, whose module never finishes
+loading, is killed at the (test-shortened) startup timeout and answers 503 while the others
+serve. No `/proc/*/cmdline` in the container contains a's env value. After a calls
+`Deno.exit(1)` it answers 503, then is respawned and serves the same `ctx.env`. Against the old router the same test
 fails at the first cross-project check: a gets b's key.
