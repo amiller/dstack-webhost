@@ -41,9 +41,11 @@ processes or load native code.
 
 Not provided here:
 - **Network.** Children share the container's network namespace and have `--allow-net`. A
-  project can reach whatever the container can, including every co-resident's public HTTP
-  surface through the router, which the internet can reach anyway. Per-project networks
-  still require `isolation: container`.
+  project can reach whatever the container can, including every co-resident's HTTP surface
+  through the router at `localhost:3000/<name>/`, bypassing the ingress. Today the ingress
+  injects no auth-derived headers (it passes client `X-Forwarded-*` through), so this is
+  close to what the internet sees, but it is pre-existing and unchanged here. Per-project
+  networks still require `isolation: container`.
 - **Kernel enforcement.** All children run as the same uid in one mount namespace. The
   boundary is Deno's permission checker, not the kernel. A Deno permission bug is a
   cross-project bug.
