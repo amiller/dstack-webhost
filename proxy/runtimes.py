@@ -1,5 +1,6 @@
 """Shared runtime containers — one per runtime type, routes all projects."""
 
+import asyncio
 import json
 import hashlib
 import hmac
@@ -50,6 +51,11 @@ DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 # BROKER_HOST_PATH=/var/run/tee-broker). Mirrors DAEMON_VOLUME_NAME.
 BROKER_HOST_PATH = os.environ.get("BROKER_HOST_PATH", "")
 BROKER_MOUNT_IN_APP = "/run/broker"
+# Blue-green replacement of isolation:container projects: the new container must answer HTTP (any status below 500)
+# on the project's health path within HEALTH_SECONDS before it takes the route; the old one then gets SIGTERM and
+# DRAIN_SECONDS to finish its in-flight requests (long-polls included) before docker kills it.
+HEALTH_SECONDS = 90
+DRAIN_SECONDS = 60
 IMAGE_APP_RESTART_POLICY = {"Name": "on-failure", "MaximumRetryCount": 5}
 DSTACK_SOCKET = os.environ.get("DSTACK_SOCKET", "/var/run/dstack.sock")
 _DSTACK_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -147,7 +153,9 @@ const [ENTRY, FILES, DATA, ENV_JSON] = Deno.args;
 const env = JSON.parse(ENV_JSON || "{}");
 const mod = await import(`file://${FILES}/${ENTRY}`);
 const handler = mod.default;
-Deno.serve({ port: 3000 }, (req) => handler(req, { env, dataDir: DATA }));
+const server = Deno.serve({ port: 3000 }, (req) => handler(req, { env, dataDir: DATA }));
+// A blue-green deploy stops the old container only after the new one took the route; finish what it is serving.
+Deno.addSignalListener("SIGTERM", async () => { await server.shutdown(); Deno.exit(0); });
 """
 
 ROUTER_DENO = r"""
@@ -384,7 +392,7 @@ class RuntimeManager:
         self.broker_tokens: dict[str, str] = {}  # broker_token -> project name
         self.broker_proxy_manager = None  # Set by main.py; per-project dstack proxies
 
-    async def refresh(self, runtime: str):
+    async def refresh(self, runtime: str, modes: tuple = ("dev", "attested")):
         if runtime == "static" or runtime == "dockerfile":
             return
         # bun shares deno's router
@@ -401,7 +409,8 @@ class RuntimeManager:
                     if p.runtime in runtimes_served and p.isolation != "container"]
 
         # Handle dev and attested modes separately
-        for mode in ["dev", "attested"]:
+        # Only the modes whose project set changed restart: a dev deploy must not restart the attested runtime.
+        for mode in modes:
             mode_projects = [p for p in projects if p.mode == mode]
             mode_suffix = mode
             network = NETWORK_ATTESTED if mode == "attested" else NETWORK_DEV
@@ -582,13 +591,17 @@ class RuntimeManager:
         with open(entry_path, "w") as f:
             f.write(_ENTRY_SHIM_DENO)
 
-        cname = f"tee-isolated-{project.name}-{project.mode}"
+        # Two names alternate, so the new container starts beside the live one.
+        base = f"tee-isolated-{project.name}-{project.mode}"
         network = await self._ensure_project_network(project.name, project.mode)
-        existing = await self.docker.container_exists(cname)
-        if existing:
-            await self.docker.stop(existing)
-            await self.docker.remove(existing)
-            self.tracker.remove(existing)
+        live = await self.docker.container_exists(base)
+        cname = base + "-b" if live else base
+        old = live or await self.docker.container_exists(base + "-b")
+        leftover = await self.docker.container_exists(cname)
+        if leftover:
+            await self.docker.stop(leftover)
+            await self.docker.remove(leftover)
+            self.tracker.remove(leftover)
 
         if VOLUME_NAME:
             rel_files = os.path.relpath(files_dir, VOLUME_MOUNT)
@@ -673,15 +686,42 @@ class RuntimeManager:
         await self._attach_egress(cid, project)
         self.tracker.add(cid)
         ip = await self.docker.container_ip(cid, network)
+        try:
+            await self._await_healthy(ip, 3000, project.health)
+        except Exception:
+            await self.docker.stop(cid)
+            await self.docker.remove(cid)
+            self.tracker.remove(cid)
+            raise
         self.image_cids[project.name] = cid
         self.image_routes[project.name] = (ip, 3000)
         log.info("Isolated %s project %s -> %s (%s:3000)",
                  project.runtime, project.name, cid[:12], ip)
+        if old:
+            await self.docker.stop(old, timeout=DRAIN_SECONDS)
+            await self.docker.remove(old)
+            self.tracker.remove(old)
+            log.info("Drained and removed %s's previous container %s", project.name, old[:12])
         return await self.docker.image_digest(image)
 
+    async def _await_healthy(self, ip: str, port: int, path: str):
+        url = f"http://{ip}:{port}{path}"
+        deadline = asyncio.get_running_loop().time() + HEALTH_SECONDS
+        last = None
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            while asyncio.get_running_loop().time() < deadline:
+                try:
+                    async with session.get(url) as r:
+                        if r.status < 500:
+                            return
+                        last = f"HTTP {r.status}"
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    last = repr(e)
+                await asyncio.sleep(0.5)
+        raise RuntimeError(f"new container at {url} not healthy within {HEALTH_SECONDS} s: {last}")
+
     async def stop_isolated(self, name: str):
-        for mode in ("dev", "attested"):
-            cname = f"tee-isolated-{name}-{mode}"
+        for cname in (f"tee-isolated-{name}-{m}{c}" for m in ("dev", "attested") for c in ("", "-b")):
             existing = await self.docker.container_exists(cname)
             if existing:
                 await self.docker.stop(existing)
@@ -849,7 +889,8 @@ class RuntimeManager:
             return cid
         if project.runtime == "image" or project.isolation == "container":
             prefix = "tee-image" if project.runtime == "image" else "tee-isolated"
-            return await self.docker.container_exists(f"{prefix}-{project.name}-{project.mode}")
+            base = f"{prefix}-{project.name}-{project.mode}"
+            return await self.docker.container_exists(base) or await self.docker.container_exists(base + "-b")
         if project.runtime in ("dockerfile",):
             return project.container_id or None
         return None
