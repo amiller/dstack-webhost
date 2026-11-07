@@ -8,6 +8,8 @@ import unittest
 import urllib.request
 from pathlib import Path
 
+from .runtimes import DENO_IMAGE
+
 
 class DenoDrainTest(unittest.TestCase):
     def test_docker_stop_keeps_stream_until_final_chunk(self):
@@ -39,7 +41,7 @@ export default function(req) {
             (root / "_router.ts").write_text(router.replace("__DATA_ROOT__", ""))
             cid = subprocess.check_output([
                 "docker", "run", "-d", "--rm", "-p", "127.0.0.1::3000",
-                "-v", str(root) + ":/projects:ro", "denoland/deno:latest",
+                "-v", str(root) + ":/projects:ro", DENO_IMAGE,
                 "deno", "run", "--allow-all", "--no-check", "/projects/_router.ts"
             ], text=True).strip()
             try:

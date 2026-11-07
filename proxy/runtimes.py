@@ -117,13 +117,16 @@ def _project_broker_binds(project) -> list[str]:
     return [f"{BROKER_HOST_PATH}/{project.name}:{BROKER_MOUNT_IN_APP}:ro"]
 
 
-def _shared_broker_binds() -> list[str]:
-    """Shared runtime (one container, many projects): co-hosted apps are co-trust by
-    construction (shared V8/fs/env), so per-project isolation is moot here —
-    mount the broker parent read-only for reachability."""
+def _shared_broker_binds(projects) -> list[str]:
+    """Shared runtime (one container, many projects): mount each co-resident
+    project's broker subdir at /run/broker/<name> (the path shared apps use).
+    Projects living in other containers are not mounted at all. Inside the deno
+    runtime each project runs in its own `deno run` whose --allow-read/write
+    covers only its own /run/broker/<name>, so it cannot connect to a
+    co-resident's socket (RFC 0035)."""
     if not BROKER_HOST_PATH:
         return []
-    return [f"{BROKER_HOST_PATH}:{BROKER_MOUNT_IN_APP}:ro"]
+    return [f"{BROKER_HOST_PATH}/{p.name}:{BROKER_MOUNT_IN_APP}/{p.name}:ro" for p in projects]
 # Optional OCI runtime for daemon-managed containers (e.g. "sysbox-runc").
 # Empty string keeps Docker's default (runc).
 CONTAINER_RUNTIME = os.environ.get("DAEMON_CONTAINER_RUNTIME", "")
@@ -150,71 +153,161 @@ const handler = mod.default;
 Deno.serve({ port: 3000 }, (req) => handler(req, { env, dataDir: DATA }));
 """
 
+# Shared deno runtime: the router is trusted daemon code and never imports app
+# code. Each project runs in its own `deno run` whose permissions cover only its
+# own files, data dir and /run/broker/<name> (a unix connect needs read+write on
+# the socket path), so co-resident apps cannot reach each other's dstack/creds
+# sockets, files, data, env or heap (RFC 0035). The router proxies
+# /<name>/... to that child over a unix socket only the child can open.
 ROUTER_DENO = r"""
-const handlers = new Map();
-const envs = new Map();
-const dataDirs = new Map();
 const DATA_ROOT = "__DATA_ROOT__";
+const PROJECTS = "/projects";
+const BROKER = "/run/broker";
+const RT = "/tmp/tee-rt";
+const STARTUP_MS = 120000;
+// Load-bearing: this shim must stay the child's main module and ENTRY must come
+// from Deno.args. Deno does not permission-check a dynamic import whose specifier
+// is a string literal in the main module, so a literal import here would bypass
+// --allow-read. env arrives on stdin so it never shows up in ps.
+const CHILD = `
+const [ENTRY, DATA, LISTEN] = Deno.args;
+const env = JSON.parse(await new Response(Deno.stdin.readable).text());
+const handler = (await import(ENTRY)).default;
+if (typeof handler !== "function") throw new Error("default export is not a function");
+// Warmup lets handlers initialize (e.g. background loops that need ctx.env); errors are the handler's own.
+try { await handler(new Request("http://localhost/_warmup"), {env, dataDir: DATA}); } catch {}
+Deno.serve({path: LISTEN, onListen() {}}, (req) => handler(req, {env, dataDir: DATA}));
+`;
 
-async function ensureDataDir(name) {
-  if (!DATA_ROOT) return "";
-  const dir = `${DATA_ROOT}/${name}`;
-  try { await Deno.mkdir(dir, { recursive: true }); } catch (e) {
-    if (!(e instanceof Deno.errors.AlreadyExists)) console.error(`mkdir ${dir}:`, e.message);
+// Deno checks permissions on the path as written, without resolving links, so a
+// link planted before this sandbox existed (or kept by git clone) could point a
+// child at another project's socket or data. Refuse such a project outright.
+// Hard links are checked only in data dirs: /daemon-data is one filesystem that
+// apps could write under --allow-all, while files/ is written by the daemon (a
+// local git clone legitimately hard-links .git/objects).
+async function unsafeLink(dir, roots, hardLinks) {
+  for await (const e of Deno.readDir(dir)) {
+    const p = `${dir}/${e.name}`;
+    if (e.isSymlink) {
+      let real;
+      try { real = await Deno.realPath(p); } catch { return p; } // dangling: target unknown
+      if (!roots.some(r => real === r || real.startsWith(r + "/"))) return p;
+    } else if (e.isDirectory) {
+      const bad = await unsafeLink(p, roots, hardLinks);
+      if (bad) return bad;
+    } else if (hardLinks && (await Deno.lstat(p)).nlink > 1) {
+      return p;
+    }
   }
-  return dir;
+  return null;
 }
 
-for await (const entry of Deno.readDir("/projects")) {
-  if (!entry.isDirectory || entry.name.startsWith("_")) continue;
-  try {
-    const raw = await Deno.readTextFile(`/projects/${entry.name}/project.json`);
-    const manifest = JSON.parse(raw);
-    if (manifest.runtime !== "deno" && manifest.runtime !== "bun") continue;
-    const entryFile = manifest.entry || "server.ts";
-    const mod = await import(`file:///projects/${entry.name}/files/${entryFile}?t=${Date.now()}`);
-    const handler = mod.default;
-    if (typeof handler === "function") {
-      handlers.set(entry.name, handler);
-      envs.set(entry.name, manifest.env || {});
-      dataDirs.set(entry.name, await ensureDataDir(entry.name));
-      console.log(`Loaded: ${entry.name}`);
+const apps = new Map();
+let stopping = false;
+
+async function prepare(name, manifest) {
+  const files = await Deno.realPath(`${PROJECTS}/${name}/files`);
+  let data = "";
+  if (DATA_ROOT) {
+    await Deno.mkdir(`${DATA_ROOT}/${name}`, {recursive: true});
+    data = await Deno.realPath(`${DATA_ROOT}/${name}`);
+  }
+  const roots = [files, data].filter(Boolean);
+  for (const r of roots) {
+    const bad = await unsafeLink(r, roots, r === data);
+    if (bad) throw new Error(`${bad} is a hard link, or a symlink that dangles or leaves the project's own files/data; refusing to start`);
+  }
+  const listenDir = `${RT}/${name}`;
+  await Deno.mkdir(listenDir, {recursive: true});
+  const own = [data, `${BROKER}/${name}`, listenDir].filter(Boolean);
+  return {sock: `${listenDir}/http.sock`, env: JSON.stringify(manifest.env || {}), args: [
+    "run", "--no-prompt", "--no-check",
+    `--allow-read=${[files, ...own].join(",")}`, `--allow-write=${own.join(",")}`,
+    "--allow-net", "--allow-import", "--allow-env", "--allow-sys",
+    "--deny-run", "--deny-ffi",
+    `${RT}/_child.ts`, `file://${files}/${manifest.entry || "server.ts"}`, data, `${listenDir}/http.sock`]};
+}
+
+// Runs one child until it listens, exits, or misses STARTUP_MS (then it is killed).
+// Whenever a child exits it is respawned with backoff; meanwhile its app gets 503.
+async function run(name, cfg, app) {
+  await Deno.remove(cfg.sock).catch(e => { if (!(e instanceof Deno.errors.NotFound)) throw e; });
+  const started = Date.now();
+  const child = new Deno.Command(Deno.execPath(), {args: cfg.args,
+    stdin: "piped", stdout: "inherit", stderr: "inherit"}).spawn();
+  const w = child.stdin.getWriter();
+  await w.write(new TextEncoder().encode(cfg.env));
+  await w.close();
+  let exited = false;
+  child.status.then(s => {
+    exited = true;
+    app.client?.close();
+    app.client = null;
+    if (stopping) return;
+    if (Date.now() - started > 60000) app.failures = 0;
+    const delay = Math.min(60000, 1000 * 2 ** app.failures++);
+    console.error(`${name}: exited (code ${s.code}); restarting in ${delay}ms`);
+    setTimeout(() => run(name, cfg, app), delay);
+  });
+  while (!exited) {
+    try { await Deno.lstat(cfg.sock); break; } catch {
+      if (Date.now() - started > STARTUP_MS) {
+        console.error(`${name}: not listening after ${STARTUP_MS}ms; killing`);
+        child.kill("SIGKILL");
+        return;
+      }
+      await new Promise(r => setTimeout(r, 50));
     }
+  }
+  if (exited) return;
+  app.client = Deno.createHttpClient({proxy: {transport: "unix", path: cfg.sock}});
+  console.log(`Loaded: ${name}`);
+}
+
+async function start(name, manifest) {
+  const cfg = await prepare(name, manifest);
+  const app = {client: null, failures: 0};
+  apps.set(name, app);
+  await run(name, cfg, app);
+}
+
+await Deno.mkdir(RT, {recursive: true});
+await Deno.writeTextFile(`${RT}/_child.ts`, CHILD);
+const pending = [];
+for await (const entry of Deno.readDir(PROJECTS)) {
+  if (!entry.isDirectory || entry.name.startsWith("_")) continue;
+  let manifest;
+  try {
+    manifest = JSON.parse(await Deno.readTextFile(`${PROJECTS}/${entry.name}/project.json`));
   } catch (e) {
     console.error(`Failed to load ${entry.name}: ${e.message}`);
+    continue;
   }
+  if (manifest.runtime !== "deno" && manifest.runtime !== "bun") continue;
+  pending.push(start(entry.name, manifest)
+    .catch(e => console.error(`Failed to load ${entry.name}: ${e.message}`)));
 }
+await Promise.all(pending);
+console.log(`Router ready: ${[...apps.values()].filter(a => a.client).length}/${apps.size} projects`);
 
-console.log(`Router ready: ${handlers.size} projects`);
-
-// Warmup: fire a synthetic request to each handler so they can initialize
-// (e.g. inject env vars into background workers like setInterval loops)
-for (const [name, handler] of handlers) {
-  try {
-    const warmupReq = new Request("http://localhost/_warmup");
-    await handler(warmupReq, {env: envs.get(name) || {}, dataDir: dataDirs.get(name) || ""});
-  } catch (e) {
-    // Warmup errors are non-fatal (handler may not support GET /_warmup)
-  }
-}
-console.log("Warmup complete");
-
-const server = Deno.serve({ port: 3000 }, async (req) => {
+const server = Deno.serve({ port: 3000 }, (req) => {
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean);
   const name = parts.shift() || "";
-  const handler = handlers.get(name);
-  if (!handler) {
-    return new Response(JSON.stringify({projects: [...handlers.keys()]}),
+  const app = apps.get(name);
+  if (!app) {
+    return new Response(JSON.stringify({projects: [...apps.keys()]}),
       {status: 404, headers: {"content-type": "application/json"}});
   }
+  const client = app.client;
+  if (!client) return new Response(`${name} is not running`, {status: 503});
   const subpath = "/" + parts.join("/") + (url.search || "");
-  const newReq = new Request(new URL(subpath, url.origin).toString(),
-    {method: req.method, headers: req.headers, body: req.body});
-  return handler(newReq, {env: envs.get(name) || {}, dataDir: dataDirs.get(name) || ""});
+  return fetch(new URL(subpath, url.origin), {method: req.method, headers: req.headers,
+    body: req.body, client, redirect: "manual"});
 });
 Deno.addSignalListener("SIGTERM", async () => {
   console.log("Draining shared Deno requests");
+  stopping = true;
   await server.shutdown();
   Deno.exit(0);
 });
@@ -337,16 +430,20 @@ app.router.add_route("*", "/{path:.*}", route)
 web.run_app(app, port=8000, print=lambda *a: None)
 """
 
+# Pinned: the shared runtime's isolation rests on Deno's permission semantics
+# (RFC 0035), so a version change is a reviewed change, not a re-pull.
+DENO_IMAGE = "denoland/deno:2.9.8"
+
 RUNTIME_CONFIG = {
     "deno": {
-        "image": "denoland/deno:latest",
+        "image": DENO_IMAGE,
         "cmd": ["deno", "run", "--allow-all", "--no-check", "/projects/_router.ts"],
         "port": 3000,
         "router_file": "_router.ts",
         "router_code": ROUTER_DENO,
     },
     "bun": {
-        "image": "denoland/deno:latest",
+        "image": DENO_IMAGE,
         "cmd": ["deno", "run", "--allow-all", "--no-check", "/projects/_router.ts"],
         "port": 3000,
         "router_file": "_router.ts",
@@ -456,11 +553,10 @@ class RuntimeManager:
                 binds.append(f"{DATA_VOLUME_NAME}:{DATA_VOLUME_MOUNT_IN_RUNTIME}:rw")
                 data_root = DATA_VOLUME_MOUNT_IN_RUNTIME
 
-            # Expose the broker to shared-runtime apps that need it. Co-hosted apps
-            # here are co-trust (one V8 isolate, shared fs/env), so the broker
-            # parent is mounted whole rather than per-project.
+            # Expose the broker to shared-runtime apps that need it: one subdir per
+            # co-resident project. The deno router confines each project to its own.
             if BROKER_HOST_PATH and any(_project_needs_broker(p) for p in mode_projects):
-                binds += _shared_broker_binds()
+                binds += _shared_broker_binds(mode_projects)
 
             # Write router with correct projects root, filtering by mode
             router_code = config["router_code"].replace("/projects/", f"{projects_root}/").replace('"/projects"', f'"{projects_root}"')
@@ -490,9 +586,10 @@ class RuntimeManager:
             ]
 
             # Shared-runtime containers stay on the docker default OCI runtime,
-            # not DAEMON_CONTAINER_RUNTIME. Co-hosted apps here are co-trust by
-            # construction (one V8 isolate, shared env, shared FS), so the
-            # kernel-CVE-class protection runsc adds doesn't pay off. (runsc
+            # not DAEMON_CONTAINER_RUNTIME. Co-hosted apps here share a kernel
+            # namespace and network; deno apps are separated only by Deno's
+            # permission sandbox (one process each), so the kernel-CVE-class
+            # protection runsc adds isn't the boundary that matters. (runsc
             # apps get explicit GVISOR_DNS — docker_client.)
             # Per-project containers (image-runtime, isolation:container) keep
             # CONTAINER_RUNTIME.

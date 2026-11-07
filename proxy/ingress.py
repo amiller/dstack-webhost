@@ -1031,7 +1031,7 @@ class Ingress:
     async def _api_stats(self) -> web.Response:
         """Memory/CPU per managed container (issue #151), owner-only, read-only.
 
-        Shared runtime containers run many apps in one process, so they are
+        Shared runtime containers run many apps in one container, so they are
         reported once with the list of apps they host. Includes the daemon itself."""
         containers = await self.docker.list_containers("tee-proxy.managed=true")
         rows = [(c["Names"][0].lstrip("/"), c["Id"], sorted(

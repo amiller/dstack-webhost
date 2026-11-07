@@ -119,10 +119,10 @@ export BROKER_SOCKET_DIR="$(mktemp -d /tmp/tee-broker.XXXXXX)"   # see gotcha be
 `BROKER_SOCKET_DIR=<writable dir>` in your shell passes through without editing the test.
 
 The test needs docker (it spins up real containers). It pulls these images on first run:
-`denoland/deno:latest`, `node:22-slim`, `python:3.12-slim`, `nginx:alpine`. Pre-pull them to
+`denoland/deno:2.9.8`, `node:22-slim`, `python:3.12-slim`, `nginx:alpine`. Pre-pull them to
 avoid a slow first run:
 ```sh
-for img in denoland/deno:latest node:22-slim python:3.12-slim nginx:alpine; do docker pull "$img"; done
+for img in denoland/deno:2.9.8 node:22-slim python:3.12-slim nginx:alpine; do docker pull "$img"; done
 ```
 
 #### Result (verbatim, on a clean run)
