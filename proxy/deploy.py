@@ -101,6 +101,17 @@ async def git_clone(source: str, ref: str, dest: str,
     return commit_sha, git_tree_sha
 
 
+def swap_in(stage: str, dest: str) -> None:
+    """Replace dest with stage by two renames, so a running container never sees a half-written tree."""
+    if os.path.exists(dest + ".old"):
+        shutil.rmtree(dest + ".old")
+    if os.path.exists(dest):
+        os.rename(dest, dest + ".old")
+    os.rename(stage, dest)
+    if os.path.exists(dest + ".old"):
+        shutil.rmtree(dest + ".old")
+
+
 def extract_tarball(data: bytes, dest: str) -> None:
     if os.path.exists(dest):
         shutil.rmtree(dest)
@@ -210,7 +221,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     files_dir = store.files_dir(name)
     git_tree_sha = ""
     if files_data is not None:
-        extract_tarball(files_data, files_dir)
+        extract_tarball(files_data, files_dir + ".new")
+        swap_in(files_dir + ".new", files_dir)
         commit_sha = manifest.get("commit_sha", "")
     else:
         if not source:
@@ -229,11 +241,10 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
                 raise ValueError(
                     f"tree_hash mismatch for {name}: pinned {pin_tree}, "
                     f"source at {pin_sha[:12]} hashes to {git_tree_sha}")
-            if os.path.exists(files_dir):
-                shutil.rmtree(files_dir)
-            shutil.move(stage, files_dir)
+            swap_in(stage, files_dir)
         else:
-            commit_sha, git_tree_sha = await git_clone(source, ref, files_dir)
+            commit_sha, git_tree_sha = await git_clone(source, ref, files_dir + ".new")
+            swap_in(files_dir + ".new", files_dir)
 
     repo_manifest = detect_manifest(files_dir)
 
@@ -294,6 +305,10 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     # party can verify it against the GitHub API. For tarball deploys,
     # fall back to a SHA-256 over the working tree.
     tree_hash = git_tree_sha or compute_tree_hash(files_dir)
+    try:
+        old_mode = store.load(name).mode
+    except FileNotFoundError:
+        old_mode = mode
 
     await run_build_step(docker, runtime, entry, files_dir)
 
@@ -313,6 +328,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         cap_add=cap_add, devices=devices, operator_debug=operator_debug,
         egress=bool(manifest.get("egress", False)),
         egress_provider=bool(manifest.get("egress_provider", False)),
+        health=manifest.get("health") or repo_manifest.get("health") or "/",
     )
     store.save(project)
 
@@ -322,7 +338,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         digest = await rtm.start_isolated(project)
     else:
         if runtime not in ("static", "dockerfile"):
-            await rtm.refresh(runtime)
+            await rtm.refresh(runtime, tuple({old_mode, mode}))
         digest = await docker.image_digest(image) if config else ""
     project.image_digest = digest
     store.save(project)
@@ -446,7 +462,7 @@ async def teardown(store: ProjectStore, docker: DockerClient, audit_manager,
     elif project.isolation == "container" and project.runtime in ("deno", "bun"):
         await rtm.stop_isolated(name)
     elif project.runtime not in ("static", "dockerfile"):
-        await rtm.refresh(project.runtime)
+        await rtm.refresh(project.runtime, (project.mode,))
 
     await rtm.remove_project_broker(name)
     # The containers are gone; hand back the subnet too. Without this every project

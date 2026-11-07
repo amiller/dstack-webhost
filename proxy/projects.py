@@ -66,6 +66,8 @@ class Project:
     # RFC 0025 fields (app_id/app_pubkey/binding_quote/report_data/attestation_kind), which
     # were set at promote and never read back.
     binding: dict = field(default_factory=dict)
+    # Path the webhost polls on a new isolation:container instance before it takes the route.
+    health: str = "/"
 
     def export_dict(self) -> dict:
         """RFC 0017 pin projection — every EXPORT_FIELDS key, never env."""
