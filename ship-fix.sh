@@ -13,6 +13,10 @@ HA="$HOME/projects/hermes-agent"         # where the deploy manifests live
 IMG="ghcr.io/amiller/tee-socket-proxy"
 KMS=()
 PRELAUNCH=()
+# `phala deploy` defaults --public-logs to TRUE, so every deploy without the flag re-publishes
+# every container's full log (the daemon's access log included) to anyone. The pod is private;
+# the owner reads logs through the daemon's /_api/logs/<container> instead.
+LOGS=()
 
 case "$TARGET" in
   staging) CVM=webhost-staging; COMPOSE="$HA/docker-compose.webhost-staging.yaml"; ENVF="$HA/deploy-notes/.env.webhost-staging" ;;
@@ -25,7 +29,8 @@ case "$TARGET" in
            # boot has no such runtime, so verify_configured_runtime() refuses to start the daemon
            # and the pod is dark. It also carries the wider default-address-pools.
            PRELAUNCH=(--pre-launch-script "$HA/deploy-notes/prelaunch-runsc-resilient.sh")
-           [ -f "$HA/deploy-notes/prelaunch-runsc-resilient.sh" ] || { echo "missing prelaunch script — refusing to deploy a pod that would boot without runsc" >&2; exit 1; } ;;
+           [ -f "$HA/deploy-notes/prelaunch-runsc-resilient.sh" ] || { echo "missing prelaunch script — refusing to deploy a pod that would boot without runsc" >&2; exit 1; }
+           LOGS=(--no-public-logs) ;;
   *) echo "unknown target '$TARGET' (valid: staging, prod, pod)" >&2; exit 1 ;;
 esac
 COMMIT=$(git -C "$TEE" rev-parse --short HEAD)
@@ -33,6 +38,28 @@ TAG="$TARGET-$COMMIT"
 
 [ -f "$COMPOSE" ] || { echo "missing compose: $COMPOSE" >&2; exit 1; }
 [ -f "$ENVF" ]    || { echo "missing env (not present in this environment?): $ENVF" >&2; exit 1; }
+
+echo "==> 0/4 local compose must match the live one except for the daemon image"
+# This script only swaps the daemon digest, so anything else in $COMPOSE that differs from what
+# the CVM runs gets deployed silently. On 2026-11-07 the local prod7 compose was months behind the
+# pod (older daemon, no PROJECT_HOSTS, one ingress domain instead of two): shipping it would have
+# broken private-agent's domains. Fix the local file from the live one, then rerun.
+phala cvms get "$CVM" --json | python3 -c '
+import json, sys, yaml
+def norm(text):
+    c = yaml.safe_load(text)
+    c["services"]["tee-daemon"].pop("image")
+    return c
+live = norm(json.load(sys.stdin)["compose_file"]["docker_compose_file"])
+local = norm(open(sys.argv[1]).read())
+if live != local:
+    for k in sorted(set(live["services"]) | set(local["services"])):
+        if live["services"].get(k) != local["services"].get(k):
+            print(f"  service {k!r} differs", file=sys.stderr)
+    if live.get("volumes") != local.get("volumes"):
+        print("  volumes differ", file=sys.stderr)
+    sys.exit(f"{sys.argv[1]} drifted from the live {sys.argv[2]} compose — refusing to deploy")
+print("    matches live")' "$COMPOSE" "$CVM"
 
 echo "==> 1/4 build patched image from canonical source ($COMMIT)"
 docker build --build-arg GIT_COMMIT="$COMMIT" -t "$IMG:$TAG" "$TEE"
@@ -55,7 +82,7 @@ sed -i -E "s#${IMG}@sha256:[a-f0-9]+#${DIGEST}#" "$COMPOSE"
 grep -n "$IMG" "$COMPOSE"
 
 echo "==> 4/4 upgrade $CVM CVM (restarts every service in the compose; sealed env re-supplied)"
-phala deploy --cvm-id "$CVM" -c "$COMPOSE" -e "$ENVF" "${KMS[@]}" "${PRELAUNCH[@]}" --wait
+phala deploy --cvm-id "$CVM" -c "$COMPOSE" -e "$ENVF" "${KMS[@]}" "${PRELAUNCH[@]}" "${LOGS[@]}" --wait
 
 echo
 echo "DONE ($TARGET -> $CVM)."
