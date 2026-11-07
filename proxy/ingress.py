@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -61,6 +62,12 @@ def _redact_env(data: dict) -> dict:
 
 DSTACK_SOCK = None  # set by main.py
 API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
+
+# /_api/logs/<name>: the name goes into a Docker API path, so only Docker's own name alphabet
+# (dstack guest-agent had to add the same check, Dstack-TEE/dstack#1443).
+_CONTAINER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+_LOG_TAIL_RE = re.compile(r"all|[0-9]{1,9}")
+_UNIX_TS_RE = re.compile(r"[0-9]{1,10}(\.[0-9]{1,9})?")
 
 # Headers this proxy never forwards upstream.
 HOP_HEADERS = ("host", "transfer-encoding", "accept-encoding")
@@ -679,7 +686,8 @@ class Ingress:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
-        owner_only = path in ("tokens", "stats") or path.startswith("tokens/")
+        owner_only = (path in ("tokens", "stats", "logs") or path.startswith("tokens/")
+                      or path.startswith("logs/"))
         denied = self._check_auth(request, path, owner_only=owner_only)
         if denied:
             return denied
@@ -722,6 +730,13 @@ class Ingress:
 
         if path == "stats" and method == "GET":
             return await self._api_stats()
+
+        if path == "logs" and method == "GET":
+            return web.json_response([
+                {"name": c["Names"][0].lstrip("/"), "state": c["State"], "status": c["Status"],
+                 "image": c["Image"]} for c in await self.docker.list_all_containers()])
+        if path.startswith("logs/") and method == "GET":
+            return await self._api_container_logs(path[len("logs/"):], request)
 
         # RFC 0017: fleet export/import (authed)
         if path == "export" and method == "GET":
@@ -983,6 +998,35 @@ class Ingress:
                 {"error": "no container for project (not running?)"}, status=404)
         text = await self.docker.logs(cid, tail=tail)
         return web.Response(text=text, content_type="text/plain")
+
+    async def _api_container_logs(self, name: str, request: web.Request) -> web.StreamResponse:
+        """Owner-only: the full stdout/stderr of ANY container on the CVM, streamed.
+
+        This is the private replacement for Phala's public_logs endpoint. With public_logs on,
+        anyone can download every container's history (the daemon's access log included); with
+        it off, nobody can, the owner included. The daemon already holds the Docker socket and
+        the owner token, so it serves the logs itself. Unlike /_api/projects/<name>/logs this
+        reaches the daemon, the shared runtimes and the compose siblings (ingress), and it is
+        not capped: tail defaults to all, and since/until (unix seconds) bound the window."""
+        q = request.query
+        params = {"stdout": "true", "stderr": "true", "timestamps": "true",
+                  "tail": q.get("tail", "all")}
+        params.update({k: q[k] for k in ("since", "until") if k in q})
+        if (not _CONTAINER_NAME_RE.fullmatch(name) or not _LOG_TAIL_RE.fullmatch(params["tail"])
+                or any(not _UNIX_TS_RE.fullmatch(params[k]) for k in ("since", "until") if k in params)):
+            return web.json_response({"error": "bad container name, tail, since or until"}, status=400)
+        chunks = self.docker.stream_logs(name, params)
+        try:
+            first = await anext(chunks, b"")
+        except LookupError as e:
+            return web.json_response({"error": str(e)}, status=404)
+        resp = web.StreamResponse(headers={"Content-Type": "text/plain; charset=utf-8"})
+        await resp.prepare(request)
+        await resp.write(first)
+        async for chunk in chunks:
+            await resp.write(chunk)
+        await resp.write_eof()
+        return resp
 
     async def _api_stats(self) -> web.Response:
         """Memory/CPU per managed container (issue #151), owner-only, read-only.

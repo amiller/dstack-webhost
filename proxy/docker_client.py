@@ -1,5 +1,6 @@
 """Thin async Docker Engine client over Unix socket."""
 
+import asyncio
 import base64
 import json
 import logging
@@ -262,6 +263,39 @@ class DockerClient:
         if status >= 400:
             raise RuntimeError(f"list containers failed ({status}): {data}")
         return data
+
+    async def list_all_containers(self) -> list[dict]:
+        status, data = await self._json_request("GET", "/containers/json", params={"all": "true"})
+        if status >= 400:
+            raise RuntimeError(f"list containers failed ({status}): {data}")
+        return data
+
+    async def stream_logs(self, name: str, params: dict):
+        """Yield a container's log bytes, demuxed, without holding the history in memory
+        (the pod's daemon log was 860 MB on 2026-11-07). Raises LookupError if there is no
+        such container; nothing has been yielded at that point."""
+        status, info = await self._json_request("GET", f"/containers/{name}/json")
+        if status == 404:
+            raise LookupError(f"no such container: {name}")
+        if status >= 400:
+            raise RuntimeError(f"inspect failed ({status}): {info}")
+        conn = aiohttp.UnixConnector(path=self.socket_path)
+        async with aiohttp.ClientSession(connector=conn, timeout=aiohttp.ClientTimeout(total=None)) as session:
+            async with session.get(f"http://localhost/containers/{name}/logs", params=params) as resp:
+                if resp.status >= 400:
+                    raise RuntimeError(f"logs failed ({resp.status}): {await resp.text()}")
+                if info["Config"]["Tty"]:
+                    async for chunk in resp.content.iter_chunked(1 << 16):
+                        yield chunk
+                    return
+                while True:
+                    try:
+                        header = await resp.content.readexactly(8)
+                    except asyncio.IncompleteReadError as e:
+                        if e.partial:
+                            raise
+                        return
+                    yield await resp.content.readexactly(int.from_bytes(header[4:8], "big"))
 
     async def stats(self, cid: str) -> dict:
         status, data = await self._json_request("GET", f"/containers/{cid}/stats?stream=false", timeout=30)
