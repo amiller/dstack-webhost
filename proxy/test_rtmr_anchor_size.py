@@ -2,6 +2,7 @@
 cert it rebuilds on every start, and webpki refuses certs over 64 KB."""
 
 import asyncio
+import hashlib
 import json
 import os
 import tempfile
@@ -37,7 +38,9 @@ def test_boot_replay_is_one_event_and_records_are_small():
             events.clear()
             await m.replay_anchors()
             assert [e["event"] for e in events] == ["tee-proxy:heads"]
-            assert json.loads(bytes.fromhex(events[0]["payload"])) == heads
+            canonical = json.dumps(heads, sort_keys=True, separators=(",", ":")).encode()
+            assert json.loads(bytes.fromhex(events[0]["payload"])) == {
+                "heads_sha256": hashlib.sha256(canonical).hexdigest()}
 
             await m.get_audit_log("alpha").record(AuditEntry(
                 timestamp=1.0, action="promote", detail="x" * 500))

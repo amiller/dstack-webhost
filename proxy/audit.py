@@ -122,7 +122,7 @@ class AuditLogManager:
         self.dstack_socket = dstack_socket
 
     async def replay_anchors(self):
-        """Anchor every project's ledger head in RTMR3 with ONE event. Each head is
+        """Anchor every project's ledger head in RTMR3 with ONE small event. Each head is
         a hash chain over the project's whole ledger, so this binds the same history
         that re-emitting every entry did. Re-emitting every entry made the boot
         event log ~1.5 MB; dstack-guest-agent 0.5.8 embeds that log in the client
@@ -135,7 +135,10 @@ class AuditLogManager:
             entries = self._load_entries(project)
             if entries:
                 heads[project] = entries[-1].entry_hash
-        await _emit(self.dstack_socket, "tee-proxy:heads", json.dumps(heads, sort_keys=True))
+        # One hash over the map: on staging the map itself was 49 KB. Each head is
+        # in that project's ledger, so a verifier rebuilds the map and compares.
+        digest = hashlib.sha256(json.dumps(heads, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        await _emit(self.dstack_socket, "tee-proxy:heads", json.dumps({"heads_sha256": digest}))
         self.replayed = True
 
     def get_audit_log(self, project_name: str) -> "AuditLog":
