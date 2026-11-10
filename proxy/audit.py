@@ -129,8 +129,8 @@ class AuditLogManager:
             entries = self._load_entries(project)
             if entries:
                 heads[project] = entries[-1].entry_hash
-        # One hash over the map: on staging the map itself was 49 KB. Each head is
-        # in that project's ledger, so a verifier rebuilds the map and compares.
+        # One hash over the map: on staging the map itself was 49 KB. No endpoint
+        # serves the boot-time map yet, so a verifier cannot open this hash (#157).
         digest = hashlib.sha256(json.dumps(heads, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         await _emit(self.dstack_socket, "tee-proxy:heads", json.dumps({"heads_sha256": digest}))
         self.replayed = True
