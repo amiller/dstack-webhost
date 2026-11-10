@@ -74,15 +74,22 @@ class DstackProxy:
                        if k.lower() not in ("host", "transfer-encoding", "content-length")}
         conn = aiohttp.UnixConnector(path=self.real_socket)
         async with aiohttp.ClientSession(connector=conn) as session:
-            async with session.request(method, f"http://localhost{path}",
-                                       data=body if body else None,
-                                       headers=fwd_headers) as resp:
-                resp_body = await resp.read()
-                return web.Response(
-                    body=resp_body,
-                    status=resp.status,
-                    content_type=resp.content_type,
-                )
+            try:
+                async with session.request(method, f"http://localhost{path}",
+                                           data=body if body else None,
+                                           headers=fwd_headers) as resp:
+                    resp_body = await resp.read()
+                    return web.Response(
+                        body=resp_body,
+                        status=resp.status,
+                        content_type=resp.content_type,
+                    )
+            except aiohttp.ClientConnectorError as e:
+                # The CVM's dstack guest agent is down (2026-11-10: it exited and its
+                # in-place restarts failed). Say so instead of an anonymous 500.
+                log.error("dstack guest agent unreachable for project %s: %s", self.project_id, e)
+                return web.json_response(
+                    {"message": f"dstack guest agent unreachable: {e}"}, status=503)
 
 
 class DstackProxyManager:
