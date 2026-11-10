@@ -24,6 +24,15 @@ class AuditEntry:
     entry_hash: str = ""
 
 
+async def _emit(dstack_socket: str, event: str, payload: str):
+    conn = aiohttp.UnixConnector(path=dstack_socket)
+    async with aiohttp.ClientSession(connector=conn) as session:
+        async with session.post("http://localhost/EmitEvent",
+                                json={"event": event, "payload": payload.encode().hex()}) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"EmitEvent returned {resp.status}")
+
+
 class AuditLogManager:
     """Per-project audit log manager with disk persistence."""
 
@@ -107,11 +116,20 @@ class AuditLogManager:
         self.dstack_socket = dstack_socket
 
     async def replay_anchors(self):
+        """Anchor every project's ledger head in RTMR3 with ONE event. Each head is
+        a hash chain over the project's whole ledger, so this binds the same history
+        that re-emitting every entry did. Re-emitting every entry made the boot
+        event log ~1.5 MB; dstack-guest-agent 0.5.8 embeds that log in the client
+        cert it builds on start, webpki rejects certs over 64 KB, and the agent
+        could never restart in place (2026-11-10 outage)."""
         if not self.dstack_socket:
             return
+        heads = {}
         for project in sorted(name[:-6] for name in os.listdir(self.audit_dir) if name.endswith(".jsonl")):
-            for entry in self._load_entries(project):
-                await AuditLog(project, self)._extend_rtmr(entry)
+            entries = self._load_entries(project)
+            if entries:
+                heads[project] = entries[-1].entry_hash
+        await _emit(self.dstack_socket, "tee-proxy:heads", json.dumps(heads, sort_keys=True))
         self.replayed = True
 
     def get_audit_log(self, project_name: str) -> "AuditLog":
@@ -151,15 +169,11 @@ class AuditLog:
         dstack_socket = self.dstack_socket or self.manager.dstack_socket
         if not dstack_socket:
             return
-        payload = json.dumps(asdict(entry), sort_keys=True)
-        payload_hex = payload.encode().hex()
-        body = {"event": f"tee-proxy:{entry.action}", "payload": payload_hex}
-        conn = aiohttp.UnixConnector(path=dstack_socket)
-        async with aiohttp.ClientSession(connector=conn) as session:
-            async with session.post("http://localhost/EmitEvent", json=body) as resp:
-                if resp.status != 200:
-                    raise RuntimeError(f"EmitEvent returned {resp.status}")
-                log.info("RTMR extended: %s", entry.action)
+        # The entry hash commits to the entry and, via prev_hash, its whole chain;
+        # the full entry stays in the ledger (see replay_anchors on event-log size).
+        await _emit(dstack_socket, f"tee-proxy:{entry.action}",
+                    json.dumps({"project": self.project_name, "entry_hash": entry.entry_hash}, sort_keys=True))
+        log.info("RTMR extended: %s", entry.action)
 
     def to_json(self) -> list[dict]:
         """Export audit log as JSON."""
