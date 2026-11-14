@@ -927,7 +927,7 @@ class Ingress:
             "oci_runtime": project.oci_runtime,
             "cap_add": project.cap_add, "devices": project.devices,
             "egress": project.egress, "egress_provider": project.egress_provider,
-            "public": project.public,
+            "public": project.public, "health": project.health,
         }
         if project.listen:
             manifest["listen"] = {
