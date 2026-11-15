@@ -1494,6 +1494,18 @@ def test_dstack_proxy_project_scoped():
                 # disallowed method denied
                 async with s.post("http://localhost/RawSign", json={}) as r:
                     assert r.status == 403, r.status
+                # #159: apps cannot extend RTMR3 or quote in the daemon's binding domain
+                async with s.post("http://localhost/EmitEvent", json={"event": "tee-daemon/promote"}) as r:
+                    assert r.status == 403, r.status
+                from verify.bundle import BINDING_TAG
+                forged = "0x" + (BINDING_TAG + b"\0" * 48).hex().upper()
+                async with s.post("http://localhost/GetQuote", json={"report_data": forged}) as r:
+                    assert r.status == 403, r.status
+                # an ordinary app quote passes, with only report_data forwarded
+                async with s.post("http://localhost/GetQuote",
+                                  json={"report_data": "ab" * 64, "reportData": forged}) as r:
+                    assert r.status == 200, r.status
+                    assert await r.json() == {"report_data": "ab" * 64}
             await px_runner.cleanup()
             await up_runner.cleanup()
         finally:
@@ -1501,6 +1513,66 @@ def test_dstack_proxy_project_scoped():
 
     asyncio.run(run())
     print("  project-scoped GetKey derivation OK ✓")
+
+
+def test_attested_deploy_rebuilds_binding():
+    """#160: an attested project gets a fresh binding for its current tree_hash on
+    every deploy path (deploy, image deploy, promote), and its report_data carries
+    the reserved binding tag (#159). Runs the helper against a fake dstack."""
+    import asyncio
+    import aiohttp
+    from aiohttp import web
+    from proxy import deploy as deploy_mod
+    from proxy.projects import Project
+    from verify.bundle import BINDING_TAG, binding_report_data
+
+    print("\n--- Test: attested deploy rebuilds the binding (#160) ---")
+    app_id = "cd" * 20
+    quoted = []
+
+    async def fake_dstack(request):
+        body = await request.json()
+        method = request.path.lstrip("/")
+        if method == "GetQuote":
+            quoted.append(body["report_data"])
+            log = [{"imr": 3, "event": "app-id", "event_payload": app_id}]
+            return web.json_response({"quote": "00", "event_log": json.dumps(log)})
+        if method == "GetKey":
+            return web.json_response({"key": "11" * 32})
+        return web.json_response({})
+
+    class Store:
+        saves = 0
+        def save(self, project):
+            Store.saves += 1
+
+    async def run():
+        tmp = tempfile.mkdtemp(prefix="dstack-bind-test-")
+        try:
+            sock = os.path.join(tmp, "dstack.sock")
+            app = web.Application()
+            app.router.add_route("*", "/{path:.*}", fake_dstack)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            await web.UnixSite(runner, sock).start()
+
+            dev = Project(name="d", runtime="static", entry="", port=0, mode="dev", tree_hash="aa" * 20)
+            await deploy_mod._bind_if_attested(Store(), dev, sock)
+            assert dev.binding == {} and not quoted
+
+            att = Project(name="a", runtime="static", entry="", port=0, mode="attested", tree_hash="bb" * 20)
+            await deploy_mod._bind_if_attested(Store(), att, sock)
+            rd = att.binding["report_data"].removeprefix("0x")
+            assert rd.startswith(BINDING_TAG.hex()), rd
+            pubkey = att.binding["app_pubkey"]
+            assert rd == binding_report_data(app_id, "a", "bb" * 20, pubkey).hex()
+            assert quoted[-1] == rd
+            await runner.cleanup()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    asyncio.run(run())
+    print("  attested project carries a tagged binding for its tree_hash ✓")
 
 
 def test_dstack_proxy_manager_per_project():
@@ -1771,6 +1843,7 @@ def main():
     start_daemon()
     try:
         test_dstack_proxy_project_scoped()
+        test_attested_deploy_rebuilds_binding()
         test_dstack_proxy_manager_per_project()
         test_auth()
         test_version()

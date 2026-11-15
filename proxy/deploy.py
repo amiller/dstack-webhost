@@ -20,7 +20,7 @@ from . import secp
 from .tracker import ContainerTracker
 from .audit import AuditLog, AuditEntry
 from .runtimes import RuntimeManager, RUNTIME_CONFIG, VOLUME_NAME, VOLUME_MOUNT
-from . import secp, evidence
+from verify.bundle import BINDING_DOMAIN, binding_report_data
 
 log = logging.getLogger(__name__)
 
@@ -326,6 +326,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
         digest = await docker.image_digest(image) if config else ""
     project.image_digest = digest
     store.save(project)
+    await _bind_if_attested(store, project, DSTACK_SOCK)
 
     # Record every deploy — dev projects share the CVM with attested apps,
     # so their mutations must be auditable too.
@@ -415,6 +416,7 @@ async def _deploy_image(store: ProjectStore, docker: DockerClient,
     digest = await rtm.start_image(project)
     project.image_digest = digest
     store.save(project)
+    await _bind_if_attested(store, project, DSTACK_SOCK)
 
     audit = audit_manager.get_audit_log(name)
     await audit.record(AuditEntry(
@@ -498,7 +500,7 @@ async def build_app_binding(sock: str, name: str, tree_hash: str,
     # Derive the compressed pubkey; never persist the private key.
     app_pubkey = secp.compressed_pubkey(bytes.fromhex(getkey["key"].replace("0x", ""))[:32]).hex()
 
-    report_data = evidence.compute_app_report_data(app_id, name, tree_hash, app_pubkey).hex()
+    report_data = binding_report_data(app_id, name, tree_hash, app_pubkey).hex()
     binding_quote = await _dstack_post(sock, "GetQuote", {"report_data": report_data})
 
     payload = json.dumps({"name": name, "tree_hash": tree_hash,
@@ -512,7 +514,7 @@ async def build_app_binding(sock: str, name: str, tree_hash: str,
         "binding_quote": binding_quote,
         "report_data": "0x" + report_data,
         "preimage": {
-            "domain": evidence.APP_ATTEST_DOMAIN.decode(),
+            "domain": BINDING_DOMAIN.decode(),
             "app_id": app_id,
             "name": name,
             "tree_hash": tree_hash,
@@ -527,6 +529,15 @@ async def build_app_binding(sock: str, name: str, tree_hash: str,
     }
 
 
+async def _bind_if_attested(store: ProjectStore, project: Project, sock: str | None):
+    """An attested project always carries a binding for its current tree_hash (#160).
+    Outside a TEE (no dstack socket) there is no quote to produce."""
+    if project.mode == "attested" and sock:
+        project.binding = await build_app_binding(
+            sock, project.name, project.tree_hash, project.commit_sha, project.image_digest)
+        store.save(project)
+
+
 async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
                   name: str, dstack_sock: str | None = None) -> Project:
     """Promote a project from dev mode to attested mode."""
@@ -539,13 +550,7 @@ async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
     project.mode = "attested"
     store.save(project)
 
-    # RFC 0027 (b): hardware-rooted per-app binding quote. Only when dstack is
-    # present (inside the CVM); outside a TEE there is no quote to produce — the
-    # same condition the verification/attest endpoints already gate on.
-    if dstack_sock:
-        project.binding = await build_app_binding(
-            dstack_sock, name, project.tree_hash, project.commit_sha, project.image_digest)
-        store.save(project)
+    await _bind_if_attested(store, project, dstack_sock)
 
     # Record promotion in audit log with source hash (now attested)
     audit = audit_manager.get_audit_log(name)

@@ -19,9 +19,11 @@ import os
 import aiohttp
 from aiohttp import web
 
+from verify.bundle import BINDING_TAG
+
 log = logging.getLogger(__name__)
 
-ALLOWED_METHODS = {"GetTlsKey", "GetQuote", "Info", "EmitEvent", "GetKey"}
+ALLOWED_METHODS = {"GetTlsKey", "GetQuote", "Info", "GetKey"}
 PROJECT_KEY_PREFIX = "/tee-daemon/projects/"
 
 
@@ -66,6 +68,16 @@ class DstackProxy:
                 )
             body["path"] = f"{PROJECT_KEY_PREFIX}{self.project_id}/{name}"
             body_bytes = json.dumps(body).encode()
+
+        if method == "GetQuote":
+            # Apps may quote any report_data except the daemon's binding domain (#159).
+            # The body is rebuilt so no alias field reaches dstack unchecked.
+            rd = str(body.get("report_data", "")).lower().removeprefix("0x")
+            if rd.startswith(BINDING_TAG.hex()):
+                log.warning("Denied GetQuote in the binding domain for project %s", self.project_id)
+                return web.json_response({"message": "report_data uses the reserved binding prefix"},
+                                         status=403)
+            body_bytes = json.dumps({"report_data": rd}).encode()
 
         return await self._forward(request.method, request.path, body_bytes, request.headers)
 

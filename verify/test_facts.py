@@ -17,7 +17,8 @@ import aiohttp
 import pytest
 
 from verify import Facts, verify_from_bundle, BundleParseError
-from verify.facts import _compute_report_data_preimage, _parse_bundle
+from verify.bundle import binding_report_data
+from verify.facts import _parse_bundle
 from verify.policies import allowlist_policy, strict_policy
 from verify import (
     SCHEMA_VERSION,
@@ -169,10 +170,10 @@ def test_report_data_preimage_is_sensitive_to_tree_hash():
         name=good["app"]["project"],
         app_pubkey=good["app"]["binding_quote"]["pubkey"],
     )
-    pre_good = _compute_report_data_preimage(
-        tree_hash=good["app"]["source"]["tree_hash"], **common)
-    pre_tampered = _compute_report_data_preimage(
-        tree_hash=tampered["app"]["source"]["tree_hash"], **common)
+    pre_good = binding_report_data(
+        tree_hash=good["app"]["source"]["tree_hash"], **common).hex()
+    pre_tampered = binding_report_data(
+        tree_hash=tampered["app"]["source"]["tree_hash"], **common).hex()
     assert len(pre_good) == 128  # SHA-512 hex
     assert all(c in "0123456789abcdef" for c in pre_good)
     assert pre_good != pre_tampered  # 1-char tree_hash flip changes the preimage
@@ -222,11 +223,9 @@ def _full_producer_bundle() -> EvidenceBundle:
     dataclasses, then serialize. Any field the producer can set is set here."""
     app_pubkey = "02abcdef"  # valid hex (the binding preimage does bytes.fromhex on it)
     project = "rfc-roundtrip"
-    webhost_app_id = "<webhost-app-id>"
+    webhost_app_id = "ab" * 20
     tree_hash = "deadbeef" * 8
-    report_data = _compute_report_data_preimage(
-        app_id=webhost_app_id, name=project, tree_hash=tree_hash, app_pubkey=app_pubkey,
-    )
+    report_data = binding_report_data(webhost_app_id, project, tree_hash, app_pubkey).hex()
 
     bundle = EvidenceBundle()
     bundle.schema_version = SCHEMA_VERSION
@@ -282,7 +281,7 @@ def test_bundle_roundtrip():
     assert facts.quote.report_data == wire["platform_quote"]["report_data"]
 
     # webhost_app_id
-    assert facts.app_id == "<webhost-app-id>"
+    assert facts.app_id == "ab" * 20
 
     # onchain (every producer field echoed; chain_id str-encoded on the consumer)
     assert facts.onchain.chain_id == "0"
