@@ -7,7 +7,10 @@ component) and constructs the key path server-side as
 per project on its own socket (see :class:`DstackProxyManager`), so an app can
 only ever derive its OWN project's keys — closing the cross-app derivation
 flaw (#7). A project's container is mounted only its own broker dir, so it
-cannot even reach another project's socket.
+cannot even reach another project's socket. App ``GetQuote`` is
+report_data-domain-scoped the same way: a report_data starting with the daemon
+binding tag (#159) is refused, and ``EmitEvent`` — removed for apps in dstack
+0.6.0 — is not forwarded.
 """
 
 import json
@@ -17,9 +20,11 @@ import os
 import aiohttp
 from aiohttp import web
 
+from .evidence import BINDING_TAG
+
 log = logging.getLogger(__name__)
 
-ALLOWED_METHODS = {"GetTlsKey", "GetQuote", "Info", "EmitEvent", "GetKey"}
+ALLOWED_METHODS = {"GetTlsKey", "GetQuote", "Info", "GetKey"}
 PROJECT_KEY_PREFIX = "/tee-daemon/projects/"
 
 
@@ -64,6 +69,24 @@ class DstackProxy:
                 )
             body["path"] = f"{PROJECT_KEY_PREFIX}{self.project_id}/{name}"
             body_bytes = json.dumps(body).encode()
+
+        if method == "GetQuote":
+            # Apps may quote their own session roots, but never mint a daemon
+            # binding (issue #159): report_data in the binding domain is refused
+            # before it can reach dstack.
+            report_data = body.get("report_data", "")
+            if report_data:
+                try:
+                    rd = bytes.fromhex(report_data.removeprefix("0x"))
+                except ValueError:
+                    return web.json_response(
+                        {"message": "GetQuote report_data must be hex"}, status=400)
+                if rd.startswith(BINDING_TAG):
+                    log.warning("Denied binding-domain GetQuote for project %s",
+                                self.project_id)
+                    return web.json_response(
+                        {"message": "GetQuote report_data is reserved for daemon bindings"},
+                        status=403)
 
         return await self._forward(request.method, request.path, body_bytes, request.headers)
 

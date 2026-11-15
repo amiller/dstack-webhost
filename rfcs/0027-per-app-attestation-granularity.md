@@ -46,7 +46,8 @@ don't have on staging. Defeats the "shared daemon hosts many cheap apps" shape f
 
 ### (b) Per-app sub-attestation on the shared daemon — lighter
 Daemon stays one CVM. Per attested app it produces a **hardware-rooted binding quote**: `GetQuote`
-with `report_data = SHA-512("tee-daemon/app-attest/v1" ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)`,
+with `report_data = BINDING_TAG ‖ SHA-512("tee-daemon/app-attest/v1" ‖ app_id ‖ name ‖ tree_hash ‖
+app_pubkey)[:48]` — a fixed 16-byte tag plus the first 48 digest bytes, filling the 64-byte field —
 where `app_pubkey` is the app's KMS-derived per-path key (already sanitized in `_sanitize_getkey`).
 The quote is signed by the **TDX quoting key (hardware)**; MRTD/RTMR still measure the *daemon*, but
 `report_data` now carries the exact H and the app's signing pubkey, non-repudiably, below daemon
@@ -86,14 +87,20 @@ two kinds distinguishable to consumers.
 ### Concrete mechanism (b)
 1. **At promote** (`proxy/deploy.py:promote`), after the manifest is finalized: derive `app_pubkey`
    via `GetKey /tee-daemon/projects/<name>` → `_sanitize_getkey`; compute `report_data =
-   SHA-512(DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)`, `DOMAIN = b"tee-daemon/app-attest/v1"`
-   (to the 64-byte field); `GetQuote(report_data)` → `binding_quote` (raw TDX bytes + collateral
+   BINDING_TAG ‖ SHA-512(DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)[:48]`, `DOMAIN =
+   b"tee-daemon/app-attest/v1"`, `BINDING_TAG` a fixed 16-byte tag (fills the 64-byte field);
+   `GetQuote(report_data)` → `binding_quote` (raw TDX bytes + collateral
    pointer); persist it with `tree_hash`/`commit_sha`/`image_digest`; `EmitEvent("tee-daemon/promote",
    {...})` so the promotion is in RTMR3's measured-event log.
-2. **Keep `GetQuote` daemon-side.** Apps reach dstack only through the filtered broker
-   (`/run/broker/dstack.sock`, scoped to `/tee-daemon/`); the binding-quote call is daemon-side, so no
-   app can mint quotes for paths it doesn't own. If app-side `GetQuote` is ever exposed it must be
-   report_data-domain-scoped the same way `GetKey` is path-scoped.
+2. **Domain-scope app `GetQuote`; no app `EmitEvent` (#159).** Apps DO get `GetQuote` through the
+   filtered broker (attest-proxy binds session roots that way), so the binding is domain-separated
+   from app quotes instead: the daemon's binding report_data starts with `BINDING_TAG`, and the
+   per-app proxy refuses any app `GetQuote` whose `report_data` carries the tag — the quote-shaped
+   analogue of `GetKey`'s path-scoping. `EmitEvent` is dropped for apps entirely (no app calls it;
+   dstack 0.6.0 removed it for apps for the same reason), so an app cannot append a
+   `tee-daemon/promote` event to RTMR3. The daemon's own binding calls go to the raw dstack socket,
+   not the broker. Bindings minted before the tag shipped carry untagged `report_data` and no longer
+   recompute — re-promote to re-bind.
 3. **Serve it.** Extend `_api_attest`/`_api_verification` to return `binding_quote`, `report_data`,
    and the preimage (`app_id`,`name`,`tree_hash`,`app_pubkey`) so a verifier recomputes `report_data`
    and checks equality. The per-path `signature_chain` stays — the KMS root for `app_pubkey`.

@@ -1490,13 +1490,18 @@ def test_dstack_proxy_project_scoped():
     import aiohttp
     from aiohttp import web
     from proxy.dstack_proxy import DstackProxy
+    from proxy.evidence import BINDING_TAG
 
     print("\n--- Test: dstack GetKey scoped to bound project (#80) ---")
 
+    forwarded = []
+
     async def fake_upstream(request):
         # Echo the (possibly rewritten) body so the test sees what path the proxy
-        # actually forwarded to dstack.
+        # actually forwarded to dstack — and record it, so refusals can be
+        # proven to never reach dstack (#159).
         body = await request.read()
+        forwarded.append((request.path, body))
         return web.Response(body=body, content_type="application/json")
 
     async def run():
@@ -1553,6 +1558,23 @@ def test_dstack_proxy_project_scoped():
                 # disallowed method denied
                 async with s.post("http://localhost/RawSign", json={}) as r:
                     assert r.status == 403, r.status
+                # #159: an app cannot mint a binding-shaped quote — report_data
+                # in the daemon binding domain is refused before it reaches dstack.
+                tagged = (BINDING_TAG + b"\x11" * 48).hex()
+                async with s.post("http://localhost/GetQuote", json={"report_data": tagged}) as r:
+                    assert r.status == 403, r.status
+                # a plain (session-root) quote still forwards untouched
+                async with s.post("http://localhost/GetQuote", json={"report_data": "22" * 64}) as r:
+                    assert r.status == 200, r.status
+                    assert (await r.json())["report_data"] == "22" * 64
+                # #159: EmitEvent is not app-callable (dstack 0.6.0 removed it for
+                # apps for the same reason) — refused, never forwarded.
+                async with s.post("http://localhost/EmitEvent",
+                                  json={"event": "tee-daemon/promote", "payload": "00"}) as r:
+                    assert r.status == 403, r.status
+                forwarded_paths = [p for p, _ in forwarded]
+                assert forwarded_paths.count("/GetQuote") == 1, forwarded_paths
+                assert forwarded_paths.count("/EmitEvent") == 0, forwarded_paths
             await px_runner.cleanup()
             await up_runner.cleanup()
         finally:
@@ -1560,6 +1582,77 @@ def test_dstack_proxy_project_scoped():
 
     asyncio.run(run())
     print("  project-scoped GetKey derivation OK ✓")
+
+
+def test_app_binding_daemon_path():
+    """#159: the daemon-side promote path keeps its binding — probe GetQuote, GetKey,
+    a binding GetQuote whose report_data is BINDING_TAG ‖ digest[:48], and the
+    tee-daemon/promote EmitEvent — over the raw dstack socket, while the per-app
+    proxy (previous test) refuses the app-side equivalents."""
+    import asyncio
+    import shutil
+    import aiohttp
+    from aiohttp import web
+    from proxy import deploy, evidence
+    from proxy.evidence import REPORT_DATA_OFFSET
+
+    print("\n--- Test: daemon-side binding path (#159) ---")
+
+    calls = []
+
+    async def fake_dstack(request):
+        body = await request.json()
+        calls.append((request.path, body))
+        if request.path == "/GetQuote":
+            event_log = json.dumps(
+                [{"imr": 3, "event": "app-id", "event_payload": "aa" * 16}])
+            # A quote carrying exactly the requested report_data at offset 568.
+            quote = "00" * REPORT_DATA_OFFSET + body.get("report_data", "") + "00" * 64
+            return web.json_response({"event_log": event_log, "quote": quote})
+        if request.path == "/GetKey":
+            return web.json_response({"key": "0x" + "33" * 32})
+        return web.json_response({})
+
+    async def run():
+        tmp = tempfile.mkdtemp(prefix="dstack-binding-test-")
+        try:
+            sock = os.path.join(tmp, "dstack.sock")
+            app = web.Application()
+            app.router.add_route("*", "/{path:.*}", fake_dstack)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            await web.UnixSite(runner, sock).start()
+
+            binding = await deploy.build_app_binding(
+                sock, "projA", "ab" * 32, "cd" * 20, "sha256:" + "ef" * 32)
+
+            # What verify() recomputes from the served preimage: tag + digest[:48].
+            expected = evidence.compute_app_report_data(
+                "aa" * 16, "projA", "ab" * 32, binding["app_pubkey"]).hex()
+            assert binding["report_data"] == "0x" + expected
+            # The daemon path asked dstack for exactly that report_data (after the
+            # all-zeros probe that reads the app-id from the event log).
+            quotes = [b for p, b in calls if p == "/GetQuote"]
+            assert [q.get("report_data") for q in quotes] == ["00" * 64, expected]
+            # Reading report_data back out of the raw quote at offset 568 — the
+            # exact check evidence.verify() performs — matches the recomputation.
+            quote_hex = binding["binding_quote"]["quote"].lower()
+            rd_field = quote_hex[REPORT_DATA_OFFSET * 2:(REPORT_DATA_OFFSET + 64) * 2]
+            assert rd_field == expected
+            # The promotion landed in RTMR3's measured log.
+            emits = [b for p, b in calls if p == "/EmitEvent"]
+            assert len(emits) == 1, calls
+            assert emits[0]["event"] == "tee-daemon/promote"
+            assert json.loads(bytes.fromhex(emits[0]["payload"])) == {
+                "name": "projA", "tree_hash": "ab" * 32,
+                "commit": "cd" * 20, "image_digest": "sha256:" + "ef" * 32}
+
+            await runner.cleanup()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    asyncio.run(run())
+    print("  daemon-side binding (tagged GetQuote + promote EmitEvent) OK ✓")
 
 
 def test_dstack_proxy_manager_per_project():
@@ -1915,6 +2008,7 @@ def main():
     start_daemon()
     try:
         test_dstack_proxy_project_scoped()
+        test_app_binding_daemon_path()
         test_dstack_proxy_manager_per_project()
         test_auth()
         test_version()

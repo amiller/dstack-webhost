@@ -31,6 +31,11 @@ log = logging.getLogger(__name__)
 
 # RFC 0027: domain separator for the per-app binding report_data preimage.
 APP_ATTEST_DOMAIN = b"tee-daemon/app-attest/v1"
+# Issue #159: every daemon-made binding quote's report_data starts with this fixed
+# 16-byte tag. The per-app dstack proxy refuses an app GetQuote carrying it, so an
+# app with broker access cannot mint a quote that verifies as a daemon binding
+# (the tag lives on the wire; it is not a secret).
+BINDING_TAG = b"tee-daemon-bind\x01"
 # Byte offset of the 64-byte report_data field within a TDX v4 quote (TD report body).
 REPORT_DATA_OFFSET = 568
 
@@ -204,12 +209,17 @@ def _norm_hex(s: str) -> str:
 def compute_app_report_data(app_id: str, name: str, tree_hash: str, app_pubkey: str) -> bytes:
     """RFC 0027 per-app binding report_data (fills the 64-byte quote field exactly).
 
-        SHA-512(DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)
+        BINDING_TAG ‖ SHA-512(DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)[:48]
 
     Encoding (unambiguous — `name` is the only variable-length field and is bracketed
     by fixed-length fields): DOMAIN = raw bytes b"tee-daemon/app-attest/v1"; app_id,
     tree_hash, app_pubkey are hex-decoded (a leading "0x" is stripped); name is UTF-8.
     Callers reconstruct this exact preimage from the served `binding.preimage` block.
+
+    The fixed 16-byte tag domain-separates daemon bindings from app-chosen
+    report_data: the per-app dstack proxy refuses any app GetQuote carrying it
+    (#159), so an app cannot forge a binding even though every preimage input is
+    public and it picks its own pubkey.
     """
     h = hashlib.sha512()
     h.update(APP_ATTEST_DOMAIN)
@@ -217,4 +227,4 @@ def compute_app_report_data(app_id: str, name: str, tree_hash: str, app_pubkey: 
     h.update(name.encode("utf-8"))
     h.update(bytes.fromhex(_norm_hex(tree_hash)))
     h.update(bytes.fromhex(_norm_hex(app_pubkey)))
-    return h.digest()
+    return BINDING_TAG + h.digest()[:48]
