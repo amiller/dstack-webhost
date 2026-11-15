@@ -2,8 +2,8 @@
 # Ship the daemon image to a target CVM.  Usage: ship-fix.sh staging|prod|pod
 #   staging -> webhost-staging CVM (RFC 0023: the autonomous/Paseo deploy target)
 #   prod    -> hermes-staging CVM (load-bearing; its env/token live only on the laptop)
-#   pod     -> oauth3-prod7, i.e. pod.dstack.soc1024.com (Base KMS: the new compose hash
-#              is registered on-chain, so this target needs PRIVATE_KEY in the environment)
+#   pod     -> oauth3-prod7, i.e. pod.dstack.soc1024.com (Base KMS: the AppAuth owner in
+#              ~/.config/dstack-app-owner/base.env registers the new compose hash on-chain)
 # Prereqs: `docker login ghcr.io` done; Phala dashboard open (restart can be finicky).
 set -euo pipefail
 
@@ -21,9 +21,12 @@ LOGS=()
 case "$TARGET" in
   staging) CVM=webhost-staging; COMPOSE="$HA/docker-compose.webhost-staging.yaml"; ENVF="$HA/deploy-notes/.env.webhost-staging" ;;
   prod)    CVM=hermes-staging;  COMPOSE="$HA/docker-compose.hermes-prod.yaml";     ENVF="$HA/deploy-notes/.env.hermes-prod" ;;
-  pod)     CVM=oauth3-prod7;    COMPOSE="$HA/docker-compose.prod7.yaml";           ENVF="$HA/deploy-notes/.env.prod9"
-           : "${PRIVATE_KEY:?pod is Base-KMS: export PRIVATE_KEY (the Base signer) first}"
-           KMS=(--kms base --private-key "$PRIVATE_KEY" --rpc-url "${ETH_RPC_URL:-https://mainnet.base.org}")
+  pod)     CVM=oauth3-prod7;    COMPOSE="$HA/docker-compose.prod7.yaml"
+           # No -e: Phala's record for this CVM lacks kms_info.k256_pubkey, so the CLI cannot
+           # encrypt an env for it. The sealed env survives a compose-only update.
+           ENVF=""
+           OWNER_ENV="$HOME/.config/dstack-app-owner/base.env"
+           [ -f "$OWNER_ENV" ] || { echo "missing AppAuth owner key: $OWNER_ENV" >&2; exit 1; }
            # NOT optional. The prelaunch is what puts runsc/runsc-hostnet in Docker, and this
            # CVM's DAEMON_CONTAINER_RUNTIME names runsc-hostnet — deploy without it and the next
            # boot has no such runtime, so verify_configured_runtime() refuses to start the daemon
@@ -37,7 +40,7 @@ COMMIT=$(git -C "$TEE" rev-parse --short HEAD)
 TAG="$TARGET-$COMMIT"
 
 [ -f "$COMPOSE" ] || { echo "missing compose: $COMPOSE" >&2; exit 1; }
-[ -f "$ENVF" ]    || { echo "missing env (not present in this environment?): $ENVF" >&2; exit 1; }
+[ -z "$ENVF" ] || [ -f "$ENVF" ] || { echo "missing env (not present in this environment?): $ENVF" >&2; exit 1; }
 
 echo "==> 0/4 local compose must match the live one except for the daemon image"
 # This script only swaps the daemon digest, so anything else in $COMPOSE that differs from what
@@ -81,8 +84,22 @@ echo "==> 3/4 point $TARGET compose at the new digest"
 sed -i -E "s#${IMG}@sha256:[a-f0-9]+#${DIGEST}#" "$COMPOSE"
 grep -n "$IMG" "$COMPOSE"
 
-echo "==> 4/4 upgrade $CVM CVM (restarts every service in the compose; sealed env re-supplied)"
-phala deploy --cvm-id "$CVM" -c "$COMPOSE" -e "$ENVF" "${KMS[@]}" "${PRELAUNCH[@]}" "${LOGS[@]}" --wait
+echo "==> 4/4 upgrade $CVM CVM (restarts every service in the compose)"
+if [ "$TARGET" = pod ]; then
+  # The bobu key that phala used to sign with is retired as compromised; the AppAuth
+  # owner registers the hash and phala commits the prepared update against that tx.
+  RPC="${ETH_RPC_URL:-https://mainnet.base.org}"
+  APP=0x$(phala cvms get "$CVM" --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["app_id"])')
+  read -r H TOK < <(phala deploy --cvm-id "$CVM" -c "$COMPOSE" "${PRELAUNCH[@]}" "${LOGS[@]}" --prepare-only --json \
+    | python3 -c 'import json,sys;d=json.load(sys.stdin);h=d["compose_hash"];print(h if h.startswith("0x") else "0x"+h, d["commit_token"])')
+  TX=$(cast send "$APP" 'addComposeHash(bytes32)' "$H" --rpc-url "$RPC" --json \
+         --private-key "$(grep '^APP_OWNER_PRIVATE_KEY=' "$OWNER_ENV" | cut -d= -f2-)" \
+       | python3 -c 'import json,sys;r=json.load(sys.stdin);assert r["status"]=="0x1",r;print(r["transactionHash"])')
+  echo "    registered $H in $TX"
+  phala deploy --cvm-id "$CVM" --commit --token "$TOK" --compose-hash "$H" --transaction-hash "$TX" --wait
+else
+  phala deploy --cvm-id "$CVM" -c "$COMPOSE" -e "$ENVF" "${KMS[@]}" "${PRELAUNCH[@]}" "${LOGS[@]}" --wait
+fi
 
 echo
 echo "DONE ($TARGET -> $CVM)."
