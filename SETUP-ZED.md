@@ -113,10 +113,10 @@ export BROKER_SOCKET_DIR="$(mktemp -d /tmp/tee-broker.XXXXXX)"   # see gotcha be
 .venv/bin/python test_daemon.py
 ```
 
-**Gotcha — `BROKER_SOCKET_DIR`.** `test_daemon.py` predates the broker feature; its
-`start_daemon()` does not set `BROKER_SOCKET_DIR`, which defaults to `/var/run/broker`
-(root-only → `PermissionError`). The test builds its env as `{**os.environ, ...}`, so exporting
-`BROKER_SOCKET_DIR=<writable dir>` in your shell passes through without editing the test.
+**Gotcha — `BROKER_SOCKET_DIR`.** `test_daemon.py` predates the broker feature, so its
+`start_daemon()` originally did not set `BROKER_SOCKET_DIR` (default `/var/run/broker`,
+root-only → `PermissionError`). It now defaults it to a dir under the test tmpdir when the
+env var is unset; an explicit `BROKER_SOCKET_DIR=<writable dir>` export still wins.
 
 The test needs docker (it spins up real containers). It pulls these images on first run:
 `denoland/deno:latest`, `node:22-slim`, `python:3.12-slim`, `nginx:alpine`. Pre-pull them to

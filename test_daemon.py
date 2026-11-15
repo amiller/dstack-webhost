@@ -122,7 +122,8 @@ def push_update(name: str, files: dict[str, bytes]):
     subprocess.run(["git", "-C", work_dir, "push"], capture_output=True, check=True)
 
 
-def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
+def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1,
+                 dstack_socket: str = ""):
     global daemon_proc, tmpdir
     if not reuse_tmpdir:
         tmpdir = tempfile.mkdtemp(prefix="tee-daemon-test-")
@@ -133,9 +134,13 @@ def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
         "DAEMON_AUDIT_DIR": os.path.join(tmpdir, "audit"),
         "DAEMON_TUNNEL_DIR": os.path.join(tmpdir, "tunnels"),
         "DAEMON_TOKEN_DIR": os.path.join(tmpdir, "tokens"),
+        "DAEMON_DEBUG_SESSION_DIR": os.path.join(tmpdir, "debug-sessions"),
+        "DAEMON_BROKER_DIR": os.path.join(tmpdir, "broker-store"),
+        "DAEMON_CREDS_DIR": os.path.join(tmpdir, "creds"),
         "PROXY_SOCKET_DIR": os.path.join(tmpdir, "proxy"),
-        "DOCKER_SOCKET": "/var/run/docker.sock",
-        "DSTACK_SOCKET": "/nonexistent",
+        "BROKER_SOCKET_DIR": os.environ.get("BROKER_SOCKET_DIR") or os.path.join(tmpdir, "broker"),
+        "DOCKER_SOCKET": os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock"),
+        "DSTACK_SOCKET": dstack_socket or "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
         "DAEMON_PENDING_TTL": "8",
         "DAEMON_SWEEP_INTERVAL": "1",
@@ -1910,6 +1915,107 @@ def test_browser_parity():
     print(f"  parity board: {n_green}/8 rows green, board written to {out_dir} \u2713")
 
 
+FAKE_DSTACK_APP_ID = "ab" * 16  # measured app-id the fake serves in RTMR3's event log
+
+
+def start_fake_dstack(sock_path: str):
+    """Serve a fake dstack JSON-RPC socket — GetKey/GetQuote/EmitEvent — so the
+    suite can exercise RFC 0027 binding construction outside a real CVM. The
+    daemon-side twin of the RFC 0028 fake browser bridge."""
+    import asyncio
+    import threading
+    from aiohttp import web
+
+    async def handle(request):
+        method = request.path.lstrip("/")
+        if method == "GetKey":
+            return web.json_response({"key": "11" * 32})
+        if method == "GetQuote":
+            # build_app_binding reads the CVM's measured app-id out of the probe
+            # quote's event log (imr 3).
+            return web.json_response({
+                "quote": "cd" * 64,
+                "event_log": json.dumps(
+                    [{"imr": 3, "event": "app-id",
+                      "event_payload": FAKE_DSTACK_APP_ID}]),
+            })
+        return web.json_response({})  # EmitEvent & the rest
+
+    async def serve():
+        app = web.Application()
+        app.router.add_route("*", "/{path:.*}", handle)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        await web.UnixSite(runner, sock_path).start()
+        await asyncio.Event().wait()  # serve until the process exits
+
+    threading.Thread(target=lambda: asyncio.run(serve()), daemon=True).start()
+    for _ in range(100):
+        if os.path.exists(sock_path):
+            return
+        time.sleep(0.05)
+    raise RuntimeError("fake dstack socket never appeared")
+
+
+def test_attested_deploy_binding():
+    """#160: a first deploy in attested mode must carry its RFC 0027 binding
+    from birth — mode=attested with an empty binding is the silent lie this
+    closes (promote can't backfill it: 'already in attested mode')."""
+    print("\n--- Test: attested first deploy builds binding (#160) ---")
+    repo = create_test_repo("attested-bind", {"index.html": b"<html>attested from birth</html>"})
+    resp = api_post("/projects", json={
+        "name": "attested-bind", "source": repo, "runtime": "static", "mode": "attested"})
+    assert resp.status_code == 201, f"deploy failed: {resp.status_code} {resp.text}"
+    deployed = resp.json()
+    assert deployed["mode"] == "attested", deployed
+    assert deployed["binding"].get("kind") == "report-data-quote", deployed["binding"]
+    print(f"  deployed attested, binding kind={deployed['binding']['kind']} \u2713")
+
+    resp = api_get("/verification/attested-bind")
+    assert resp.status_code == 200, resp.text
+    bundle = resp.json()
+    assert bundle["attestation_kind"] == "daemon-vouched", bundle.get("attestation_kind")
+    binding = bundle["app"]["binding"]
+    assert binding, "verification binding empty"
+    assert binding["preimage"]["tree_hash"] == deployed["tree_hash"], \
+        "binding names a different tree than the deployed one"
+
+    # A relying party recomputes report_data from the served preimage — it must
+    # match what the daemon quoted.
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from proxy.evidence import compute_app_report_data
+    rd = compute_app_report_data(
+        binding["preimage"]["app_id"], "attested-bind", deployed["tree_hash"],
+        binding["preimage"]["app_pubkey"]).hex()
+    assert binding["report_data"] == f"0x{rd}", "report_data does not match its preimage"
+    print(f"  verification: daemon-vouched, tree_hash={binding['preimage']['tree_hash'][:12]} \u2713")
+
+
+def test_attested_redeploy_binding():
+    """#160: redeploying an attested app rebuilds the binding over the NEW tree
+    hash — the old path kept mode=attested and silently dropped the quote."""
+    print("\n--- Test: attested redeploy rebuilds binding (#160) ---")
+    old = api_get("/verification/attested-bind").json()["app"]["binding"]
+    push_update("attested-bind", {"index.html": b"<html>redeployed attested</html>"})
+    resp = api_post("/projects/attested-bind/redeploy")
+    assert resp.status_code == 200, f"redeploy failed: {resp.status_code} {resp.text}"
+    result = resp.json()
+    assert result["mode"] == "attested", result
+    assert result["changed"] is True, result
+
+    bundle = api_get("/verification/attested-bind").json()
+    assert bundle["attestation_kind"] == "daemon-vouched", bundle.get("attestation_kind")
+    binding = bundle["app"]["binding"]
+    assert binding["preimage"]["tree_hash"] == result["tree_hash"], \
+        "binding still names the pre-redeploy tree"
+    assert binding["preimage"]["tree_hash"] != old["preimage"]["tree_hash"], \
+        "binding not refreshed by redeploy"
+    assert binding["report_data"] != old["report_data"], "quote not re-issued"
+    print(f"  redeploy: mode=attested kept, binding re-quoted over new tree "
+          f"{binding['preimage']['tree_hash'][:12]} \u2713")
+
+
 def main():
     cleanup_containers()
     start_daemon()
@@ -1970,6 +2076,14 @@ def main():
         stop_daemon()
         start_daemon(browser_pool_size=2)
         test_browser_parity()
+        # #160: the binding journeys need a daemon that believes it is inside a
+        # CVM — restart on a fake dstack socket (GetKey/GetQuote/EmitEvent).
+        stop_daemon()
+        dstack_sock = os.path.join(tmpdir, "dstack.sock")
+        start_fake_dstack(dstack_sock)
+        start_daemon(reuse_tmpdir=True, dstack_socket=dstack_sock)
+        test_attested_deploy_binding()
+        test_attested_redeploy_binding()
         print("\n=== ALL TESTS PASSED ===")
     except Exception:
         raise

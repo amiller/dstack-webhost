@@ -62,7 +62,8 @@ class Project:
     # surface — its existence is part of the measurement, never a hidden side channel.
     operator_debug: bool = False
     approval: Optional[dict] = None  # RFC 0034: {status: pending|frozen, deadline, created_by}
-    # RFC 0027 per-app binding block, built at promote by deploy.build_app_binding: carries
+    # RFC 0027 per-app binding block, built at promote or attested deploy by
+    # deploy.build_app_binding: carries
     # the quote, the report_data and the preimage that produced it. Supersedes the flat
     # RFC 0025 fields (app_id/app_pubkey/binding_quote/report_data/attestation_kind), which
     # were set at promote and never read back.

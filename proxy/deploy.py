@@ -337,6 +337,8 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     project.image_digest = digest
     store.save(project)
 
+    await _bind_attested(store, project)
+
     # Record every deploy — dev projects share the CVM with attested apps,
     # so their mutations must be auditable too.
     audit = audit_manager.get_audit_log(name)
@@ -426,6 +428,8 @@ async def _deploy_image(store: ProjectStore, docker: DockerClient,
     digest = await rtm.start_image(project)
     project.image_digest = digest
     store.save(project)
+
+    await _bind_attested(store, project)
 
     audit = audit_manager.get_audit_log(name)
     await audit.record(AuditEntry(
@@ -536,6 +540,22 @@ async def build_app_binding(sock: str, name: str, tree_hash: str,
             "digest": hashlib.sha384(payload).hexdigest(),
         },
     }
+
+
+async def _bind_attested(store: ProjectStore, project: Project) -> None:
+    """RFC 0027 (b): an attested project carries its binding quote from birth.
+
+    deploy()/redeploy used to persist mode=attested with no binding, and promote
+    refuses to backfill one ("already in attested mode") — the app read as
+    attested while /_api/verification served an empty binding (#160). Same gate
+    as promote: only inside a CVM, where a quote exists to produce.
+    """
+    if project.mode != "attested" or not DSTACK_SOCK:
+        return
+    project.binding = await build_app_binding(
+        DSTACK_SOCK, project.name, project.tree_hash, project.commit_sha,
+        project.image_digest)
+    store.save(project)
 
 
 async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
