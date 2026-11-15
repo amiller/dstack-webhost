@@ -49,6 +49,21 @@ def _registry_auth(image: str) -> str | None:
 # one public fallback.
 GVISOR_DNS = ["8.8.8.8", "1.1.1.1"]
 
+# RFC 0025 grants attested projects exactly these elevated caps/devices. Anything wider
+# (SYS_ADMIN, /dev/tdx_guest, configfs) can reach the CVM's own TDX quote path and mint a
+# binding quote for any app (#171), so non-allowlisted values are refused, never filtered.
+ALLOWED_CAP_ADD = {"NET_ADMIN"}
+ALLOWED_DEVICES = {"/dev/net/tun"}
+
+
+def validate_capabilities(cap_add: list[str] | None, devices: list[str] | None) -> None:
+    bad = sorted(c for c in (cap_add or []) if c not in ALLOWED_CAP_ADD)
+    if bad:
+        raise ValueError(f"cap_add not allowed: {bad} (allowed: {sorted(ALLOWED_CAP_ADD)})")
+    bad = sorted(d for d in (devices or []) if d not in ALLOWED_DEVICES)
+    if bad:
+        raise ValueError(f"devices not allowed: {bad} (allowed: {sorted(ALLOWED_DEVICES)})")
+
 
 def _demux_docker_stream(body: bytes) -> str:
     """Strip Docker's multiplexed log framing. Without a TTY the engine prefixes
@@ -96,6 +111,7 @@ class DockerClient:
                                restart_policy: dict | None = None,
                                cap_add: list[str] | None = None,
                                devices: list[str] | None = None) -> str:
+        validate_capabilities(cap_add, devices)
         host_config: dict = {"Binds": binds}
         if runtime:
             host_config["Runtime"] = runtime

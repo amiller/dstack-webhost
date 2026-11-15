@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import aiohttp
 
-from .docker_client import DockerClient
+from .docker_client import DockerClient, validate_capabilities
 from .projects import Project, ProjectStore, ListenConfig
 from . import secp
 from .tracker import ContainerTracker
@@ -259,6 +259,7 @@ async def deploy(store: ProjectStore, docker: DockerClient, audit_manager,
     devices = repo_manifest.get("devices") or manifest.get("devices", []) or []
     if (cap_add or devices) and mode != "attested":
         raise ValueError("cap_add/devices require mode=attested")
+    validate_capabilities(cap_add, devices)
     # operator_debug is a measured boolean (RFC 0029); prefer the repo-committed value so
     # tree_hash commits to it, mirroring cap_add. A declared door is full trust, attested-only.
     operator_debug = bool(repo_manifest.get("operator_debug", manifest.get("operator_debug", False)))
@@ -384,6 +385,7 @@ async def _deploy_image(store: ProjectStore, docker: DockerClient,
     devices = manifest.get("devices", []) or []
     if (cap_add or devices) and mode != "attested":
         raise ValueError("cap_add/devices require mode=attested")
+    validate_capabilities(cap_add, devices)
     operator_debug = bool(manifest.get("operator_debug", False))
     if operator_debug and mode != "attested":
         raise ValueError("operator_debug requires mode=attested")
