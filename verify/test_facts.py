@@ -180,6 +180,14 @@ def test_report_data_preimage_is_sensitive_to_tree_hash():
     print("test_report_data_preimage_is_sensitive_to_tree_hash: PASS")
 
 
+def test_binding_fields_are_length_prefixed():
+    """A binding for project "victimxyz" must not also verify as project "victim"
+    with the name's tail moved into a 32-byte tree_hash."""
+    pub = "02" + "11" * 32
+    assert binding_report_data("ab" * 20, "victimxyz", "cd" * 29, pub) != \
+        binding_report_data("ab" * 20, "victim", "78797a" + "cd" * 29, pub)
+
+
 # --- parse + serialize guards -----------------------------------------------
 
 def test_parse_invalid_bundle_raises_and_verify_surfaces_it():
@@ -473,6 +481,7 @@ if __name__ == "__main__":
     test_policies_are_ordinary_functions_not_on_facts()
     test_facts_exposes_no_verdict_field()
     test_report_data_preimage_is_sensitive_to_tree_hash()
+    test_binding_fields_are_length_prefixed()
     test_parse_invalid_bundle_raises_and_verify_surfaces_it()
     test_facts_to_dict_is_json_serializable_and_round_trips()
     test_bundle_roundtrip()
