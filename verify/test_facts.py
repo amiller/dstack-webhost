@@ -43,6 +43,45 @@ def _verify(path: Path) -> Facts:
     return asyncio.run(verify_from_bundle(_load(path)))
 
 
+# A green dcap-qvl report (the #93 shape), mocked so DCAP legs verify without
+# the tool or Intel PCS collateral.
+_QVL_GREEN = json.dumps({
+    "status": "UpToDate",
+    "report": {"TD10": {"mr_td": "aa" * 48, "rt_mr3": "ee" * 48, "report_data": "ff" * 64}},
+})
+
+
+def _binding_block(app_id: str, name: str, tree_hash: str, app_pubkey: str) -> dict:
+    """An app.binding block as proxy/deploy.py:build_app_binding serves it: the
+    preimage, and the raw binding quote with report_data at offset 568."""
+    report_data = _compute_report_data_preimage(app_id, name, tree_hash, app_pubkey)
+    return {
+        "kind": "report-data-quote",
+        "binding_quote": {"quote": "00" * 568 + report_data + "00" * 64},
+        "preimage": {
+            "app_id": app_id, "name": name, "tree_hash": tree_hash, "app_pubkey": app_pubkey,
+        },
+        "promote_event": {"rtmr": 3, "event": "tee-daemon/promote", "digest": "cd" * 48},
+    }
+
+
+def _bundle_with_binding(**overrides) -> dict:
+    """The GOOD fixture plus a well-formed app.binding block (overridable)."""
+    bundle = _load(GOOD)
+    bundle["app"]["binding"] = _binding_block(
+        app_id="0x" + "a1" * 16, name=bundle["app"]["project"],
+        tree_hash="ab" * 32, app_pubkey="02abcdef")
+    for key, value in overrides.items():
+        bundle["app"]["binding"][key] = value
+    return bundle
+
+
+def _verify_binding_patched(bundle: dict) -> Facts:
+    with patch("verify.facts.subprocess.run", return_value=subprocess.CompletedProcess(
+            args=["dcap-qvl"], returncode=0, stdout=_QVL_GREEN, stderr="")):
+        return asyncio.run(verify_from_bundle(bundle))
+
+
 # --- RFC 0020 case: tampered tree_hash --------------------------------------
 
 def test_tampered_tree_hash_surfaces_mismatch_and_verify_returns():
@@ -57,8 +96,9 @@ def test_tampered_tree_hash_surfaces_mismatch_and_verify_returns():
     # the library surfaces the claimed (tampered) value as a fact, verbatim
     assert facts.source.tree_hash == bundle["app"]["source"]["tree_hash"]
     assert facts.source.tree_hash != _load(GOOD)["app"]["source"]["tree_hash"]
-    # the binding leg records a tree_hash mismatch (the staging quote's
-    # report_data is empty/zero, so the claimed tree_hash is not bound)
+    # the binding leg records the absent per-app binding block (this capture
+    # predates RFC 0027 app.binding); the tampered tree_hash itself is caught
+    # by the consumer's allowlist policy (test below)
     assert any("binding" in e or "tree_hash" in e for e in facts.errors), (
         f"expected a binding/tree_hash mismatch in errors, got: {facts.errors}"
     )
@@ -159,9 +199,9 @@ def test_facts_exposes_no_verdict_field():
 
 def test_report_data_preimage_is_sensitive_to_tree_hash():
     """The RFC 0025 report-data preimage changes when tree_hash changes — so a
-    real (non-empty) binding WOULD detect the tampering. This is the mechanism
-    the binding leg relies on; the staging fixture's report_data is empty, so
-    the leg records the mismatch as a fact instead of matching."""
+    real binding WOULD detect the tampering. This is the mechanism the binding
+    leg relies on; the GOOD fixture carries no binding block, so the leg
+    records its absence as a fact instead of matching."""
     good = _load(GOOD)
     tampered = _load(TAMPERED)
     common = dict(
@@ -177,6 +217,78 @@ def test_report_data_preimage_is_sensitive_to_tree_hash():
     assert all(c in "0123456789abcdef" for c in pre_good)
     assert pre_good != pre_tampered  # 1-char tree_hash flip changes the preimage
     print("test_report_data_preimage_is_sensitive_to_tree_hash: PASS")
+
+
+# --- RFC 0025/0027 per-app binding block (app.binding) ----------------------
+
+def test_binding_preimage_matches_and_binding_quote_dcap_verified():
+    """A well-formed app.binding whose quote commits to its served preimage
+    sets preimage_verified True — with the binding quote DCAP-verified."""
+    bundle = _bundle_with_binding()
+    facts = _verify_binding_patched(bundle)
+
+    assert facts.binding.preimage_verified is True
+    assert facts.binding.error == ""
+    assert facts.binding.kind == "report-data-quote"
+    assert facts.binding.report_data == _compute_report_data_preimage(
+        "0x" + "a1" * 16, bundle["app"]["project"], "ab" * 32, "02abcdef")
+    assert facts.binding.app_pubkey == "02abcdef"
+    assert facts.binding.promote_event_rtmr == 3
+    assert facts.binding.promote_event_digest == "cd" * 48
+    assert not any(e.startswith("binding") for e in facts.errors), facts.errors
+    print("test_binding_preimage_matches_and_binding_quote_dcap_verified: PASS")
+
+
+def test_tampered_binding_preimage_records_mismatch_and_returns():
+    """Flipping the served preimage's tree_hash without changing the binding
+    quote: preimage_verified goes False, the mismatch lands in errors[], and
+    the verifier RETURNS facts rather than raising a verdict."""
+    bundle = _bundle_with_binding()
+    bundle["app"]["binding"]["preimage"]["tree_hash"] = "cd" * 32
+    facts = _verify_binding_patched(bundle)
+
+    assert isinstance(facts, Facts)
+    assert facts.binding.preimage_verified is False
+    assert facts.binding.error == "binding quote report_data does not commit to the served preimage"
+    assert any(e.startswith("binding: ") for e in facts.errors)
+    print("test_tampered_binding_preimage_records_mismatch_and_returns: PASS")
+
+
+def test_legacy_bundle_without_binding_block_errors_not_masks():
+    """A bundle with no app.binding block (the committed capture predates RFC
+    0027) surfaces as a binding failure — never a silent skip."""
+    facts = _verify(GOOD)
+
+    assert facts.binding.preimage_verified is False
+    assert facts.binding.error == "no per-app binding block (app.binding) in bundle"
+    assert any("no per-app binding block" in e for e in facts.errors)
+    print("test_legacy_bundle_without_binding_block_errors_not_masks: PASS")
+
+
+def test_binding_quote_missing_or_malformed_cannot_verify():
+    """A missing, non-hex, or too-short raw binding quote cannot produce a
+    verified binding; each surfaces as a binding failure, and verify still
+    returns Facts."""
+    for quote in ({}, {"quote": "not-a-quote"}, {"quote": "00" * 100}):
+        bundle = _bundle_with_binding(binding_quote=quote)
+        facts = _verify_binding_patched(bundle)
+        assert isinstance(facts, Facts), quote
+        assert facts.binding.preimage_verified is False, quote
+        assert facts.binding.error, quote
+    print("test_binding_quote_missing_or_malformed_cannot_verify: PASS")
+
+
+def test_binding_quote_dcap_failure_cannot_produce_verified_binding():
+    """A binding quote that fails DCAP verification could be any bytes: even
+    with a matching preimage it cannot produce a verified binding."""
+    bundle = _bundle_with_binding()
+    with patch("verify.facts.subprocess.run", side_effect=FileNotFoundError):
+        facts = asyncio.run(verify_from_bundle(bundle))
+
+    assert facts.binding.preimage_verified is False
+    assert "dcap-qvl is not installed" in facts.binding.error
+    assert any("binding quote: dcap-qvl" in e for e in facts.errors)
+    print("test_binding_quote_dcap_failure_cannot_produce_verified_binding: PASS")
 
 
 # --- parse + serialize guards -----------------------------------------------
@@ -222,7 +334,7 @@ def _full_producer_bundle() -> EvidenceBundle:
     dataclasses, then serialize. Any field the producer can set is set here."""
     app_pubkey = "02abcdef"  # valid hex (the binding preimage does bytes.fromhex on it)
     project = "rfc-roundtrip"
-    webhost_app_id = "<webhost-app-id>"
+    webhost_app_id = "0x" + "a1" * 16  # hex: the binding preimage hex-decodes it
     tree_hash = "deadbeef" * 8
     report_data = _compute_report_data_preimage(
         app_id=webhost_app_id, name=project, tree_hash=tree_hash, app_pubkey=app_pubkey,
@@ -255,6 +367,7 @@ def _full_producer_bundle() -> EvidenceBundle:
         ),
         image_digest="sha256:imagedigest",
         binding_quote={"pubkey": app_pubkey, "signature_chain": ["<sig-chain-root>"]},
+        binding=_binding_block(webhost_app_id, project, tree_hash, app_pubkey),
         operator_debug=OperatorDebugInfo(enabled=True, last_session_at=""),
     )
     bundle.audit = [{"action": "promote", "timestamp": 1234567890}]
@@ -271,7 +384,7 @@ def test_bundle_roundtrip():
     dropping it silently.
     """
     wire = _full_producer_bundle().to_dict()  # producer serialization
-    facts = asyncio.run(verify_from_bundle(wire))
+    facts = _verify_binding_patched(wire)  # dcap-qvl mocked green (CI has no tool)
 
     # schema_version is pinned and shared (a bump must be deliberate)
     assert facts.schema_version == SCHEMA_VERSION == wire["schema_version"]
@@ -282,7 +395,7 @@ def test_bundle_roundtrip():
     assert facts.quote.report_data == wire["platform_quote"]["report_data"]
 
     # webhost_app_id
-    assert facts.app_id == "<webhost-app-id>"
+    assert facts.app_id == "0x" + "a1" * 16
 
     # onchain (every producer field echoed; chain_id str-encoded on the consumer)
     assert facts.onchain.chain_id == "0"
@@ -307,10 +420,15 @@ def test_bundle_roundtrip():
     assert facts.source.tree_hash == "deadbeef" * 8
     assert facts.source.tree_hash_kind == "git"
 
-    # app.binding_quote -> BindingFacts (preimage verifies against the report_data)
+    # app.binding -> BindingFacts (preimage verifies against the quote's
+    # report_data at offset 568); legacy app.binding_quote keeps the KMS root
+    assert facts.binding.kind == "report-data-quote"
     assert facts.binding.app_pubkey == "02abcdef"
     assert facts.binding.signature_chain_root == "<sig-chain-root>"
     assert facts.binding.preimage_verified is True
+    assert facts.binding.promote_event_rtmr == 3
+    assert facts.binding.promote_event_digest == "cd" * 48
+    assert facts.binding.error == ""
 
     # app.operator_debug -> OperatorDebugFacts (RFC 0029)
     assert facts.operator_debug.enabled is True
@@ -474,6 +592,11 @@ if __name__ == "__main__":
     test_policies_are_ordinary_functions_not_on_facts()
     test_facts_exposes_no_verdict_field()
     test_report_data_preimage_is_sensitive_to_tree_hash()
+    test_binding_preimage_matches_and_binding_quote_dcap_verified()
+    test_tampered_binding_preimage_records_mismatch_and_returns()
+    test_legacy_bundle_without_binding_block_errors_not_masks()
+    test_binding_quote_missing_or_malformed_cannot_verify()
+    test_binding_quote_dcap_failure_cannot_produce_verified_binding()
     test_parse_invalid_bundle_raises_and_verify_surfaces_it()
     test_facts_to_dict_is_json_serializable_and_round_trips()
     test_bundle_roundtrip()
