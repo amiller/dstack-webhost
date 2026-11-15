@@ -46,7 +46,7 @@ don't have on staging. Defeats the "shared daemon hosts many cheap apps" shape f
 
 ### (b) Per-app sub-attestation on the shared daemon — lighter
 Daemon stays one CVM. Per attested app it produces a **hardware-rooted binding quote**: `GetQuote`
-with `report_data = SHA-512("tee-daemon/app-attest/v1" ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)`,
+with `report_data = "tee-daemon-bind1" ‖ SHA-512("tee-daemon/app-attest/v2" ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)[:48]` (the 16-byte tag is refused on app `GetQuote`, #159),
 where `app_pubkey` is the app's KMS-derived per-path key (already sanitized in `_sanitize_getkey`).
 The quote is signed by the **TDX quoting key (hardware)**; MRTD/RTMR still measure the *daemon*, but
 `report_data` now carries the exact H and the app's signing pubkey, non-repudiably, below daemon
@@ -86,7 +86,8 @@ two kinds distinguishable to consumers.
 ### Concrete mechanism (b)
 1. **At promote** (`proxy/deploy.py:promote`), after the manifest is finalized: derive `app_pubkey`
    via `GetKey /tee-daemon/projects/<name>` → `_sanitize_getkey`; compute `report_data =
-   SHA-512(DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)`, `DOMAIN = b"tee-daemon/app-attest/v1"`
+   TAG ‖ SHA-512(DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)[:48]`, `TAG = b"tee-daemon-bind1"`,
+   `DOMAIN = b"tee-daemon/app-attest/v2"` (`verify/bundle.py:binding_report_data`)
    (to the 64-byte field); `GetQuote(report_data)` → `binding_quote` (raw TDX bytes + collateral
    pointer); persist it with `tree_hash`/`commit_sha`/`image_digest`; `EmitEvent("tee-daemon/promote",
    {...})` so the promotion is in RTMR3's measured-event log.

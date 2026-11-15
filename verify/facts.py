@@ -33,7 +33,6 @@ The library is honest about what it can and cannot verify:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -52,12 +51,10 @@ from .bundle import (
     OnchainInfo,
     OperatorDebugInfo,
     SourceInfo,
+    binding_report_data,
 )
 
 log = logging.getLogger(__name__)
-
-# Domain separator for RFC 0025 report-data binding preimages.
-REPORT_DATA_DOMAIN = b"tee-daemon/app-attest/v1"
 
 
 @dataclass
@@ -259,34 +256,6 @@ def _parse_bundle(bundle_data: dict) -> EvidenceBundle:
         raise BundleParseError(f"Bundle structure invalid: {e}") from e
 
 
-# --- RFC 0025 report-data binding preimage ----------------------------------
-
-def _compute_report_data_preimage(
-    app_id: str,
-    name: str,
-    tree_hash: str,
-    app_pubkey: str,
-    domain: bytes = REPORT_DATA_DOMAIN,
-) -> str:
-    """
-    Compute the report_data preimage the daemon's quote must commit to.
-
-    report_data = SHA-512(domain || app_id || name || tree_hash || app_pubkey)
-
-    A daemon-vouched quote binds the project's tree_hash this way (RFC 0025); a
-    consumer re-runs this and compares to the quote's report_data to detect a
-    tampered tree_hash.
-    """
-    preimage = (
-        domain
-        + app_id.encode()
-        + name.encode()
-        + tree_hash.encode()
-        + bytes.fromhex(app_pubkey)
-    )
-    return hashlib.sha512(preimage).hexdigest()
-
-
 # --- verification legs ------------------------------------------------------
 
 def _verify_quote_signature(platform_quote: dict) -> QuoteFacts:
@@ -388,7 +357,7 @@ def _verify_binding_preimage(
     if not rd or set(rd.lower()) == {"0"}:
         facts.error = "quote report_data is empty/zero — tree_hash not bound by the quote"
         return facts
-    expected = _compute_report_data_preimage(app_id, project, tree_hash, app_pubkey)
+    expected = binding_report_data(app_id, project, tree_hash, app_pubkey).hex()
     facts.preimage_verified = (rd.lower() == expected.lower())
     if not facts.preimage_verified:
         facts.error = "report_data does not commit to the bundle's claimed tree_hash"
