@@ -20,7 +20,7 @@ from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
-from .deploy import deploy, teardown, promote, unpromote, import_bundle, REDACTED
+from .deploy import deploy, teardown, promote, unpromote, rebind, import_bundle, REDACTED
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
 from .tunnel import TunnelStore, TunnelResponse
@@ -768,6 +768,8 @@ class Ingress:
                 return await self._api_promote(name)
             if method == "POST" and rest == "unpromote":
                 return await self._api_unpromote(name)
+            if method == "POST" and rest == "rebind":
+                return await self._api_rebind(name)
             if method == "GET" and rest == "audit":
                 return await self._api_audit(name)
             if method == "GET" and rest == "history":
@@ -953,6 +955,13 @@ class Ingress:
     async def _api_unpromote(self, name: str) -> web.Response:
         try:
             project = await unpromote(self.store, self.audit_manager, self.rtm, name)
+            return web.json_response(_redact_env(asdict(project)))
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+    async def _api_rebind(self, name: str) -> web.Response:
+        try:
+            project = await rebind(self.store, name, DSTACK_SOCK)
             return web.json_response(_redact_env(asdict(project)))
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
