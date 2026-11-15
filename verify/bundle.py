@@ -16,11 +16,13 @@ from dataclasses import asdict, dataclass, field
 # Current schema version - increment when the structure changes.
 SCHEMA_VERSION = "1.0.0"
 
-# RFC 0027 binding report_data = BINDING_TAG || SHA-512(BINDING_DOMAIN || app_id || name
-# || tree_hash || app_pubkey)[:48]. The per-app dstack proxy refuses app GetQuote calls
-# whose report_data starts with BINDING_TAG, so no app can mint a binding (#159).
+# RFC 0027 binding report_data = BINDING_TAG || SHA-512(BINDING_DOMAIN || each of app_id,
+# name, tree_hash, app_pubkey prefixed with its 2-byte length)[:48]. The length prefixes
+# keep one preimage from reading as another (project "ab" + tree X vs "a" + tree "b"X).
+# The per-app dstack proxy refuses app GetQuote calls whose report_data starts with
+# BINDING_TAG, so no app can mint a binding (#159).
 BINDING_TAG = b"tee-daemon-bind1"
-BINDING_DOMAIN = b"tee-daemon/app-attest/v2"
+BINDING_DOMAIN = b"tee-daemon/app-attest/v3"
 
 
 def _hex(s: str) -> bytes:
@@ -30,7 +32,8 @@ def _hex(s: str) -> bytes:
 def binding_report_data(app_id: str, name: str, tree_hash: str, app_pubkey: str) -> bytes:
     """The 64-byte report_data of a per-app binding quote. app_id, tree_hash and
     app_pubkey are hex; name is UTF-8."""
-    h = hashlib.sha512(BINDING_DOMAIN + _hex(app_id) + name.encode() + _hex(tree_hash) + _hex(app_pubkey))
+    fields = (_hex(app_id), name.encode(), _hex(tree_hash), _hex(app_pubkey))
+    h = hashlib.sha512(BINDING_DOMAIN + b"".join(len(f).to_bytes(2, "big") + f for f in fields))
     return BINDING_TAG + h.digest()[:48]
 
 

@@ -8,6 +8,7 @@ verdict; accept/reject lives in the consumer (see verify/policies.py).
 """
 
 import asyncio
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -180,6 +181,14 @@ def test_report_data_preimage_is_sensitive_to_tree_hash():
     print("test_report_data_preimage_is_sensitive_to_tree_hash: PASS")
 
 
+def test_binding_fields_are_length_prefixed():
+    """A binding for project "victimxyz" must not also verify as project "victim"
+    with the name's tail moved into a 32-byte tree_hash."""
+    pub = "02" + "11" * 32
+    assert binding_report_data("ab" * 20, "victimxyz", "cd" * 29, pub) != \
+        binding_report_data("ab" * 20, "victim", "78797a" + "cd" * 29, pub)
+
+
 # --- parse + serialize guards -----------------------------------------------
 
 def test_parse_invalid_bundle_raises_and_verify_surfaces_it():
@@ -217,26 +226,67 @@ def test_facts_to_dict_is_json_serializable_and_round_trips():
 # --- producer <-> consumer round-trip (issue #92) ---------------------------
 
 PLATFORM_QUOTE, BINDING_QUOTE = "00", "01"
+APP_ID = "ab" * 20
+
+
+KMS = '{"name":"kms","id":"3059aa"}'.encode().hex()
+
+
+def _replay(events: list) -> str:
+    mr = bytes(48)
+    for e in events:
+        d = hashlib.sha384(e["event_type"].to_bytes(4, "little") + b":" + e["event"].encode()
+                           + b":" + bytes.fromhex(e["event_payload"])).digest()
+        mr = hashlib.sha384(mr + d).digest()
+    return mr.hex()
+
+
+def _ev(name: str, payload: str = "") -> dict:
+    return {"imr": 3, "event_type": 0x08000001, "digest": "", "event": name, "event_payload": payload}
+
+
+def _boot(app_id: str, key_provider: str = KMS) -> list:
+    return [_ev("system-preparing"), _ev("app-id", app_id), _ev("compose-hash", "cd" * 32),
+            _ev("instance-id", "12" * 20), _ev("boot-mr-done"), _ev("key-provider", key_provider),
+            _ev("system-ready")]
+
+
+def _event_log(app_id: str, extra: tuple = (), key_provider: str = KMS) -> tuple[str, str]:
+    """A dstack RTMR3 event log for app_id, and the RTMR3 it replays to."""
+    events = _boot(app_id, key_provider) + [_ev(n, p) for n, p in extra]
+    return json.dumps(events), _replay(events)
 
 
 def _qvl(reports: dict):
-    """Stand-in for the dcap-qvl CLI: reports[quote_hex] is the TD10 report to return."""
+    """Stand-in for the dcap-qvl CLI: reports[quote_hex] is the TD10 report it returns,
+    or None to fail verification."""
     def run(args, **kw):
-        quote = open(args[-1]).read()
-        return subprocess.CompletedProcess(args, 0, json.dumps({"report": {"TD10": reports[quote]}}), "")
+        report = reports[open(args[-1]).read()]
+        if report is None:
+            return subprocess.CompletedProcess(args, 1, "", "quote verification failed")
+        return subprocess.CompletedProcess(args, 0, json.dumps({"report": {"TD10": report}}), "")
     return patch("verify.facts.subprocess.run", side_effect=run)
 
 
-def _td(report_data: str, mrtd: str = "aa" * 48) -> dict:
-    return {"mr_td": mrtd, "rt_mr0": "bb" * 48, "rt_mr1": "cc" * 48, "rt_mr2": "dd" * 48,
-            "rt_mr3": "ee" * 48, "report_data": report_data}
+def _td(report_data: str, rtmr3: str, mrtd: str = "aa" * 48, rtmr1: str = "cc" * 48) -> dict:
+    return {"mr_td": mrtd, "rt_mr0": "bb" * 48, "rt_mr1": rtmr1, "rt_mr2": "dd" * 48,
+            "rt_mr3": rtmr3, "report_data": report_data}
 
 
-def _verify_producer(wire: dict, platform_rd: str = "00" * 64, binding_rd: str | None = None,
-                     binding_mrtd: str = "aa" * 48) -> Facts:
+def _verify_producer(wire: dict, binding_rd: str | None = None, platform_ok: bool = True,
+                     platform_app_id: str = APP_ID, platform_extra: tuple = (), **binding_td) -> Facts:
+    """Verify a producer bundle with a fake dcap-qvl whose reports match each quote's
+    served event log; binding_td overrides fields of the binding quote's report."""
+    q = wire["app"].get("binding", {}).get("binding_quote", {})
     if binding_rd is None:
         binding_rd = wire["app"]["binding"]["report_data"].removeprefix("0x")
-    with _qvl({PLATFORM_QUOTE: _td(platform_rd), BINDING_QUOTE: _td(binding_rd, binding_mrtd)}):
+    log, rtmr3 = _event_log(platform_app_id, (("tee-daemon/promote", "ef"), *platform_extra))
+    wire["platform_quote"]["event_log"] = log
+    reports = {PLATFORM_QUOTE: _td("11" * 64, rtmr3) if platform_ok else None}
+    if q.get("quote") == BINDING_QUOTE:
+        rtmr3 = q.pop("_rtmr3")
+        reports[BINDING_QUOTE] = None if binding_rd == "reject" else {**_td(binding_rd, rtmr3), **binding_td}
+    with _qvl(reports):
         return asyncio.run(verify_from_bundle(wire))
 
 
@@ -245,11 +295,12 @@ def _full_producer_bundle() -> EvidenceBundle:
 
     Mirrors what ``proxy/ingress.py`` does: populate the shared ``EvidenceBundle``
     dataclasses, then serialize. Any field the producer can set is set here."""
-    app_pubkey = "02abcdef"  # valid hex (the binding preimage does bytes.fromhex on it)
+    app_pubkey = "02" + "ab" * 32  # a compressed secp256k1 pubkey is 33 bytes
     project = "rfc-roundtrip"
-    webhost_app_id = "ab" * 20
+    webhost_app_id = APP_ID
     tree_hash = "deadbeef" * 8
     report_data = binding_report_data(webhost_app_id, project, tree_hash, app_pubkey).hex()
+    binding_log, binding_rtmr3 = _event_log(webhost_app_id)
 
     bundle = EvidenceBundle()
     bundle.schema_version = SCHEMA_VERSION
@@ -259,7 +310,7 @@ def _full_producer_bundle() -> EvidenceBundle:
         chain_id=0,  # non-anchored (pha-prod), matches the served fixture
         kms_contract="0xKMS",
         dstackapp="0xDAPP",
-        allowed_compose_hash="0xCOMPOSE",
+        allowed_compose_hash="0x" + "CD" * 32,
         allowed_os_image="0xOSIMAGE",
     )
     bundle.gateway = GatewayInfo(
@@ -280,7 +331,7 @@ def _full_producer_bundle() -> EvidenceBundle:
         binding_quote={"pubkey": app_pubkey, "signature_chain": ["<sig-chain-root>"]},
         binding={
             "kind": "report-data-quote",
-            "binding_quote": {"quote": BINDING_QUOTE},
+            "binding_quote": {"quote": BINDING_QUOTE, "event_log": binding_log, "_rtmr3": binding_rtmr3},
             "report_data": "0x" + report_data,
             "preimage": {"app_id": webhost_app_id, "name": project,
                          "tree_hash": tree_hash, "app_pubkey": app_pubkey},
@@ -310,7 +361,7 @@ def test_bundle_roundtrip():
 
     # platform_quote -> QuoteFacts (+ binding.report_data)
     assert facts.quote.quote_raw == PLATFORM_QUOTE
-    assert facts.quote.report_data == wire["platform_quote"]["report_data"]
+    assert facts.quote.report_data == "11" * 64  # from the verified report, not the served "00"s
 
     # webhost_app_id
     assert facts.app_id == "ab" * 20
@@ -319,7 +370,7 @@ def test_bundle_roundtrip():
     assert facts.onchain.chain_id == "0"
     assert facts.onchain.kms_contract == "0xKMS"
     assert facts.onchain.dstackapp_address == "0xDAPP"
-    assert facts.onchain.allowed_compose_hash == "0xCOMPOSE"
+    assert facts.onchain.allowed_compose_hash == "0x" + "CD" * 32
     assert facts.onchain.allowed_os_image == "0xOSIMAGE"
 
     # gateway -> ChannelFacts
@@ -340,7 +391,7 @@ def test_bundle_roundtrip():
 
     # app.binding -> BindingFacts (the binding quote's report_data matches the preimage)
     assert facts.binding.kind == "report-data-quote"
-    assert facts.binding.app_pubkey == "02abcdef"
+    assert facts.binding.app_pubkey == "02" + "ab" * 32
     assert facts.binding.signature_chain_root == "<sig-chain-root>"
     assert facts.binding.preimage_verified is True, facts.binding.error
     assert facts.binding.error == ""
@@ -358,31 +409,180 @@ def test_binding_is_read_from_the_binding_quote_not_the_platform_quote():
     """#164: the binding's report_data must come from the binding quote. A platform
     quote carrying the binding report_data proves nothing about the app."""
     wire = _full_producer_bundle().to_dict()
-    rd = wire["app"]["binding"]["report_data"].removeprefix("0x")
-    facts = _verify_producer(wire, platform_rd=rd, binding_rd="00" * 64)
+    wire["platform_quote"]["report_data"] = wire["app"]["binding"]["report_data"]
+    facts = _verify_producer(wire, binding_rd="00" * 64)
     assert facts.binding.preimage_verified is False
-    assert any("report_data does not match" in e for e in facts.errors)
+    assert "report_data does not match the preimage" in facts.binding.error
 
 
-def test_binding_rejects_tampered_tree_hash_other_image_and_missing_binding():
+def _binding_error(mutate=lambda wire: None, **kw) -> str:
     wire = _full_producer_bundle().to_dict()
-    wire["app"]["source"]["tree_hash"] = "ee" * 32
-    assert any("tree_hash differs" in e for e in _verify_producer(wire).errors)
+    mutate(wire)
+    facts = _verify_producer(wire, **kw)
+    assert facts.binding.preimage_verified is False
+    assert any(e.startswith("binding:") for e in facts.errors)
+    return facts.binding.error
+
+
+def _with(mutate) -> dict:
+    wire = _full_producer_bundle().to_dict()
+    mutate(wire)
+    return wire
+
+
+def _forge_binding(wire, events: list, app_id: str):
+    """Replace the binding with a self-consistent one for app_id, whose quote carries events."""
+    b = wire["app"]["binding"]
+    b["preimage"]["app_id"] = app_id
+    b["report_data"] = binding_report_data(app_id, b["preimage"]["name"], b["preimage"]["tree_hash"],
+                                           b["preimage"]["app_pubkey"]).hex()
+    b["binding_quote"]["event_log"], b["binding_quote"]["_rtmr3"] = json.dumps(events), _replay(events)
+
+
+def test_binding_from_another_app_or_cvm_is_rejected():
+    """A quote with a self-consistent preimage still fails unless it comes from the
+    platform quote's dstack app, KMS and image (reviews of #164)."""
+    other = "ff" * 20
+    assert "app-id differs from the platform quote's" in _binding_error(
+        lambda w: _forge_binding(w, _boot(other), other))
+
+    # Another CVM on the same image, booted with the victim's app-id under its own KMS.
+    attacker_kms = '{"name":"kms","id":"bad"}'.encode().hex()
+    assert "key-provider differs" in _binding_error(
+        lambda w: _forge_binding(w, _boot(APP_ID, attacker_kms), APP_ID))
+
+    # Another dstack app whose app-id starts with ":" serves its genuine app-id event
+    # renamed "app-id:" (same digest), then emits the victim's app-id after boot.
+    attacker = "3a" + "11" * 19
+    events = _boot(attacker)
+    events[1] = _ev("app-id:", attacker[2:])
+    assert _replay(events) == _replay(_boot(attacker))
+    events.append(_ev("app-id", APP_ID))
+    assert "RTMR3 does not start with system-preparing, app-id" in _binding_error(
+        lambda w: _forge_binding(w, events, APP_ID))
+
+    def lie_about_app_id(wire):
+        wire["app"]["binding"]["preimage"]["app_id"] = other
+    assert "preimage app_id differs" in _binding_error(lie_about_app_id)
+
+    def unreplayable(wire):
+        wire["app"]["binding"]["binding_quote"]["_rtmr3"] = "00" * 48
+    assert "does not replay" in _binding_error(unreplayable)
+
+    assert "MRTD/RTMR0-2 differ" in _binding_error(mr_td="ff" * 48)
+    assert "MRTD/RTMR0-2 differ" in _binding_error(rt_mr1="ff" * 48)
+    assert "platform quote or its event log did not verify" in _binding_error(platform_ok=False)
+
+
+def test_binding_rejects_wrong_project_tree_hash_and_bad_preimage():
+    def tamper_tree(wire):
+        wire["app"]["source"]["tree_hash"] = "ee" * 32
+    assert "tree_hash differs" in _binding_error(tamper_tree)
+
+    def rename(wire):
+        wire["app"]["project"] = "other-project"
+    assert "preimage names project" in _binding_error(rename)
+
+    def short_pubkey(wire):
+        wire["app"]["binding"]["preimage"]["app_pubkey"] = "02ab"
+    assert "preimage field lengths" in _binding_error(short_pubkey)
+
+    def drop(wire):
+        del wire["app"]["binding"]
+    assert "no app.binding block" in _binding_error(drop, binding_rd="")
+
+
+def test_malformed_binding_is_an_error_not_an_exception():
+    def set_(path, value):
+        def f(wire):
+            d = wire["app"]["binding"]
+            for k in path[:-1]:
+                d = d[k]
+            d[path[-1]] = value
+        return f
+    assert "malformed binding evidence" in _binding_error(set_(["preimage", "app_pubkey"], "zz"))
+    assert "malformed binding evidence" in _binding_error(set_(["preimage"], ["x"]))
+    assert "malformed binding evidence" in _binding_error(set_(["promote_event"], "x"))
+    def huge_event_type(wire):
+        events = _boot(APP_ID)
+        events[2]["event_type"] = 2 ** 40
+        wire["app"]["binding"]["binding_quote"]["event_log"] = json.dumps(events)
+    assert "malformed binding evidence" in _binding_error(huge_event_type)
+
+
+def test_deeply_nested_event_log_is_an_error():
+    def nest(wire):
+        wire["app"]["binding"]["binding_quote"]["event_log"] = "[" * 100000
+    assert "RecursionError" in _binding_error(nest)
+
+
+def test_platform_app_id_and_compose_hash_come_from_boot_events():
+    """An app can emit compose-hash or app-id events after boot; only the boot events,
+    replayed against RTMR3, count. The declared webhost_app_id must agree with them."""
+    wire = _full_producer_bundle().to_dict()
+    wire["onchain"]["allowed_compose_hash"] = "ee" * 32
+    facts = _verify_producer(wire, platform_extra=(("compose-hash", "ee" * 32), ("app-id", "ff" * 20)))
+    assert facts.app_id == APP_ID
+    assert any("quote compose hash " + "cd" * 32 in e for e in facts.errors)
 
     wire = _full_producer_bundle().to_dict()
-    assert any("MRTD/RTMR0-2 differ" in e for e in _verify_producer(wire, binding_mrtd="ff" * 48).errors)
+    wire["onchain"]["allowed_compose_hash"] = "cd" * 32
+    assert not any("measurement mismatch" in e for e in _verify_producer(wire).errors)
 
     wire = _full_producer_bundle().to_dict()
-    del wire["app"]["binding"]
-    assert any("no app.binding block" in e for e in _verify_producer(wire, binding_rd="").errors)
+    wire["webhost_app_id"] = "ff" * 20
+    assert any("differs from declared webhost_app_id" in e for e in _verify_producer(wire).errors)
+
+
+def test_compose_pin_covers_the_binding_quote():
+    """A binding quote from another compose under the same app-id and KMS must not get
+    around the consumer's compose pin; a 0x/upper-case pin still matches."""
+    other = _boot(APP_ID)
+    other[2] = _ev("compose-hash", "66" * 32)
+    assert "binding quote compose hash " + "66" * 32 in " ".join(
+        _verify_producer(_with(lambda w: _forge_binding(w, other, APP_ID))).errors)
+    facts = _verify_producer(_full_producer_bundle().to_dict())
+    assert not any("compose" in e for e in facts.errors), facts.errors
+    assert facts.binding.preimage_verified is True
+
+
+def test_kms_failover_repeated_mr_kms_is_genuine():
+    """dstack extends mr-kms once per KMS handshake, so failover repeats it."""
+    events = _boot(APP_ID)
+    events.insert(5, _ev("mr-kms", "aa" * 48))
+    events.insert(5, _ev("mr-kms", "bb" * 48))
+    facts = _verify_producer(_with(lambda w: _forge_binding(w, events, APP_ID)))
+    assert facts.binding.preimage_verified is True, facts.binding.error
+
+
+def test_malformed_audit_log_is_an_error_not_an_exception():
+    for audit in (5, [{"detail": {"tree_hash": [1]}}], [{"detail": "[" * 100000}]):
+        wire = _full_producer_bundle().to_dict()
+        wire["audit"] = audit
+        facts = _verify_producer(wire)
+        assert any(e.startswith("audit:") for e in facts.errors), (audit, facts.errors)
 
 
 def test_binding_quote_failing_dcap_is_an_error():
-    wire = _full_producer_bundle().to_dict()
-    wire["app"]["binding"]["binding_quote"]["quote"] = "not-a-quote"
-    facts = _verify_producer(wire)
-    assert facts.binding.preimage_verified is False
-    assert "binding quote: TDX quote is not valid hexadecimal" in facts.binding.error
+    def garbage(wire):
+        wire["app"]["binding"]["binding_quote"]["quote"] = "not-a-quote"
+    assert _binding_error(garbage) == "binding quote: TDX quote is not valid hexadecimal"
+    assert _binding_error(binding_rd="reject") == "binding quote: quote verification failed"
+
+
+def test_boot_events_replay_a_real_prod_quote():
+    """The replay and boot-segment rules hold for the captured prod quote, with RTMR3
+    read straight from the quote bytes (TD report body, RTMR3 at byte 520)."""
+    from verify.facts import QuoteFacts, _boot_events
+    pq = _load(GOOD)["platform_quote"]
+    raw = bytes.fromhex(pq["quote"].removeprefix("0x"))
+    quote = QuoteFacts(rtmr={"rtmr3": raw[520:568].hex()})
+    boot = _boot_events(pq, quote)
+    assert len(boot["app-id"]) == 40
+    assert bytes.fromhex(boot["key-provider"]).startswith(b'{"name":"kms"')
+    quote.rtmr["rtmr3"] = "00" * 48
+    with pytest.raises(ValueError, match="does not replay"):
+        _boot_events(pq, quote)
 
 
 def test_bundle_to_dict_is_the_served_shape():
@@ -486,9 +686,12 @@ def test_onchain_rpc_failure_flows_into_facts_errors():
     from verify.facts import _verify_bundle
 
     session = _RpcSession([aiohttp.ClientError("timeout")])
-    bundle = _load(GOOD)
-    bundle["webhost_app_id"] = "0x" + "22" * 20  # fixture is non-anchored; give the check an app_id
-    facts = asyncio.run(_verify_bundle(bundle, session=session, chain_config=_chain_config()))
+    wire = _full_producer_bundle().to_dict()
+    # app_id reaches the onchain check only from the platform quote's replayed boot events
+    wire["platform_quote"]["event_log"], rtmr3 = _event_log(APP_ID)
+    with _qvl({PLATFORM_QUOTE: _td("11" * 64, rtmr3), BINDING_QUOTE: None}):
+        facts = asyncio.run(_verify_bundle(wire, session=session, chain_config=_chain_config()))
+    assert facts.app_id == APP_ID
     assert facts.onchain.chain_id == "0"
     assert "Base-prod RPC check failed" in facts.onchain.error
     assert any(e.startswith("onchain:") for e in facts.errors)
@@ -540,12 +743,21 @@ if __name__ == "__main__":
     test_policies_are_ordinary_functions_not_on_facts()
     test_facts_exposes_no_verdict_field()
     test_report_data_preimage_is_sensitive_to_tree_hash()
+    test_binding_fields_are_length_prefixed()
     test_parse_invalid_bundle_raises_and_verify_surfaces_it()
     test_facts_to_dict_is_json_serializable_and_round_trips()
     test_bundle_roundtrip()
     test_binding_is_read_from_the_binding_quote_not_the_platform_quote()
-    test_binding_rejects_tampered_tree_hash_other_image_and_missing_binding()
+    test_binding_from_another_app_or_cvm_is_rejected()
+    test_binding_rejects_wrong_project_tree_hash_and_bad_preimage()
+    test_malformed_binding_is_an_error_not_an_exception()
+    test_deeply_nested_event_log_is_an_error()
+    test_platform_app_id_and_compose_hash_come_from_boot_events()
+    test_compose_pin_covers_the_binding_quote()
+    test_kms_failover_repeated_mr_kms_is_genuine()
+    test_malformed_audit_log_is_an_error_not_an_exception()
     test_binding_quote_failing_dcap_is_an_error()
+    test_boot_events_replay_a_real_prod_quote()
     test_bundle_to_dict_is_the_served_shape()
     test_onchain_approval()
     test_onchain_not_approved()
