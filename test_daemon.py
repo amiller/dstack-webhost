@@ -134,7 +134,10 @@ def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
         "DAEMON_TUNNEL_DIR": os.path.join(tmpdir, "tunnels"),
         "DAEMON_TOKEN_DIR": os.path.join(tmpdir, "tokens"),
         "PROXY_SOCKET_DIR": os.path.join(tmpdir, "proxy"),
-        "DOCKER_SOCKET": "/var/run/docker.sock",
+        # DOCKER_SOCKET passes through when the runner exports one (rootless
+        # docker), else the daemon's own /var/run/docker.sock default applies —
+        # the same shape as the BROKER_SOCKET_DIR gotcha (SETUP-ZED).
+        "DOCKER_SOCKET": os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock"),
         "DSTACK_SOCKET": "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
         "DAEMON_PENDING_TTL": "8",
@@ -269,6 +272,49 @@ def test_caps_require_attested():
     assert project["cap_add"] == ["NET_ADMIN"], project
     assert project["devices"] == ["/dev/net/tun"], project
     print("  attested + caps accepted and surfaced on project ✓")
+
+
+def test_caps_allowlist():
+    """Issue #171: only RFC 0025's NET_ADMIN + /dev/net/tun may ever reach Docker —
+    any other cap/device is refused on both deploy paths, before a container is
+    created, leaving no project or container behind."""
+    print("\n--- Test: cap_add/devices allowlist (#171) ---")
+    repo = create_test_repo("test-caps-allow", {
+        "index.html": b"<html><body>caps allowlist</body></html>",
+    })
+    bad_devices = ["/dev/tdx_guest", "/dev/tdx-guest", "configfs-tsm", "/dev/fuse"]
+    bad_caps = ["SYS_ADMIN", "SYS_RAWIO", "NET_RAW", "CAP_NET_ADMIN"]
+    for dev in bad_devices:
+        resp = api_post("/projects", json={"name": "test-caps-allow", "source": repo,
+                                           "runtime": "static", "mode": "attested",
+                                           "devices": [dev]})
+        assert resp.status_code == 400, f"git deploy with device {dev!r} must fail: {resp.text}"
+        assert f"devices not allowed: ['{dev}']" in resp.text, resp.text
+    for cap in bad_caps:
+        resp = api_post("/projects", json={"name": "test-caps-allow", "source": repo,
+                                           "runtime": "static", "mode": "attested",
+                                           "cap_add": [cap]})
+        assert resp.status_code == 400, f"git deploy with cap {cap!r} must fail: {resp.text}"
+        assert f"cap_add not allowed: ['{cap}']" in resp.text, resp.text
+    assert "test-caps-allow" not in [p["name"] for p in api_get("/projects").json()]
+    print("  git path: quote-path devices/caps rejected, no project persisted \u2713")
+    for dev in bad_devices:
+        resp = api_post("/projects", json={"name": "test-caps-img", "runtime": "image",
+                                           "image": "nginx:alpine", "image_port": 80,
+                                           "mode": "attested", "devices": [dev]})
+        assert resp.status_code == 400, f"image deploy with device {dev!r} must fail: {resp.text}"
+        assert f"devices not allowed: ['{dev}']" in resp.text, resp.text
+    for cap in bad_caps:
+        resp = api_post("/projects", json={"name": "test-caps-img", "runtime": "image",
+                                           "image": "nginx:alpine", "image_port": 80,
+                                           "mode": "attested", "cap_add": [cap]})
+        assert resp.status_code == 400, f"image deploy with cap {cap!r} must fail: {resp.text}"
+        assert f"cap_add not allowed: ['{cap}']" in resp.text, resp.text
+    assert "test-caps-img" not in [p["name"] for p in api_get("/projects").json()]
+    for cname in ("tee-image-test-caps-img-attested", "tee-isolated-test-caps-allow-attested"):
+        r = subprocess.run(["docker", "inspect", cname], capture_output=True)
+        assert r.returncode != 0, f"container {cname} must not exist"
+    print("  image path: quote-path devices/caps rejected, no project/container left \u2713")
 
 
 def test_operator_debug():
@@ -1921,6 +1967,7 @@ def main():
         test_boot_refuses_without_commit()
         test_deploy_static()
         test_caps_require_attested()
+        test_caps_allowlist()
         test_operator_debug()
         test_ingress_static()
         test_scoped_tokens()
