@@ -1567,6 +1567,18 @@ def test_attested_deploy_rebuilds_binding():
             pubkey = att.binding["app_pubkey"]
             assert rd == binding_report_data(app_id, "a", "bb" * 20, pubkey).hex()
             assert quoted[-1] == rd
+
+            class Loaded(Store):
+                def load(self, name):
+                    return {"a": att, "d": dev}[name]
+            att.binding = {}
+            assert (await deploy_mod.rebind(Loaded(), "a", sock)).binding["report_data"] == "0x" + rd
+            for name, sock_ in (("d", sock), ("a", None)):
+                try:
+                    await deploy_mod.rebind(Loaded(), name, sock_)
+                    raise AssertionError(f"rebind {name} sock={sock_} should refuse")
+                except ValueError:
+                    pass
             await runner.cleanup()
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

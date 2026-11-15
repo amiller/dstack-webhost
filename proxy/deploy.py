@@ -538,6 +538,18 @@ async def _bind_if_attested(store: ProjectStore, project: Project, sock: str | N
         store.save(project)
 
 
+async def rebind(store: ProjectStore, name: str, sock: str | None) -> Project:
+    """Rebuild an attested project's binding in place, without redeploying or restarting it.
+    For bindings made under an older binding format, or never made (#160)."""
+    project = store.load(name)
+    if project.mode != "attested":
+        raise ValueError(f"Project {name} is not attested")
+    if not sock:
+        raise ValueError("No dstack socket: a binding needs a TEE quote")
+    await _bind_if_attested(store, project, sock)
+    return project
+
+
 async def promote(store: ProjectStore, audit_manager, rtm: RuntimeManager,
                   name: str, dstack_sock: str | None = None) -> Project:
     """Promote a project from dev mode to attested mode."""
