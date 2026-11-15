@@ -135,7 +135,10 @@ def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
         "DAEMON_TOKEN_DIR": os.path.join(tmpdir, "tokens"),
         "PROXY_SOCKET_DIR": os.path.join(tmpdir, "proxy"),
         "DAEMON_DEBUG_SESSION_DIR": os.path.join(tmpdir, "debug-sessions"),
-        "DOCKER_SOCKET": "/var/run/docker.sock",
+        # DOCKER_SOCKET passes through when the runner exports one (rootless
+        # docker), else the daemon's own /var/run/docker.sock default applies —
+        # the same shape as the BROKER_SOCKET_DIR gotcha (SETUP-ZED).
+        "DOCKER_SOCKET": os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock"),
         "DSTACK_SOCKET": "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
         "DAEMON_PENDING_TTL": "8",
