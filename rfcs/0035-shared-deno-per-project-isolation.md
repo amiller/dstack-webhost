@@ -175,6 +175,12 @@ permission semantics, so a Deno upgrade should be a reviewed change with
   project, which answers 503 until the router respawns it. Before, the same crash took down
   the whole runtime. A child that hangs while loading no longer holds up the router; it is
   killed at the startup timeout and retried with backoff.
+- A child's process env is empty, so an app that read its broker socket override from
+  `Deno.env` (e.g. `DSTACK_BROKER`) finds nothing there. When the daemon mounted the
+  project's own `/run/broker/<name>` dir, the router injects `DSTACK_BROKER` into the
+  handler's `ctx.env` with that socket's path (#173; `isolation: container` and image apps
+  get the same variable through their own env channels). The injected value reflects the
+  actual mount and overrides a stale manifest value.
 - Memory: one Deno process per project. Measured locally: router 52 MB, idle child 39 MB,
   relay-broker child 225 MB.
 

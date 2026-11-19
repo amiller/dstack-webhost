@@ -7,9 +7,11 @@ import logging
 import os
 import re
 import secrets
+import time
 
 import aiohttp
 
+from .audit import AuditEntry
 from .docker_client import DockerClient
 from .projects import ProjectStore
 from .tracker import ContainerTracker
@@ -50,6 +52,9 @@ DATA_VOLUME_MOUNT_IN_RUNTIME = "/daemon-data"
 # BROKER_HOST_PATH=/var/run/tee-broker). Mirrors DAEMON_VOLUME_NAME.
 BROKER_HOST_PATH = os.environ.get("BROKER_HOST_PATH", "")
 BROKER_MOUNT_IN_APP = "/run/broker"
+# #173: durable per-project record of the runtime substrate its code last
+# started under; a restart that changes any of it is a deploy nobody made.
+RUNTIME_IDENTITY_FILE = "runtime-identity.json"
 IMAGE_APP_RESTART_POLICY = {"Name": "on-failure", "MaximumRetryCount": 5}
 DSTACK_SOCKET = os.environ.get("DSTACK_SOCKET", "/var/run/dstack.sock")
 _DSTACK_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -220,7 +225,14 @@ async function prepare(name, manifest) {
   const listenDir = `${RT}/${name}`;
   await Deno.mkdir(listenDir, {recursive: true});
   const own = [data, `${BROKER}/${name}`, listenDir].filter(Boolean);
-  return {sock: `${listenDir}/http.sock`, env: JSON.stringify(manifest.env || {}), args: [
+  // Children get no process env, so ctx.env is the only channel. Tell the
+  // handler where its own broker socket lives; the injected value reflects
+  // the actual mount, so it overrides a stale manifest value (#173).
+  const env = {...(manifest.env || {})};
+  if (await Deno.stat(`${BROKER}/${name}`).then(() => true, () => false)) {
+    env.DSTACK_BROKER = `${BROKER}/${name}/dstack.sock`;
+  }
+  return {sock: `${listenDir}/http.sock`, env: JSON.stringify(env), args: [
     "run", "--no-prompt", "--no-check",
     `--allow-read=${[files, ...own].join(",")}`, `--allow-write=${own.join(",")}`,
     "--allow-net", "--allow-import", "--allow-env", "--allow-sys",
@@ -601,6 +613,12 @@ class RuntimeManager:
             ip = await self.docker.container_ip(cid, network)
             self.runtime_cids[key] = cid
             self.runtime_ips[key] = ip
+            with open(router_path, "rb") as f:
+                router_sha = hashlib.sha256(f.read()).hexdigest()
+            digest = await self.docker.image_digest(config["image"])
+            for p in mode_projects:
+                self._save_identity(p.name, self._base_identity(
+                    router_sha256=router_sha, image_digest=digest))
             log.info("Runtime %s-%s -> %s (%s), serving %d projects",
                      config_key, mode_suffix, cid[:12], ip, len(mode_projects))
 
@@ -749,6 +767,10 @@ class RuntimeManager:
             env["BROKER_SOCKET"] = creds_sock
             broker_token = self._generate_broker_token(project.name)
             env["BROKER_TOKEN"] = broker_token
+        if broker_binds:
+            # Same contract as the shared router (#173): ctx.env carries the
+            # project's own dstack socket path.
+            env["DSTACK_BROKER"] = broker_sock
         if getattr(project, "egress", False) and not getattr(project, "egress_provider", False):
             env["EGRESS_PROXY_URL"] = EGRESS_PROXY_URL
             env["ALL_PROXY"] = EGRESS_PROXY_URL
@@ -775,7 +797,14 @@ class RuntimeManager:
         self.image_routes[project.name] = (ip, 3000)
         log.info("Isolated %s project %s -> %s (%s:3000)",
                  project.runtime, project.name, cid[:12], ip)
-        return await self.docker.image_digest(image)
+        digest = await self.docker.image_digest(image)
+        # The child's full argv IS its permission model, so hashing it pins the
+        # sandbox the app runs under (#173).
+        self._save_identity(project.name, self._base_identity(
+            router_sha256=hashlib.sha256(json.dumps(cmd).encode()).hexdigest(),
+            image_digest=digest,
+            oci_runtime=project.oci_runtime or CONTAINER_RUNTIME))
+        return digest
 
     async def stop_isolated(self, name: str):
         for mode in ("dev", "attested"):
@@ -824,6 +853,8 @@ class RuntimeManager:
             env.append(f"BROKER_SOCKET={BROKER_MOUNT_IN_APP}/creds.sock")
             broker_token = self._generate_broker_token(project.name)
             env.append(f"BROKER_TOKEN={broker_token}")
+        if _project_broker_binds(project):
+            env.append(f"DSTACK_BROKER={BROKER_MOUNT_IN_APP}/dstack.sock")
         if getattr(project, "egress", False) and not getattr(project, "egress_provider", False):
             env.append(f"EGRESS_PROXY_URL={EGRESS_PROXY_URL}")
             env.append(f"ALL_PROXY={EGRESS_PROXY_URL}")
@@ -842,7 +873,11 @@ class RuntimeManager:
         self.image_cids[project.name] = cid
         self.image_routes[project.name] = (ip, project.image_port)
         log.info("Image project %s -> %s (%s:%d)", project.name, cid[:12], ip, project.image_port)
-        return await self.docker.image_digest(project.image)
+        digest = await self.docker.image_digest(project.image)
+        self._save_identity(project.name, self._base_identity(
+            image_digest=digest,
+            oci_runtime=runtime))
+        return digest
 
     async def stop_image(self, name: str):
         for mode in ("dev", "attested"):
@@ -961,6 +996,9 @@ class RuntimeManager:
 
     async def recover_all(self):
         await self._bootstrap_from_import_bundle()
+        # #173: snapshot what each project last ran on BEFORE this boot recreates
+        # anything, so a substrate change picked up at restart is detectable.
+        before = {p.name: self._load_identity(p.name) for p in self.store.list()}
         runtimes_needed = set()
         image_projects = []
         isolated_projects = []
@@ -988,6 +1026,130 @@ class RuntimeManager:
                 await self.start_isolated(p)
             except Exception as e:
                 log.error("recover: isolated project %s failed, skipping: %s", p.name, e)
+        await self._audit_identity_changes(before)
+        # #173: prove every attested project can still reach a quote through its
+        # own broker socket right after boot. The 11-19 outage (attest-proxy
+        # quote_error after a benign restart) stayed invisible until someone
+        # ran a session; the daemon itself must say so.
+        for p in self.store.list():
+            if p.mode != "attested":
+                continue
+            health = await self.attestation_health(p)
+            if not health["quote_ok"]:
+                log.error("post-boot self-check FAILED for %s: %s", p.name, health["error"])
+
+    # --- #173: restart identity + post-boot self-check ---
+
+    def _identity_file(self, name: str) -> str:
+        return os.path.join(self.store._project_dir(name), RUNTIME_IDENTITY_FILE)
+
+    def _load_identity(self, name: str) -> dict | None:
+        try:
+            with open(self._identity_file(name)) as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+
+    def _save_identity(self, name: str, identity: dict) -> None:
+        with open(self._identity_file(name), "w") as f:
+            json.dump(identity, f, sort_keys=True)
+
+    def _base_identity(self, router_sha256: str = "", image_digest: str = "",
+                       oci_runtime: str = "") -> dict:
+        return {
+            "daemon_commit": os.environ["DAEMON_COMMIT"],
+            "router_sha256": router_sha256,
+            "image_digest": image_digest,
+            "oci_runtime": oci_runtime,
+        }
+
+    def recorded_identity(self, project) -> dict:
+        """The runtime identity this project last started under, or {} (#173)."""
+        return self._load_identity(project.name) or {}
+
+    async def _audit_identity_changes(self, before: dict) -> None:
+        """A restart must not change what runs (#173). A project whose runtime
+        identity differs from what it ran before this boot got a new daemon
+        image, router, permission model or container image WITHOUT an operator
+        deploy — record that in the audit ledger as a deploy, loudly. A missing
+        prior record is a first boot on a new daemon: adopt, don't alarm."""
+        for p in self.store.list():
+            now = self._load_identity(p.name)
+            if now is None:
+                # Projects the daemon serves itself (static) start no container;
+                # their whole substrate is the daemon.
+                now = self._base_identity()
+                self._save_identity(p.name, now)
+            prev = before.get(p.name)
+            if prev is None or prev == now:
+                continue
+            changed = {k: [prev.get(k), now[k]] for k in now if prev.get(k) != now[k]}
+            log.error("recover: runtime substrate changed for %s with no deploy: %s",
+                      p.name, changed)
+            await self.audit_manager.get_audit_log(p.name).record(AuditEntry(
+                timestamp=time.time(), action="deploy",
+                image=p.image, image_digest=now.get("image_digest", ""),
+                detail=json.dumps({
+                    "reason": "restart picked up a changed runtime substrate; no operator deploy",
+                    "previous": prev, "current": now,
+                    "source": p.source, "ref": p.ref, "commit": p.commit_sha,
+                    "tree_hash": p.tree_hash,
+                }, sort_keys=True)))
+
+    def _shared_container(self, project) -> str | None:
+        config_key = "deno" if project.runtime in ("deno", "bun") else project.runtime
+        if config_key not in RUNTIME_CONFIG or project.isolation == "container":
+            return None
+        return self.runtime_cids.get((config_key, project.mode))
+
+    def _app_broker_path(self, project) -> str:
+        """The dstack socket path an app should use — injected as DSTACK_BROKER."""
+        if project.isolation == "container" or project.runtime == "image":
+            return f"{BROKER_MOUNT_IN_APP}/dstack.sock"
+        return f"{BROKER_MOUNT_IN_APP}/{project.name}/dstack.sock"
+
+    async def attestation_health(self, project) -> dict | None:
+        """#173 self-check: can this attested project actually reach a quote
+        through its own broker socket (the exact path its app's attest run
+        takes), and is its broker dir mounted into the container its code runs
+        in? None when the project is not attested. A failed check is reported
+        as a failure, never as an apparently-verified project."""
+        if project.mode != "attested":
+            return None
+        health = {"broker_path": self._app_broker_path(project),
+                  "broker_mounted": False, "quote_ok": False,
+                  "error": "", "checked_at": time.time()}
+        mgr = self.broker_proxy_manager
+        if mgr is None:
+            health["error"] = "dstack socket unavailable on this host"
+            return health
+        cid = await self.get_container_id(project) or self._shared_container(project)
+        if cid:
+            binds = (await self.docker.inspect(cid)).get("HostConfig", {}).get("Binds") or []
+            health["broker_mounted"] = any(
+                b.startswith(f"{BROKER_HOST_PATH}/{project.name}:") for b in binds)
+            if not health["broker_mounted"]:
+                health["error"] = (
+                    f"{BROKER_HOST_PATH}/{project.name} is not mounted into the project's "
+                    "runtime container" if BROKER_HOST_PATH else
+                    "BROKER_HOST_PATH is not configured; no broker socket can be mounted")
+        else:
+            health["error"] = "runtime container not running"
+        sock = os.path.join(mgr.broker_socket_dir, project.name, "dstack.sock")
+        try:
+            conn = aiohttp.UnixConnector(path=sock)
+            async with aiohttp.ClientSession(connector=conn) as session:
+                async with session.post("http://localhost/GetQuote",
+                                        json={"report_data": ""},
+                                        timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 200:
+                        health["quote_ok"] = True
+                    else:
+                        health["error"] = (f"GetQuote via {sock} returned "
+                                            f"{resp.status}: {(await resp.text())[:200]}")
+        except Exception as e:
+            health["error"] = f"GetQuote via {sock} failed: {e}"
+        return health
 
     async def _bootstrap_from_import_bundle(self):
         """RFC 0017 §4: an empty registry with an import bundle present means a

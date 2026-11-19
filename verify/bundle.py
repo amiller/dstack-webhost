@@ -14,7 +14,8 @@ import hashlib
 from dataclasses import asdict, dataclass, field
 
 # Current schema version - increment when the structure changes.
-SCHEMA_VERSION = "1.0.0"
+# 1.1.0: + EvidenceBundle.health and .runtime_identity (#173).
+SCHEMA_VERSION = "1.1.0"
 
 # RFC 0027 binding report_data = BINDING_TAG || SHA-512(BINDING_DOMAIN || app_id || name
 # || tree_hash || app_pubkey)[:48]. The per-app dstack proxy refuses app GetQuote calls
@@ -107,6 +108,12 @@ class EvidenceBundle:
     gateway: GatewayInfo = field(default_factory=GatewayInfo)
     app: AppInfo = field(default_factory=AppInfo)
     audit: list = field(default_factory=list)
+    # #173: the daemon's post-boot self-check (broker reachability + quote via
+    # the project's own socket) and the runtime identity the project last
+    # started under. Facts, not verdicts: a failed health check is served as a
+    # failed check, never omitted.
+    health: dict = field(default_factory=dict)
+    runtime_identity: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict (the on-wire form)."""
@@ -122,6 +129,8 @@ class EvidenceBundle:
                 "source": asdict(self.app.source),
             },
             "audit": self.audit,
+            "health": self.health,
+            "runtime_identity": self.runtime_identity,
         }
 
     @classmethod
@@ -144,6 +153,8 @@ class EvidenceBundle:
         binding_quote = app.get("binding_quote")
         binding = app.get("binding")
         platform_quote = data.get("platform_quote")
+        health = data.get("health")
+        runtime_identity = data.get("runtime_identity")
 
         return cls(
             schema_version=data.get("schema_version", SCHEMA_VERSION),
@@ -161,4 +172,6 @@ class EvidenceBundle:
                 operator_debug=OperatorDebugInfo(**(od if isinstance(od, dict) else {})),
             ),
             audit=data.get("audit") or [],
+            health=health if isinstance(health, dict) else {},
+            runtime_identity=runtime_identity if isinstance(runtime_identity, dict) else {},
         )

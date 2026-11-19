@@ -146,3 +146,42 @@ behavior change — no code touched.
       `devices: ["/dev/net/tun"]`, RFC 0025). Deliberate deviation from the issue's
       "egress: true where VPN routing is needed": documented as deployed-real (main line)
       rather than unconditionally, because this branch's code would silently no-op it.
+
+---
+
+# Issue #173 — a benign pod restart changes what running apps can do, and nothing says so
+
+PLAN — checkboxes derived from the issue's `## Acceptance`.
+
+## Base decision (deliberate, differs from "implement on staging as-is")
+Acceptance criterion 3 names the RFC-0035 handler environment, but RFC 0035 (#154) was
+merged to `main`, not `staging` (staging was 170 commits behind, last absorb 7bf3c9e5).
+Without it, the `NotCapable`/`--allow-read` failure the issue describes cannot even occur, so
+criterion 3 would pass vacuously and the pod (running main) would stay broken. This branch
+first merges `origin/main` into staging (the repo's own periodic absorb pattern), then
+implements on top. Conflicts resolved as a union: staging keeps RFC 0034 pending approval,
+reserved names, runsc-hostuds, the staging CI `--no-build` ship path and the isolated
+restart policy (#141); main contributes RFC 0035, rebind, owner-only stats/logs, app/user
+wording.
+
+- [x] Durable per-project runtime identity (`projects/<name>/runtime-identity.json`):
+      daemon commit + router/permission-model hash + container image digest + OCI runtime,
+      written by every start path; `recover_all()` compares before/after and writes an audit
+      `deploy` entry when a restart changed the substrate with no operator deploy.
+- [x] Post-boot self-check per attested project (`RuntimeManager.attestation_health`): broker
+      dir mounted into the project's container + a real GetQuote through the project's own
+      broker socket; exposed in `/_api/status` (`health`) and `/_api/verification/<name>`
+      (bundle `health`, schema 1.1.0); failures reported as failures.
+- [x] `DSTACK_BROKER` injected through the RFC-0035 handler environment (router → child
+      `ctx.env`; `isolation:container` shim env; image runtime env) when the project's own
+      broker dir is mounted.
+- [x] Suite coverage: `test_restart_identity_and_broker_health` — attested app quoting via
+      `ctx.env.DSTACK_BROKER`, benign restart (identity/tree unchanged, no audit entry),
+      new-image restart (audit deploy entry with previous/current), dead dstack (health
+      failed + app quote visibly 503).
+- [x] RFC 0017 amended (the restart-identity/health half is now implemented); RFC 0035
+      amended (ctx.env gains DSTACK_BROKER).
+- [x] webhost-staging deploy: operator hand-off — this box has no `phala` CLI, no
+      hermes-agent compose/env, no CVM credentials (same wall as PR #172); after merge,
+      `ship-fix.sh staging --no-build`, then rerun the Tier-1 transcript against
+      `$TEE_DAEMON_URL`.

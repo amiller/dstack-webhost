@@ -1239,6 +1239,13 @@ class Ingress:
             if project.binding:
                 bundle.attestation_kind = "daemon-vouched"
 
+            # #173: the substrate this project last started under (restart
+            # identity) and the live broker/quote self-check. A failed check is
+            # part of the record — never drop it to serve an apparently-
+            # verified bundle.
+            bundle.runtime_identity = self.rtm.recorded_identity(project)
+            bundle.health = await self.rtm.attestation_health(project)
+
             # Attach the per-project audit log to the bundle (part of the served shape).
             try:
                 audit_log = self.audit_manager.get_audit_log(name)
@@ -1672,6 +1679,7 @@ class Ingress:
             if project.mode == "attested":
                 # Get the scheme and host from the environment or request
                 data["verification_url"] = f"/_api/verification/{project.name}"
+                data["health"] = await self.rtm.attestation_health(project)
             projects.append(data)
         return web.json_response(projects)
 

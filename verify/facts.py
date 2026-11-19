@@ -153,6 +153,9 @@ class Facts:
     binding: BindingFacts = field(default_factory=BindingFacts)
     onchain: OnchainFacts = field(default_factory=OnchainFacts)
     source: SourceFacts = field(default_factory=SourceFacts)
+    # #173: daemon self-check + restart identity, as served (opaque facts)
+    health: dict = field(default_factory=dict)
+    runtime_identity: dict = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -214,6 +217,8 @@ class Facts:
                 "github_tree_sha": self.source.github_tree_sha,
                 "error": self.source.error,
             },
+            "health": self.health,
+            "runtime_identity": self.runtime_identity,
             "errors": self.errors,
         }
 
@@ -647,6 +652,12 @@ async def _verify_bundle(
     # app-level facts (project / image_digest were previously dropped — drift fix)
     facts.project = bundle.app.project
     facts.image_digest = bundle.app.image_digest
+
+    # #173 substrate facts — opaque: the library cannot re-verify them, it only
+    # guarantees they reach the consumer as served (a failed health check is a
+    # fact for the consumer's policy, not a verdict here).
+    facts.health = bundle.health
+    facts.runtime_identity = bundle.runtime_identity
 
     # source facts
     facts.source = _extract_source_facts(bundle.app.source)

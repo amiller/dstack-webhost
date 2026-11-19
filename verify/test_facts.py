@@ -289,6 +289,12 @@ def _full_producer_bundle() -> EvidenceBundle:
         operator_debug=OperatorDebugInfo(enabled=True, last_session_at=""),
     )
     bundle.audit = [{"action": "promote", "timestamp": 1234567890}]
+    # #173 substrate facts
+    bundle.health = {"broker_path": "/run/broker/rfc-roundtrip/dstack.sock",
+                     "broker_mounted": True, "quote_ok": True, "error": "",
+                     "checked_at": 1234567890.5}
+    bundle.runtime_identity = {"daemon_commit": "ab12cd34", "router_sha256": "cd" * 32,
+                               "image_digest": "sha256:imagedigest", "oci_runtime": ""}
     return bundle
 
 
@@ -351,6 +357,12 @@ def test_bundle_roundtrip():
     assert facts.operator_debug.enabled is True
     assert facts.operator_debug.last_session_at == ""
 
+    # #173: health + runtime_identity arrive as served (no verdict, no drop)
+    assert facts.health["quote_ok"] is True
+    assert facts.health["broker_path"].endswith("/rfc-roundtrip/dstack.sock")
+    assert facts.runtime_identity["daemon_commit"] == "ab12cd34"
+    assert facts.runtime_identity["router_sha256"] == "cd" * 32
+
     print("test_bundle_roundtrip: PASS (every producer field populated on consumer side)")
 
 
@@ -391,7 +403,8 @@ def test_bundle_to_dict_is_the_served_shape():
     ``/_api/verification/<project>`` response shape must not change."""
     wire = _full_producer_bundle().to_dict()
     expected_keys = {"schema_version", "platform_quote", "webhost_app_id",
-                     "attestation_kind", "onchain", "gateway", "app", "audit"}
+                     "attestation_kind", "onchain", "gateway", "app", "audit",
+                     "health", "runtime_identity"}  # latter two: schema 1.1.0 (#173)
     assert expected_keys == set(wire.keys()), expected_keys ^ set(wire.keys())
     assert set(wire["app"]["source"]) == {"repo", "ref", "commit_sha", "tree_hash", "tree_hash_kind"}
     assert set(wire["onchain"]) == {"chain_id", "kms_contract", "dstackapp",

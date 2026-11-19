@@ -3,6 +3,8 @@
 ## Summary
 Make the deployed fleet and its private per-app state survive a CVM being recreated: externalize the daemon's volumes, provide an exportable manifest set, and a *pinned* restore that redeploys each app at its recorded commit/digest — refusing (not silently re-cloning) if the pin no longer matches.
 
+Also make a restart **not change what runs** (issue #173, implemented): the daemon records, per project, the runtime substrate each app last started under — daemon commit, router/permission-model hash, container image digest, OCI runtime — in `projects/<name>/runtime-identity.json`. `recover_all()` snapshots that record before recreating anything; a project whose substrate differs after the boot got a new daemon image, router, permission model or container image *without an operator deploy*, and the change is written to its audit ledger as a deploy entry. `/_api/verification/<name>` exposes the recorded `runtime_identity`, and every attested project gets a post-boot self-check — broker socket mounted, quote obtainable through its own per-project socket — in `/_api/status` (`health`) and the verification bundle (`health`), with failures reported as failures.
+
 ## Problem
 Recovery today is shallow. `recover_all()` in `proxy/runtimes.py` restarts runtimes and per-project containers from whatever is on disk under `/var/lib/tee-daemon`. That disk persists **only if** `DAEMON_VOLUME_NAME` / the data volume point at external named volumes; the default `daemon_data` volume in `docker-compose.yaml` is local to the CVM. Concretely, on a fresh CVM:
 

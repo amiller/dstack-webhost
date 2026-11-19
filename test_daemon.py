@@ -122,7 +122,8 @@ def push_update(name: str, files: dict[str, bytes]):
     subprocess.run(["git", "-C", work_dir, "push"], capture_output=True, check=True)
 
 
-def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
+def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1,
+                  extra_env: dict | None = None):
     global daemon_proc, tmpdir
     if not reuse_tmpdir:
         tmpdir = tempfile.mkdtemp(prefix="tee-daemon-test-")
@@ -134,7 +135,7 @@ def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
         "DAEMON_TUNNEL_DIR": os.path.join(tmpdir, "tunnels"),
         "DAEMON_TOKEN_DIR": os.path.join(tmpdir, "tokens"),
         "PROXY_SOCKET_DIR": os.path.join(tmpdir, "proxy"),
-        "DOCKER_SOCKET": "/var/run/docker.sock",
+        "DOCKER_SOCKET": os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock"),
         "DSTACK_SOCKET": "/nonexistent",
         "TEE_DAEMON_TOKEN": TEST_TOKEN,
         "DAEMON_PENDING_TTL": "8",
@@ -157,6 +158,7 @@ def start_daemon(reuse_tmpdir: bool = False, browser_pool_size: int = 1):
         "BROWSER_POOL_PORT": "3000",
         "BROWSER_POOL_LEASE_TTL": "5",
     })
+    env.update(extra_env or {})
     daemon_proc = subprocess.Popen(
         [sys.executable, "-m", "proxy.main"],
         cwd=os.path.dirname(__file__),
@@ -1898,6 +1900,156 @@ def test_rfc0017_bootstrap():
     print(f"  Bootstrap: {len(bundle['projects'])} projects restored at their pins \u2713")
 
 
+FAKE_DSTACK = r'''
+import asyncio, json, sys
+from aiohttp import web
+
+sock = sys.argv[1]
+APP_ID = "cd" * 20
+
+async def handler(request):
+    method = request.path.lstrip("/")
+    if method == "GetQuote":
+        log = [{"imr": 3, "event": "app-id", "event_payload": APP_ID}]
+        return web.json_response({"quote": "00", "event_log": json.dumps(log)})
+    if method == "GetKey":
+        return web.json_response({"key": "11" * 32})
+    return web.json_response({})
+
+async def main():
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.UnixSite(runner, sock).start()
+    await asyncio.Event().wait()
+
+asyncio.run(main())
+'''
+
+# #173: an attested tenant that reads its broker path ONLY from ctx.env (the
+# RFC-0035 handler environment) and quotes through it — the attest-proxy shape.
+PROBE_ATTEST_APP = r'''
+export default async (req, ctx) => {
+  const path = ctx.env.DSTACK_BROKER ?? "";
+  if (!path) return Response.json({error: "DSTACK_BROKER missing from ctx.env"}, {status: 500});
+  const client = Deno.createHttpClient({proxy: {transport: "unix", path}});
+  const resp = await fetch("http://localhost/GetQuote", {
+    method: "POST", headers: {"content-type": "application/json"},
+    body: JSON.stringify({report_data: ""}), client});
+  const body = await resp.json().catch(() => ({}));
+  return Response.json({broker: path, status: resp.status, quote: body.quote ?? null});
+};
+'''
+
+
+def test_restart_identity_and_broker_health():
+    """#173: a restart must not change what runs (recorded identity + audit on
+    change), every attested project gets a broker/quote self-check in /_api/status
+    and /_api/verification, and the broker path arrives via ctx.env (RFC 0035)."""
+    print("\n--- Test: restart identity + broker/quote self-check (#173) ---")
+    stop_daemon()
+    base = tempfile.mkdtemp(prefix="dstack-173-")
+    broker_dir = os.path.join(base, "broker")
+    os.makedirs(broker_dir)
+    dstack_sock = os.path.join(base, "dstack.sock")
+    fake = subprocess.Popen([sys.executable, "-c", FAKE_DSTACK, dstack_sock],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(100):
+        if os.path.exists(dstack_sock):
+            break
+        time.sleep(0.1)
+    assert os.path.exists(dstack_sock), "fake dstack never bound its socket"
+
+    env = {"DSTACK_SOCKET": dstack_sock, "BROKER_SOCKET_DIR": broker_dir,
+           "BROKER_HOST_PATH": broker_dir}
+
+    def boot(commit, reuse=False):
+        start_daemon(reuse_tmpdir=reuse,
+                     extra_env={**env, "DAEMON_COMMIT": commit})
+
+    def wait_app_quoting():
+        for _ in range(180):
+            try:
+                r = requests.get(f"{INGRESS}/probe-attest/", timeout=5)
+                if r.status_code == 200:
+                    return r.json()
+            except Exception:
+                pass
+            time.sleep(1)
+        raise AssertionError("probe-attest never served a quote after boot")
+
+    def deploy_entries():
+        return [e for e in api_get("/projects/probe-attest/audit").json()
+                if e["action"] == "deploy"]
+
+    boot("aaaabbbb")
+    repo = create_test_repo("probe-attest", {
+        "project.json": json.dumps({"runtime": "deno", "entry": "server.ts",
+                                     "port": 3000, "mode": "attested"}).encode(),
+        "server.ts": PROBE_ATTEST_APP.encode(),
+    })
+    resp = api_post("/projects", json={"name": "probe-attest", "source": repo,
+                                        "runtime": "deno", "mode": "attested"})
+    assert resp.status_code == 201, f"deploy failed: {resp.status_code} {resp.text}"
+
+    first = wait_app_quoting()
+    assert first["broker"] == "/run/broker/probe-attest/dstack.sock", first
+    assert first["status"] == 200 and first["quote"] == "00", first
+    print("  attested app obtained a quote via ctx.env.DSTACK_BROKER ✓")
+
+    row = next(p for p in api_get("/status").json() if p["name"] == "probe-attest")
+    assert row["health"]["quote_ok"] and row["health"]["broker_mounted"], row["health"]
+    assert row["health"]["broker_path"] == "/run/broker/probe-attest/dstack.sock"
+    ver = api_get("/verification/probe-attest").json()
+    assert ver["health"]["quote_ok"], ver["health"]
+    assert ver["runtime_identity"]["daemon_commit"] == "aaaabbbb", ver["runtime_identity"]
+    tree0 = ver["app"]["source"]["tree_hash"]
+    n_deploys0 = len(deploy_entries())
+    print(f"  /_api/status + verification carry health and identity ✓")
+
+    # Restart with NO deployment: nothing changes, nothing is recorded.
+    stop_daemon()
+    boot("aaaabbbb", reuse=True)
+    again = wait_app_quoting()
+    assert again == first, again
+    assert len(deploy_entries()) == n_deploys0, "restart with no deploy wrote audit entries"
+    ver = api_get("/verification/probe-attest").json()
+    assert ver["app"]["source"]["tree_hash"] == tree0
+    assert ver["runtime_identity"]["daemon_commit"] == "aaaabbbb"
+    print("  benign restart: same identity, same tree, no audit entry ✓")
+
+    # Restart onto a NEW daemon image: a deploy nobody made — must be audited.
+    stop_daemon()
+    boot("ccccdddd", reuse=True)
+    assert wait_app_quoting()["quote"] == "00"
+    entries = deploy_entries()
+    assert len(entries) == n_deploys0 + 1, [e["detail"] for e in entries]
+    detail = json.loads(entries[-1]["detail"])
+    assert detail["previous"]["daemon_commit"] == "aaaabbbb", detail
+    assert detail["current"]["daemon_commit"] == "ccccdddd", detail
+    ver = api_get("/verification/probe-attest").json()
+    assert ver["runtime_identity"]["daemon_commit"] == "ccccdddd"
+    assert ver["app"]["source"]["tree_hash"] == tree0, "source identity must not change"
+    print("  new daemon image on restart: audited as a deploy, source unchanged ✓")
+
+    # A dead dstack is REPORTED, never papered over (#124 / 11-19 incident).
+    fake.terminate()
+    fake.wait()
+    ver = api_get("/verification/probe-attest").json()
+    assert ver["health"]["quote_ok"] is False and ver["health"]["error"], ver["health"]
+    row = next(p for p in api_get("/status").json() if p["name"] == "probe-attest")
+    assert row["health"]["quote_ok"] is False
+    dead = wait_app_quoting()  # app serves; the quote itself is what fails
+    assert dead["status"] == 503 and dead["quote"] is None, dead
+    print("  dead dstack: health reports failed, app quote visibly fails ✓")
+
+    api_delete("/projects/probe-attest")
+    stop_daemon()
+    start_daemon()
+    print("  teardown + fleet daemon restored ✓")
+
+
 def test_provisioner_flow():
     """RFC 0034: a create-scoped token provisions a pending project and gets a per-project token."""
     print("\n--- Test: RFC 0034 provisioner token + pending approval ---")
@@ -2048,6 +2200,7 @@ def main():
         test_browser_pool()
         test_rfc0017_export_import()
         test_rfc0017_bootstrap()
+        test_restart_identity_and_broker_health()
         test_provisioner_flow()
         test_teardown()
         # Issue #77 parity board runs on its own daemon with a 2-slot pool so the
