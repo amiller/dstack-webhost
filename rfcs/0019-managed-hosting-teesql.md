@@ -5,7 +5,9 @@ Run dstack-webhost as a managed, multi-app service on infrastructure TeeSQL
 operates (their AttestMesh mesh and dstack nodes), so the hosting/ops burden moves
 to them while we keep the app and the attestation-appraisal layer. dstack-webhost
 stays open and self-hostable for personal use; the managed deployment is the paid,
-multi-app version. This is a request for collaboration: the design below is
+multi-tenant version. Here a *tenant* means a separate customer account authorized to
+deploy its own apps on the shared host; today each CVM has a single owner and there are
+no tenants. This is a request for collaboration: the design below is
 reviewable, but the (a)/(b) topology choice and the commercial model are decided
 with TeeSQL, not unilaterally here.
 
@@ -109,7 +111,7 @@ One codebase, two deployment modes (open core):
 - **Managed bring-up (option a):**
   1. TeeSQL stands up dstack node(s) on a base-prod ecosystem.
   2. dstack-webhost itself is deployed there as an *attested* app — promoted through
-     the same dev → attested gate as any other app, `app_id` from the on-chain
+     the same dev → attested gate as any tenant's app, `app_id` from the on-chain
      `DstackApp` allowlist, binding quote recorded (the RFC 0025 machinery,
      unchanged).
   3. External named volumes are wired per RFC 0017's operational requirement, and
@@ -169,7 +171,7 @@ Acceptance criteria for the slice:
   public RFC 0015 endpoints (`/_api/attest/<name>`, `/_api/verification/<name>`)
   return a valid binding (`app_id`, `tree_hash`, quote) for the daemon's own
   attested deployment.
-- One app deployed and promoted through `/_api` on the managed host verifies
+- One tenant's app deployed and promoted through `/_api` on the managed host verifies
   end-to-end via the same public endpoints.
 - Export → destroy → import on the managed host restores the fleet at identical
   pins; a tampered pin errors, never silently re-clones.

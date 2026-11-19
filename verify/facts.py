@@ -23,17 +23,16 @@ The library is honest about what it can and cannot verify:
   surfaced as False — a FACT, not an error. With consumer-supplied chain_config,
   the base-prod DstackApp allowlist is checked over eth_call and the result
   surfaces the same way (approved/error as facts, never a verdict).
-- The RFC 0025 report-data binding is recomputed from the bundle's claimed
-  (app_id, project, tree_hash, app_pubkey) and compared to the quote's
-  report_data; an empty/zero or non-matching report_data is recorded in
-  errors[] as a tree_hash binding failure.
+- The RFC 0027 per-app binding quote (app.binding) is DCAP-verified like the
+  platform quote, and the report_data read from it is compared with
+  binding_report_data over the served preimage, which must name the project
+  and tree_hash and come from the same CVM image as the platform quote.
 - The RFC 0029 declared operator-debug door is surfaced as a fact (enabled /
   last_session_at), never a verdict.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -52,12 +51,10 @@ from .bundle import (
     OnchainInfo,
     OperatorDebugInfo,
     SourceInfo,
+    binding_report_data,
 )
 
 log = logging.getLogger(__name__)
-
-# Domain separator for RFC 0025 report-data binding preimages.
-REPORT_DATA_DOMAIN = b"tee-daemon/app-attest/v1"
 
 
 @dataclass
@@ -156,6 +153,9 @@ class Facts:
     binding: BindingFacts = field(default_factory=BindingFacts)
     onchain: OnchainFacts = field(default_factory=OnchainFacts)
     source: SourceFacts = field(default_factory=SourceFacts)
+    # #173: daemon self-check + restart identity, as served (opaque facts)
+    health: dict = field(default_factory=dict)
+    runtime_identity: dict = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -217,6 +217,8 @@ class Facts:
                 "github_tree_sha": self.source.github_tree_sha,
                 "error": self.source.error,
             },
+            "health": self.health,
+            "runtime_identity": self.runtime_identity,
             "errors": self.errors,
         }
 
@@ -257,34 +259,6 @@ def _parse_bundle(bundle_data: dict) -> EvidenceBundle:
         return EvidenceBundle.from_dict(bundle_data)
     except (TypeError, ValueError) as e:
         raise BundleParseError(f"Bundle structure invalid: {e}") from e
-
-
-# --- RFC 0025 report-data binding preimage ----------------------------------
-
-def _compute_report_data_preimage(
-    app_id: str,
-    name: str,
-    tree_hash: str,
-    app_pubkey: str,
-    domain: bytes = REPORT_DATA_DOMAIN,
-) -> str:
-    """
-    Compute the report_data preimage the daemon's quote must commit to.
-
-    report_data = SHA-512(domain || app_id || name || tree_hash || app_pubkey)
-
-    A daemon-vouched quote binds the project's tree_hash this way (RFC 0025); a
-    consumer re-runs this and compares to the quote's report_data to detect a
-    tampered tree_hash.
-    """
-    preimage = (
-        domain
-        + app_id.encode()
-        + name.encode()
-        + tree_hash.encode()
-        + bytes.fromhex(app_pubkey)
-    )
-    return hashlib.sha512(preimage).hexdigest()
 
 
 # --- verification legs ------------------------------------------------------
@@ -362,36 +336,47 @@ def _verify_quote_signature(platform_quote: dict) -> QuoteFacts:
     return facts
 
 
-def _verify_binding_preimage(
-    project: str,
-    tree_hash: str,
-    app_pubkey: str,
-    app_id: str,
-    platform_quote: dict,
-) -> BindingFacts:
+def _verify_binding(binding: dict, project: str, tree_hash: str, platform: QuoteFacts) -> BindingFacts:
     """
-    Verify the RFC 0025 report-data binding: recompute the preimage from the
-    bundle's claimed (app_id, project, tree_hash, app_pubkey) and compare to
-    the quote's report_data. An empty/zero report_data means the quote does
-    not bind the tree_hash at all; a non-matching report_data means the
-    bundle's claimed tree_hash differs from what the quote bound. Both surface
-    as errors[]; neither throws.
+    Verify the RFC 0027 per-app binding (``app.binding``): DCAP-verify the binding
+    quote, read report_data out of the verified report, and compare it with
+    binding_report_data over the served preimage. The preimage must name this
+    project and the bundle's tree_hash, and the binding quote must come from the
+    same CVM image as the platform quote (MRTD, RTMR0-2). Every mismatch is an
+    error string; nothing throws.
     """
     facts = BindingFacts()
-    facts.report_data = platform_quote.get("report_data", "") or ""
-    if not (project and tree_hash and app_pubkey):
-        facts.error = "missing project/tree_hash/app_pubkey for binding preimage"
+    if not binding:
+        facts.error = "no app.binding block; the daemon published no per-app binding"
         return facts
-    facts.kind = "report-data-quote"
-    facts.app_pubkey = app_pubkey
-    rd = facts.report_data
-    if not rd or set(rd.lower()) == {"0"}:
-        facts.error = "quote report_data is empty/zero — tree_hash not bound by the quote"
+    pre = binding.get("preimage") or {}
+    event = binding.get("promote_event") or {}
+    facts.kind = binding.get("kind", "none")
+    facts.app_pubkey = pre.get("app_pubkey", "")
+    facts.promote_event_rtmr = event.get("rtmr", 0)
+    facts.promote_event_digest = event.get("digest", "")
+
+    quote = _verify_quote_signature(binding.get("binding_quote") or {})
+    facts.binding_quote = quote.quote_raw
+    if quote.verification_error:
+        facts.error = f"binding quote: {quote.verification_error}"
         return facts
-    expected = _compute_report_data_preimage(app_id, project, tree_hash, app_pubkey)
-    facts.preimage_verified = (rd.lower() == expected.lower())
+    facts.report_data = quote.report_data
+
+    errors = []
+    if pre.get("name") != project:
+        errors.append(f"preimage names project {pre.get('name')!r}, bundle is {project!r}")
+    if pre.get("tree_hash") != tree_hash:
+        errors.append("preimage tree_hash differs from the bundle's source tree_hash")
+    if platform.quote_valid and (quote.mrtd, [quote.rtmr.get(f"rtmr{i}") for i in range(3)]) != \
+            (platform.mrtd, [platform.rtmr.get(f"rtmr{i}") for i in range(3)]):
+        errors.append("binding quote's MRTD/RTMR0-2 differ from the platform quote's")
+    expected = binding_report_data(pre.get("app_id", ""), pre.get("name", ""),
+                                   pre.get("tree_hash", ""), facts.app_pubkey).hex()
+    facts.preimage_verified = quote.report_data.lower() == expected
     if not facts.preimage_verified:
-        facts.error = "report_data does not commit to the bundle's claimed tree_hash"
+        errors.append("binding quote's report_data does not match the preimage")
+    facts.error = "; ".join(errors)
     return facts
 
 
@@ -668,6 +653,12 @@ async def _verify_bundle(
     facts.project = bundle.app.project
     facts.image_digest = bundle.app.image_digest
 
+    # #173 substrate facts — opaque: the library cannot re-verify them, it only
+    # guarantees they reach the consumer as served (a failed health check is a
+    # fact for the consumer's policy, not a verdict here).
+    facts.health = bundle.health
+    facts.runtime_identity = bundle.runtime_identity
+
     # source facts
     facts.source = _extract_source_facts(bundle.app.source)
     if facts.source.error:
@@ -686,18 +677,10 @@ async def _verify_bundle(
         facts.quote, bundle.platform_quote, chain_config or asdict(bundle.onchain)
     ))
 
-    # binding leg (RFC 0025 report-data preimage)
-    binding_quote = bundle.app.binding_quote
-    app_pubkey = binding_quote.get("pubkey", "") or ""
-    facts.binding = _verify_binding_preimage(
-        project=bundle.app.project,
-        tree_hash=facts.source.tree_hash,
-        app_pubkey=app_pubkey,
-        app_id=facts.app_id,
-        platform_quote=bundle.platform_quote,
-    )
-    facts.binding.app_pubkey = app_pubkey
-    facts.binding.signature_chain_root = _signature_chain_root(binding_quote)
+    # binding leg (RFC 0027): the per-app binding quote, verified on its own
+    facts.binding = _verify_binding(bundle.app.binding, bundle.app.project,
+                                    facts.source.tree_hash, facts.quote)
+    facts.binding.signature_chain_root = _signature_chain_root(bundle.app.binding_quote)
     if facts.binding.error:
         facts.errors.append(f"binding: {facts.binding.error}")
 

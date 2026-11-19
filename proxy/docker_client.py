@@ -1,5 +1,6 @@
 """Thin async Docker Engine client over Unix socket."""
 
+import asyncio
 import base64
 import io
 import json
@@ -128,7 +129,10 @@ class DockerClient:
             raise RuntimeError(f"start failed ({status})")
 
     async def stop(self, cid: str, timeout: int = 5):
-        await self._raw_request("POST", f"/containers/{cid}/stop?t={timeout}")
+        status, _ = await self._raw_request(
+            "POST", f"/containers/{cid}/stop?t={timeout}", timeout=timeout + 10)
+        if status >= 400:
+            raise RuntimeError(f"stop failed ({status})")
 
     async def remove(self, cid: str, force: bool = True):
         await self._raw_request("DELETE", f"/containers/{cid}?force={'true' if force else 'false'}")
@@ -154,7 +158,7 @@ class DockerClient:
         return _demux_docker_stream(body)
 
     # A pull that never returns must not be able to stall a boot. Docker Hub throttling an
-    # anonymous pull looks exactly like this, and 300s of it per broken tenant is a long time
+    # anonymous pull looks exactly like this, and 300s of it per broken app is a long time
     # to hold the substrate. Recovery treats a failure here as "skip that project".
     PULL_TIMEOUT = 120
 
@@ -275,7 +279,7 @@ class DockerClient:
         """Remove a network. True if it went away, False if Docker still wants it.
 
         404 counts as success — the goal is that it is gone. 403/409 mean containers
-        are still attached, which is a live tenant and not ours to disturb."""
+        are still attached, which is a live app and not ours to disturb."""
         status, data = await self._json_request("DELETE", f"/networks/{name}")
         if status in (204, 404):
             return True
@@ -305,6 +309,52 @@ class DockerClient:
             "POST", "/volumes/create", json={"Name": name})
         if status >= 400:
             raise RuntimeError(f"ensure_volume failed ({status}): {data}")
+
+    async def list_containers(self, label: str) -> list[dict]:
+        filters = json.dumps({"label": [label]})
+        status, data = await self._json_request("GET", "/containers/json", params={"filters": filters})
+        if status >= 400:
+            raise RuntimeError(f"list containers failed ({status}): {data}")
+        return data
+
+    async def list_all_containers(self) -> list[dict]:
+        status, data = await self._json_request("GET", "/containers/json", params={"all": "true"})
+        if status >= 400:
+            raise RuntimeError(f"list containers failed ({status}): {data}")
+        return data
+
+    async def stream_logs(self, name: str, params: dict):
+        """Yield a container's log bytes, demuxed, without holding the history in memory
+        (the pod's daemon log was 860 MB on 2026-11-07). Raises LookupError if there is no
+        such container; nothing has been yielded at that point."""
+        status, info = await self._json_request("GET", f"/containers/{name}/json")
+        if status == 404:
+            raise LookupError(f"no such container: {name}")
+        if status >= 400:
+            raise RuntimeError(f"inspect failed ({status}): {info}")
+        conn = aiohttp.UnixConnector(path=self.socket_path)
+        async with aiohttp.ClientSession(connector=conn, timeout=aiohttp.ClientTimeout(total=None)) as session:
+            async with session.get(f"http://localhost/containers/{name}/logs", params=params) as resp:
+                if resp.status >= 400:
+                    raise RuntimeError(f"logs failed ({resp.status}): {await resp.text()}")
+                if info["Config"]["Tty"]:
+                    async for chunk in resp.content.iter_chunked(1 << 16):
+                        yield chunk
+                    return
+                while True:
+                    try:
+                        header = await resp.content.readexactly(8)
+                    except asyncio.IncompleteReadError as e:
+                        if e.partial:
+                            raise
+                        return
+                    yield await resp.content.readexactly(int.from_bytes(header[4:8], "big"))
+
+    async def stats(self, cid: str) -> dict:
+        status, data = await self._json_request("GET", f"/containers/{cid}/stats?stream=false", timeout=30)
+        if status >= 400:
+            raise RuntimeError(f"stats failed ({status}): {data}")
+        return data
 
     async def container_exists(self, name: str) -> str | None:
         status, data = await self._json_request("GET", f"/containers/{name}/json")

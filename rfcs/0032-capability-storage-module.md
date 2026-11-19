@@ -27,7 +27,7 @@ evaluated hands-on (`~/projects/storage-bakeoff/landscape/`), and the full repor
   revocation hook in one pure-JS container. ~85% of tinycloud's auth core is still-Apache
   Kepler code; the features we need predate the relicense.
 - What no single permissive primitive provides is the *server around the token*: storage,
-  issuance/claim UX, revocation state, grant inventory, and multi-tenant identity. That's
+  issuance/claim UX, revocation state, grant inventory, and multi-user identity. That's
   the module this RFC specifies, so apps get it once instead of ad hoc.
 
 ## Design

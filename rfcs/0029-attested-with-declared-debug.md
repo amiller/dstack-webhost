@@ -136,4 +136,4 @@ removes the surface entirely (RFC 0026's teardown path).
   door is gated to the owner token, and adding principals later does not change the boolean's meaning.
 - **Graded / partial debug scope** — a contradiction (see Debug vs. capability); use a capability
   (RFC 0004/0009) for less-than-full access, not a debug `scope`.
-- Closing the shared-isolate gap (RFC 0027); debug is per-container and does not change tenant isolation.
+- Closing the shared-isolate gap (RFC 0027); debug is per-container and does not change app isolation.

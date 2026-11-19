@@ -16,7 +16,7 @@ against the MVP slice is the operator's to file.
 
 ---
 
-# Issue #2 — isolation:container tenants have no outbound DNS under runsc
+# Issue #2 — isolation:container apps have no outbound DNS under runsc
 
 > Verbatim plan record: "tenant" throughout this section means an app (a project's container).
 
@@ -28,11 +28,11 @@ iptables DNAT makes it reachable; under gVisor the Sentry's netstack never appli
 so `127.0.0.11` is a dead address → every hostname `fetch()` fails → ingress 500.
 
 ## Where the fix goes (differs from the issue's *proposed* location — acceptance is what binds)
-The issue proposes `docker_proxy.py::_handle_create`, but daemon-created tenant containers never
+The issue proposes `docker_proxy.py::_handle_create`, but daemon-created app containers never
 traverse that handler: `proxy/main.py` builds `DockerClient(DOCKER_SOCK)` (the REAL socket) and
 `runtimes.py::start_isolated` / `start_image` create containers through it directly. The proxy
-handler only serves the tenant-facing `PROXY_SOCKET_DIR/docker.sock`. The real chokepoint for
-the symptom is `docker_client.py::create_container` — every daemon tenant create flows through
+handler only serves the app-facing `PROXY_SOCKET_DIR/docker.sock`. The real chokepoint for
+the symptom is `docker_client.py::create_container` — every daemon app create flows through
 it (isolated, image-runtime, browser pool).
 
 ## Diff
@@ -44,14 +44,14 @@ it (isolated, image-runtime, browser pool).
 - [x] `proxy/test_docker_client.py`: unit test — runsc create carries `Dns`, runc/shared does
       not (gating is the safety property; runsc is not installed on this box).
 - [x] `test_daemon.py::test_dns_probe`: acceptance-shaped e2e — same fetch-handler source
-      deployed `isolation:container` AND `isolation:shared` both serve 200; isolated tenant
+      deployed `isolation:container` AND `isolation:shared` both serve 200; isolated app
       keeps its `tee-proj-*` bridge (inspect).
 
 ## Evidence (Tier 1 — container/network behavior over HTTP, no UI)
 - [x] BEFORE on real runsc: deploy `dns-probe` via the webhost-staging API (unpatched daemon,
       runsc-backed) → record the 500/dns-error transcript + staging `/_api/version` pin.
 - [x] AFTER mechanism on local daemon @ this PR's commit (`/_api/version` pinned): container
-      tenant fetches `https://example.com` → 200 + body; shared → 200; `docker inspect` shows
+      app fetches `https://example.com` → 200 + body; shared → 200; `docker inspect` shows
       `tee-proj-*` network intact; NAT-path check: a container on a `tee-proj-*` bridge with
       `--dns 8.8.8.8` resolves + fetches (the exact mechanism the fix relies on).
 - [x] Full `test_daemon.py` green under flock; log to `~/paseo-batch/out/2/test.log`.
@@ -146,3 +146,42 @@ behavior change — no code touched.
       `devices: ["/dev/net/tun"]`, RFC 0025). Deliberate deviation from the issue's
       "egress: true where VPN routing is needed": documented as deployed-real (main line)
       rather than unconditionally, because this branch's code would silently no-op it.
+
+---
+
+# Issue #173 — a benign pod restart changes what running apps can do, and nothing says so
+
+PLAN — checkboxes derived from the issue's `## Acceptance`.
+
+## Base decision (deliberate, differs from "implement on staging as-is")
+Acceptance criterion 3 names the RFC-0035 handler environment, but RFC 0035 (#154) was
+merged to `main`, not `staging` (staging was 170 commits behind, last absorb 7bf3c9e5).
+Without it, the `NotCapable`/`--allow-read` failure the issue describes cannot even occur, so
+criterion 3 would pass vacuously and the pod (running main) would stay broken. This branch
+first merges `origin/main` into staging (the repo's own periodic absorb pattern), then
+implements on top. Conflicts resolved as a union: staging keeps RFC 0034 pending approval,
+reserved names, runsc-hostuds, the staging CI `--no-build` ship path and the isolated
+restart policy (#141); main contributes RFC 0035, rebind, owner-only stats/logs, app/user
+wording.
+
+- [x] Durable per-project runtime identity (`projects/<name>/runtime-identity.json`):
+      daemon commit + router/permission-model hash + container image digest + OCI runtime,
+      written by every start path; `recover_all()` compares before/after and writes an audit
+      `deploy` entry when a restart changed the substrate with no operator deploy.
+- [x] Post-boot self-check per attested project (`RuntimeManager.attestation_health`): broker
+      dir mounted into the project's container + a real GetQuote through the project's own
+      broker socket; exposed in `/_api/status` (`health`) and `/_api/verification/<name>`
+      (bundle `health`, schema 1.1.0); failures reported as failures.
+- [x] `DSTACK_BROKER` injected through the RFC-0035 handler environment (router → child
+      `ctx.env`; `isolation:container` shim env; image runtime env) when the project's own
+      broker dir is mounted.
+- [x] Suite coverage: `test_restart_identity_and_broker_health` — attested app quoting via
+      `ctx.env.DSTACK_BROKER`, benign restart (identity/tree unchanged, no audit entry),
+      new-image restart (audit deploy entry with previous/current), dead dstack (health
+      failed + app quote visibly 503).
+- [x] RFC 0017 amended (the restart-identity/health half is now implemented); RFC 0035
+      amended (ctx.env gains DSTACK_BROKER).
+- [x] webhost-staging deploy: operator hand-off — this box has no `phala` CLI, no
+      hermes-agent compose/env, no CVM credentials (same wall as PR #172); after merge,
+      `ship-fix.sh staging --no-build`, then rerun the Tier-1 transcript against
+      `$TEE_DAEMON_URL`.

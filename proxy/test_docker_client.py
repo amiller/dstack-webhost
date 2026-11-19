@@ -137,3 +137,27 @@ def test_read_data_file_extracts_one_regular_file():
         return 200, body.getvalue()
     dc._raw_request = raw
     assert asyncio.run(dc.read_data_file("deadbeef", "a.txt")) == b"value"
+
+
+def test_stop_waits_for_drain_and_refuses_failed_stop():
+    calls = []
+    dc = DockerClient("/nonexistent/docker.sock")
+
+    async def stop_request(method, path, **kw):
+        calls.append((path, kw["timeout"]))
+        return 204, b""
+
+    dc._raw_request = stop_request
+    asyncio.run(dc.stop("streaming", timeout=300))
+    assert calls == [("/containers/streaming/stop?t=300", 310)]
+
+    async def refused(*args, **kw):
+        return 500, b""
+
+    dc._raw_request = refused
+    try:
+        asyncio.run(dc.stop("streaming"))
+    except RuntimeError as error:
+        assert str(error) == "stop failed (500)"
+    else:
+        raise AssertionError("a failed stop must not proceed to container removal")

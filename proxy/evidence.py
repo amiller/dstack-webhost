@@ -10,7 +10,6 @@ result type is :class:`verify.Facts`.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import asdict, dataclass, field
 from typing import Optional
@@ -25,12 +24,11 @@ from verify.bundle import (
     OnchainInfo,
     OperatorDebugInfo,
     SourceInfo,
+    binding_report_data,
 )
 
 log = logging.getLogger(__name__)
 
-# RFC 0027: domain separator for the per-app binding report_data preimage.
-APP_ATTEST_DOMAIN = b"tee-daemon/app-attest/v1"
 # Byte offset of the 64-byte report_data field within a TDX v4 quote (TD report body).
 REPORT_DATA_OFFSET = 568
 
@@ -160,7 +158,7 @@ async def verify(endpoint: str, name: str, opts: dict | None = None) -> Verifica
         binding = bundle.app.binding
         if bundle.attestation_kind and binding:
             pre = binding.get("preimage", {})
-            recomputed = compute_app_report_data(
+            recomputed = binding_report_data(
                 pre.get("app_id", ""), pre.get("name", ""),
                 pre.get("tree_hash", ""), pre.get("app_pubkey", "")).hex()
             quote_hex = _norm_hex(binding.get("binding_quote", {}).get("quote", ""))
@@ -199,22 +197,3 @@ async def verify(endpoint: str, name: str, opts: dict | None = None) -> Verifica
 
 def _norm_hex(s: str) -> str:
     return s.lower().removeprefix("0x") if isinstance(s, str) else ""
-
-
-def compute_app_report_data(app_id: str, name: str, tree_hash: str, app_pubkey: str) -> bytes:
-    """RFC 0027 per-app binding report_data (fills the 64-byte quote field exactly).
-
-        SHA-512(DOMAIN ‖ app_id ‖ name ‖ tree_hash ‖ app_pubkey)
-
-    Encoding (unambiguous — `name` is the only variable-length field and is bracketed
-    by fixed-length fields): DOMAIN = raw bytes b"tee-daemon/app-attest/v1"; app_id,
-    tree_hash, app_pubkey are hex-decoded (a leading "0x" is stripped); name is UTF-8.
-    Callers reconstruct this exact preimage from the served `binding.preimage` block.
-    """
-    h = hashlib.sha512()
-    h.update(APP_ATTEST_DOMAIN)
-    h.update(bytes.fromhex(_norm_hex(app_id)))
-    h.update(name.encode("utf-8"))
-    h.update(bytes.fromhex(_norm_hex(tree_hash)))
-    h.update(bytes.fromhex(_norm_hex(app_pubkey)))
-    return h.digest()

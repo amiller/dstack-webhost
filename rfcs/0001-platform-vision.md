@@ -135,7 +135,7 @@ The original "Next Steps" list is mostly landed:
 - Public read-only verifier endpoints (RFC 0015) so a relying party doesn't need the admin token — done.
 - Source hash recorded as the git tree SHA so it can be checked against GitHub — done.
 - [Verifier page](../verify.md) and [audit guide](../audit.md) on the docs site — done.
-- App isolation primitives: `sysbox-runc` as the daemon's configurable OCI runtime, `runtime: "image"` for Layer-1 apps (an existing OCI image as a co-resident, with named-volume adoption and `env_passthrough`), and opt-in `isolation: "container"` for deno/bun projects (per-project container, scoped Deno permissions). Public `/_api/substrate` exposes the runtime choice; `examples/isolation-probe` corroborates from inside one app. See [isolation-probe](../isolation-probe.md).
+- App isolation primitives: `sysbox-runc` as the daemon's configurable OCI runtime, `runtime: "image"` for Layer-1 apps (an existing OCI image as a co-hosted app, with named-volume adoption and `env_passthrough`), and opt-in `isolation: "container"` for deno/bun projects (per-project container, scoped Deno permissions). Public `/_api/substrate` exposes the runtime choice; `examples/isolation-probe` corroborates from inside one app. See [isolation-probe](../isolation-probe.md).
 
 The verifier page and audit guide together replace what RFC 0001 originally called the "verification page" and "agent skill." The substrate is small enough that a project audit reduces to reading the project's own handler against a known runtime contract; the audit guide is the runbook for that.
 
