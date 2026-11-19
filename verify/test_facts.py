@@ -17,7 +17,8 @@ import aiohttp
 import pytest
 
 from verify import Facts, verify_from_bundle, BundleParseError
-from verify.facts import _compute_report_data_preimage, _parse_bundle
+from verify.bundle import binding_report_data
+from verify.facts import _parse_bundle
 from verify.policies import allowlist_policy, strict_policy
 from verify import (
     SCHEMA_VERSION,
@@ -169,10 +170,10 @@ def test_report_data_preimage_is_sensitive_to_tree_hash():
         name=good["app"]["project"],
         app_pubkey=good["app"]["binding_quote"]["pubkey"],
     )
-    pre_good = _compute_report_data_preimage(
-        tree_hash=good["app"]["source"]["tree_hash"], **common)
-    pre_tampered = _compute_report_data_preimage(
-        tree_hash=tampered["app"]["source"]["tree_hash"], **common)
+    pre_good = binding_report_data(
+        tree_hash=good["app"]["source"]["tree_hash"], **common).hex()
+    pre_tampered = binding_report_data(
+        tree_hash=tampered["app"]["source"]["tree_hash"], **common).hex()
     assert len(pre_good) == 128  # SHA-512 hex
     assert all(c in "0123456789abcdef" for c in pre_good)
     assert pre_good != pre_tampered  # 1-char tree_hash flip changes the preimage
@@ -215,6 +216,30 @@ def test_facts_to_dict_is_json_serializable_and_round_trips():
 
 # --- producer <-> consumer round-trip (issue #92) ---------------------------
 
+PLATFORM_QUOTE, BINDING_QUOTE = "00", "01"
+
+
+def _qvl(reports: dict):
+    """Stand-in for the dcap-qvl CLI: reports[quote_hex] is the TD10 report to return."""
+    def run(args, **kw):
+        quote = open(args[-1]).read()
+        return subprocess.CompletedProcess(args, 0, json.dumps({"report": {"TD10": reports[quote]}}), "")
+    return patch("verify.facts.subprocess.run", side_effect=run)
+
+
+def _td(report_data: str, mrtd: str = "aa" * 48) -> dict:
+    return {"mr_td": mrtd, "rt_mr0": "bb" * 48, "rt_mr1": "cc" * 48, "rt_mr2": "dd" * 48,
+            "rt_mr3": "ee" * 48, "report_data": report_data}
+
+
+def _verify_producer(wire: dict, platform_rd: str = "00" * 64, binding_rd: str | None = None,
+                     binding_mrtd: str = "aa" * 48) -> Facts:
+    if binding_rd is None:
+        binding_rd = wire["app"]["binding"]["report_data"].removeprefix("0x")
+    with _qvl({PLATFORM_QUOTE: _td(platform_rd), BINDING_QUOTE: _td(binding_rd, binding_mrtd)}):
+        return asyncio.run(verify_from_bundle(wire))
+
+
 def _full_producer_bundle() -> EvidenceBundle:
     """Build a bundle via the producer path with every field set to a distinctive value.
 
@@ -222,15 +247,13 @@ def _full_producer_bundle() -> EvidenceBundle:
     dataclasses, then serialize. Any field the producer can set is set here."""
     app_pubkey = "02abcdef"  # valid hex (the binding preimage does bytes.fromhex on it)
     project = "rfc-roundtrip"
-    webhost_app_id = "<webhost-app-id>"
+    webhost_app_id = "ab" * 20
     tree_hash = "deadbeef" * 8
-    report_data = _compute_report_data_preimage(
-        app_id=webhost_app_id, name=project, tree_hash=tree_hash, app_pubkey=app_pubkey,
-    )
+    report_data = binding_report_data(webhost_app_id, project, tree_hash, app_pubkey).hex()
 
     bundle = EvidenceBundle()
     bundle.schema_version = SCHEMA_VERSION
-    bundle.platform_quote = {"quote": "<raw-platform-quote>", "report_data": report_data}
+    bundle.platform_quote = {"quote": PLATFORM_QUOTE, "report_data": "00" * 64}
     bundle.webhost_app_id = webhost_app_id
     bundle.onchain = OnchainInfo(
         chain_id=0,  # non-anchored (pha-prod), matches the served fixture
@@ -255,6 +278,14 @@ def _full_producer_bundle() -> EvidenceBundle:
         ),
         image_digest="sha256:imagedigest",
         binding_quote={"pubkey": app_pubkey, "signature_chain": ["<sig-chain-root>"]},
+        binding={
+            "kind": "report-data-quote",
+            "binding_quote": {"quote": BINDING_QUOTE},
+            "report_data": "0x" + report_data,
+            "preimage": {"app_id": webhost_app_id, "name": project,
+                         "tree_hash": tree_hash, "app_pubkey": app_pubkey},
+            "promote_event": {"rtmr": 3, "digest": "ab" * 48},
+        },
         operator_debug=OperatorDebugInfo(enabled=True, last_session_at=""),
     )
     bundle.audit = [{"action": "promote", "timestamp": 1234567890}]
@@ -271,18 +302,18 @@ def test_bundle_roundtrip():
     dropping it silently.
     """
     wire = _full_producer_bundle().to_dict()  # producer serialization
-    facts = asyncio.run(verify_from_bundle(wire))
+    facts = _verify_producer(wire)
 
     # schema_version is pinned and shared (a bump must be deliberate)
     assert facts.schema_version == SCHEMA_VERSION == wire["schema_version"]
     assert facts.attestation_kind == "daemon-vouched"
 
     # platform_quote -> QuoteFacts (+ binding.report_data)
-    assert facts.quote.quote_raw == "<raw-platform-quote>"
+    assert facts.quote.quote_raw == PLATFORM_QUOTE
     assert facts.quote.report_data == wire["platform_quote"]["report_data"]
 
     # webhost_app_id
-    assert facts.app_id == "<webhost-app-id>"
+    assert facts.app_id == "ab" * 20
 
     # onchain (every producer field echoed; chain_id str-encoded on the consumer)
     assert facts.onchain.chain_id == "0"
@@ -307,16 +338,51 @@ def test_bundle_roundtrip():
     assert facts.source.tree_hash == "deadbeef" * 8
     assert facts.source.tree_hash_kind == "git"
 
-    # app.binding_quote -> BindingFacts (preimage verifies against the report_data)
+    # app.binding -> BindingFacts (the binding quote's report_data matches the preimage)
+    assert facts.binding.kind == "report-data-quote"
     assert facts.binding.app_pubkey == "02abcdef"
     assert facts.binding.signature_chain_root == "<sig-chain-root>"
-    assert facts.binding.preimage_verified is True
+    assert facts.binding.preimage_verified is True, facts.binding.error
+    assert facts.binding.error == ""
+    assert facts.binding.promote_event_rtmr == 3
+    assert facts.binding.promote_event_digest == "ab" * 48
 
     # app.operator_debug -> OperatorDebugFacts (RFC 0029)
     assert facts.operator_debug.enabled is True
     assert facts.operator_debug.last_session_at == ""
 
     print("test_bundle_roundtrip: PASS (every producer field populated on consumer side)")
+
+
+def test_binding_is_read_from_the_binding_quote_not_the_platform_quote():
+    """#164: the binding's report_data must come from the binding quote. A platform
+    quote carrying the binding report_data proves nothing about the app."""
+    wire = _full_producer_bundle().to_dict()
+    rd = wire["app"]["binding"]["report_data"].removeprefix("0x")
+    facts = _verify_producer(wire, platform_rd=rd, binding_rd="00" * 64)
+    assert facts.binding.preimage_verified is False
+    assert any("report_data does not match" in e for e in facts.errors)
+
+
+def test_binding_rejects_tampered_tree_hash_other_image_and_missing_binding():
+    wire = _full_producer_bundle().to_dict()
+    wire["app"]["source"]["tree_hash"] = "ee" * 32
+    assert any("tree_hash differs" in e for e in _verify_producer(wire).errors)
+
+    wire = _full_producer_bundle().to_dict()
+    assert any("MRTD/RTMR0-2 differ" in e for e in _verify_producer(wire, binding_mrtd="ff" * 48).errors)
+
+    wire = _full_producer_bundle().to_dict()
+    del wire["app"]["binding"]
+    assert any("no app.binding block" in e for e in _verify_producer(wire, binding_rd="").errors)
+
+
+def test_binding_quote_failing_dcap_is_an_error():
+    wire = _full_producer_bundle().to_dict()
+    wire["app"]["binding"]["binding_quote"]["quote"] = "not-a-quote"
+    facts = _verify_producer(wire)
+    assert facts.binding.preimage_verified is False
+    assert "binding quote: TDX quote is not valid hexadecimal" in facts.binding.error
 
 
 def test_bundle_to_dict_is_the_served_shape():
@@ -477,6 +543,9 @@ if __name__ == "__main__":
     test_parse_invalid_bundle_raises_and_verify_surfaces_it()
     test_facts_to_dict_is_json_serializable_and_round_trips()
     test_bundle_roundtrip()
+    test_binding_is_read_from_the_binding_quote_not_the_platform_quote()
+    test_binding_rejects_tampered_tree_hash_other_image_and_missing_binding()
+    test_binding_quote_failing_dcap_is_an_error()
     test_bundle_to_dict_is_the_served_shape()
     test_onchain_approval()
     test_onchain_not_approved()

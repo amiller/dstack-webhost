@@ -7,7 +7,9 @@ component) and constructs the key path server-side as
 per project on its own socket (see :class:`DstackProxyManager`), so an app can
 only ever derive its OWN project's keys — closing the cross-app derivation
 flaw (#7). A project's container is mounted only its own broker dir, so it
-cannot even reach another project's socket.
+cannot even reach another project's socket. In the shared deno runtime every
+co-resident's dir is mounted, and each app's `deno run` permissions cover only
+its own (RFC 0035).
 """
 
 import json
@@ -17,9 +19,11 @@ import os
 import aiohttp
 from aiohttp import web
 
+from verify.bundle import BINDING_TAG
+
 log = logging.getLogger(__name__)
 
-ALLOWED_METHODS = {"GetTlsKey", "GetQuote", "Info", "EmitEvent", "GetKey"}
+ALLOWED_METHODS = {"GetTlsKey", "GetQuote", "Info", "GetKey"}
 PROJECT_KEY_PREFIX = "/tee-daemon/projects/"
 
 
@@ -65,6 +69,16 @@ class DstackProxy:
             body["path"] = f"{PROJECT_KEY_PREFIX}{self.project_id}/{name}"
             body_bytes = json.dumps(body).encode()
 
+        if method == "GetQuote":
+            # Apps may quote any report_data except the daemon's binding domain (#159).
+            # The body is rebuilt so no alias field reaches dstack unchecked.
+            rd = str(body.get("report_data", "")).lower().removeprefix("0x")
+            if rd.startswith(BINDING_TAG.hex()):
+                log.warning("Denied GetQuote in the binding domain for project %s", self.project_id)
+                return web.json_response({"message": "report_data uses the reserved binding prefix"},
+                                         status=403)
+            body_bytes = json.dumps({"report_data": rd}).encode()
+
         return await self._forward(request.method, request.path, body_bytes, request.headers)
 
     async def _forward(self, method: str, path: str, body: bytes, headers) -> web.Response:
@@ -74,15 +88,22 @@ class DstackProxy:
                        if k.lower() not in ("host", "transfer-encoding", "content-length")}
         conn = aiohttp.UnixConnector(path=self.real_socket)
         async with aiohttp.ClientSession(connector=conn) as session:
-            async with session.request(method, f"http://localhost{path}",
-                                       data=body if body else None,
-                                       headers=fwd_headers) as resp:
-                resp_body = await resp.read()
-                return web.Response(
-                    body=resp_body,
-                    status=resp.status,
-                    content_type=resp.content_type,
-                )
+            try:
+                async with session.request(method, f"http://localhost{path}",
+                                           data=body if body else None,
+                                           headers=fwd_headers) as resp:
+                    resp_body = await resp.read()
+                    return web.Response(
+                        body=resp_body,
+                        status=resp.status,
+                        content_type=resp.content_type,
+                    )
+            except aiohttp.ClientConnectorError as e:
+                # The CVM's dstack guest agent is down (2026-11-10: it exited and its
+                # in-place restarts failed). Say so instead of an anonymous 500.
+                log.error("dstack guest agent unreachable for project %s: %s", self.project_id, e)
+                return web.json_response(
+                    {"message": f"dstack guest agent unreachable: {e}"}, status=503)
 
 
 class DstackProxyManager:

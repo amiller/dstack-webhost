@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -20,7 +21,8 @@ from .docker_proxy import DockerProxy
 from .projects import ProjectStore
 from .tracker import ContainerTracker
 from .audit import AuditLogManager, AuditEntry
-from .deploy import deploy, teardown, promote, unpromote, import_bundle, REDACTED, NAME_RE, RESERVED_NAMES
+from .deploy import (deploy, teardown, promote, unpromote, rebind, import_bundle,
+                     REDACTED, NAME_RE, RESERVED_NAMES)
 from . import pending
 from . import runtimes as runtimes_mod
 from .runtimes import RuntimeManager
@@ -64,10 +66,16 @@ def _redact_env(data: dict) -> dict:
 DSTACK_SOCK = None  # set by main.py
 API_TOKEN = os.environ.get("TEE_DAEMON_TOKEN", "")
 
+# /_api/logs/<name>: the name goes into a Docker API path, so only Docker's own name alphabet
+# (dstack guest-agent had to add the same check, Dstack-TEE/dstack#1443).
+_CONTAINER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+_LOG_TAIL_RE = re.compile(r"all|[0-9]{1,9}")
+_UNIX_TS_RE = re.compile(r"[0-9]{1,10}(\.[0-9]{1,9})?")
+
 # Headers this proxy never forwards upstream.
 HOP_HEADERS = ("host", "transfer-encoding", "accept-encoding")
 
-# Headers that claim who the client is. A tenant reading one is trusting whoever set it.
+# Headers that claim who the client is. An app reading one is trusting whoever set it.
 FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "x-forwarded-proto", "x-forwarded-host")
 
 # Peers whose forwarded headers we believe, by address. Empty means "believe nobody".
@@ -86,8 +94,8 @@ FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "x-forwarded-proto", "x-for
 # It forwards nothing rather than invent it.
 #
 # What this DOES fix now: the ingress passes a client's own X-Forwarded-For through verbatim
-# (verified against the live pod -- `-H "X-Forwarded-For: 1.2.3.4"` reached the tenant
-# unchanged), so a tenant reading it reads a value the caller picked. Stripped unless the peer
+# (verified against the live pod -- `-H "X-Forwarded-For: 1.2.3.4"` reached the app
+# unchanged), so an app reading it reads a value the caller picked. Stripped unless the peer
 # is named here.
 TRUSTED_PROXIES = frozenset(
     p.strip() for p in os.environ.get("TRUSTED_PROXY_IPS", "").split(",") if p.strip()
@@ -109,6 +117,32 @@ MIME_TYPES = {
 }
 
 
+async def _stream_upstream(request: web.Request, url: str, body: bytes, headers) -> web.StreamResponse:
+    """Stream an upstream response through in chunks. Buffering whole bodies leaked:
+    an aborted client download pinned the full buffer in a traceback cycle until a
+    gen-2 GC, and the pod OOMed (2026-10-24)."""
+    async with aiohttp.ClientSession() as session:
+        async with session.request(request.method, url,
+                                   data=body if body else None,
+                                   headers=headers) as resp:
+            out = web.StreamResponse(status=resp.status)
+            out.content_type = resp.content_type
+            if resp.content_length is not None:
+                out.content_length = resp.content_length
+            # Forward the upstream's CORS headers — otherwise they're dropped here and
+            # browser extensions / verifiers can't call proxied app APIs. These are public
+            # app endpoints; default permissive when the app set nothing.
+            out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
+            for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
+                if resp.headers.get(h):
+                    out.headers[h] = resp.headers[h]
+            await out.prepare(request)
+            async for chunk in resp.content.iter_chunked(65536):
+                await out.write(chunk)
+            await out.write_eof()
+            return out
+
+
 def _network_isolation(runtime: str, available: dict) -> str:
     """How app network syscalls are mediated: "host" (passthrough to the
     container netns/host kernel stack), "sandbox" (gVisor netstack), "netns"
@@ -120,6 +154,25 @@ def _network_isolation(runtime: str, available: dict) -> str:
     if runtime.startswith("runsc"):
         return "sandbox"
     return "netns"
+
+
+APP_LABEL = "tee-daemon.project."
+
+
+def _container_stats(s: dict) -> dict:
+    """Docker stats (cgroup v2) -> bytes and a CPU percent over the ~1s sample.
+    working_set = usage - inactive_file, as `docker stats` reports. Under gVisor
+    the sandbox's guest memory is memfd-backed, so it shows up as shmem."""
+    m, st = s["memory_stats"], s["memory_stats"]["stats"]
+    cpu, pre = s["cpu_stats"], s["precpu_stats"]
+    cpu_delta = cpu["cpu_usage"]["total_usage"] - pre["cpu_usage"]["total_usage"]
+    sys_delta = cpu["system_cpu_usage"] - pre["system_cpu_usage"]
+    return {
+        "usage": m["usage"], "limit": m["limit"],
+        "working_set": m["usage"] - st["inactive_file"],
+        "anon": st["anon"], "file": st["file"], "shmem": st["shmem"],
+        "cpu_percent": round(100 * cpu_delta / sys_delta * cpu["online_cpus"], 1),
+    }
 
 
 class Ingress:
@@ -145,6 +198,10 @@ class Ingress:
 
     async def handle(self, request: web.Request) -> web.Response:
         path = request.path.lstrip("/")
+        project_host = json.loads(os.environ.get("PROJECT_HOSTS", "{}")).get(
+            request.host.lower().removesuffix(":443"))
+        if project_host:
+            path = project_host + "/" + path
 
         if path.startswith("_api"):
             return await self._handle_api(request, path[4:].lstrip("/"))
@@ -323,30 +380,14 @@ class Ingress:
 
         ext = os.path.splitext(requested)[1].lower()
         ct = MIME_TYPES.get(ext, "application/octet-stream")
-        with open(requested, "rb") as f:
-            return web.Response(body=f.read(), content_type=ct)
+        return web.FileResponse(requested, headers={"Content-Type": ct})
 
     async def _proxy(self, request: web.Request, ip: str, port: int,
                      path: str) -> web.Response:
         body = await request.read()
         headers = forward_headers(request)
         url = f"http://{ip}:{port}{path}"
-        async with aiohttp.ClientSession() as session:
-            async with session.request(request.method, url,
-                                       data=body if body else None,
-                                       headers=headers) as resp:
-                resp_body = await resp.read()
-                # Forward the upstream's CORS headers — otherwise they're dropped here and
-                # browser extensions / verifiers can't call proxied app APIs. These are public
-                # app endpoints; default permissive when the app set nothing.
-                out = web.Response(
-                    body=resp_body, status=resp.status,
-                    content_type=resp.content_type)
-                out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
-                for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
-                    if resp.headers.get(h):
-                        out.headers[h] = resp.headers[h]
-                return out
+        return await _stream_upstream(request, url, body, headers)
 
     def update_port_map(self):
         """Update the port map based on current projects.
@@ -486,22 +527,7 @@ class Ingress:
         body = await request.read()
         headers = forward_headers(request)
         url = f"{tunnel.backend}{subpath}"
-        async with aiohttp.ClientSession() as session:
-            async with session.request(request.method, url,
-                                       data=body if body else None,
-                                       headers=headers) as resp:
-                resp_body = await resp.read()
-                # Forward the upstream's CORS headers — otherwise they're dropped here and
-                # browser extensions / verifiers can't call proxied app APIs. These are public
-                # app endpoints; default permissive when the app set nothing.
-                out = web.Response(
-                    body=resp_body, status=resp.status,
-                    content_type=resp.content_type)
-                out.headers["Access-Control-Allow-Origin"] = resp.headers.get("Access-Control-Allow-Origin", "*")
-                for h in ("Access-Control-Allow-Methods", "Access-Control-Allow-Headers"):
-                    if resp.headers.get(h):
-                        out.headers[h] = resp.headers[h]
-                return out
+        return await _stream_upstream(request, url, body, headers)
 
     async def _proxy_websocket(self, request: web.Request, backend_url: str, path: str) -> web.Response:
         """Proxy WebSocket connection to backend."""
@@ -673,7 +699,8 @@ class Ingress:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
                     return resp
 
-        owner_only = path == "tokens" or path.startswith("tokens/") or path.endswith("/approve")
+        owner_only = (path in ("tokens", "stats", "logs") or path.startswith("tokens/")
+                      or path.startswith("logs/") or path.endswith("/approve"))
         denied = self._check_auth(request, path, owner_only=owner_only)
         if denied:
             return denied
@@ -729,6 +756,16 @@ class Ingress:
         if path == "routes" and method == "GET":
             return await self._api_routes()
 
+        if path == "stats" and method == "GET":
+            return await self._api_stats()
+
+        if path == "logs" and method == "GET":
+            return web.json_response([
+                {"name": c["Names"][0].lstrip("/"), "state": c["State"], "status": c["Status"],
+                 "image": c["Image"]} for c in await self.docker.list_all_containers()])
+        if path.startswith("logs/") and method == "GET":
+            return await self._api_container_logs(path[len("logs/"):], request)
+
         # RFC 0017: fleet export/import (authed)
         if path == "export" and method == "GET":
             return await self._api_export()
@@ -761,6 +798,8 @@ class Ingress:
                 return await self._api_approve(name)
             if method == "POST" and rest == "unpromote":
                 return await self._api_unpromote(name)
+            if method == "POST" and rest == "rebind":
+                return await self._api_rebind(name)
             if method == "GET" and rest == "audit":
                 return await self._api_audit(name)
             if method == "GET" and rest == "history":
@@ -1000,6 +1039,13 @@ class Ingress:
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
 
+    async def _api_rebind(self, name: str) -> web.Response:
+        try:
+            project = await rebind(self.store, name, DSTACK_SOCK)
+            return web.json_response(_redact_env(asdict(project)))
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
     async def _api_audit(self, name: str) -> web.Response:
         """Get audit log for a specific project."""
         try:
@@ -1041,6 +1087,51 @@ class Ingress:
                 {"error": "no container for project (not running?)"}, status=404)
         text = await self.docker.logs(cid, tail=tail)
         return web.Response(text=text, content_type="text/plain")
+
+    async def _api_container_logs(self, name: str, request: web.Request) -> web.StreamResponse:
+        """Owner-only: the full stdout/stderr of ANY container on the CVM, streamed.
+
+        This is the private replacement for Phala's public_logs endpoint. With public_logs on,
+        anyone can download every container's history (the daemon's access log included); with
+        it off, nobody can, the owner included. The daemon already holds the Docker socket and
+        the owner token, so it serves the logs itself. Unlike /_api/projects/<name>/logs this
+        reaches the daemon, the shared runtimes and the compose siblings (ingress), and it is
+        not capped: tail defaults to all, and since/until (unix seconds) bound the window."""
+        q = request.query
+        params = {"stdout": "true", "stderr": "true", "timestamps": "true",
+                  "tail": q.get("tail", "all")}
+        params.update({k: q[k] for k in ("since", "until") if k in q})
+        if (not _CONTAINER_NAME_RE.fullmatch(name) or not _LOG_TAIL_RE.fullmatch(params["tail"])
+                or any(not _UNIX_TS_RE.fullmatch(params[k]) for k in ("since", "until") if k in params)):
+            return web.json_response({"error": "bad container name, tail, since or until"}, status=400)
+        chunks = self.docker.stream_logs(name, params)
+        try:
+            first = await anext(chunks, b"")
+        except LookupError as e:
+            return web.json_response({"error": str(e)}, status=404)
+        resp = web.StreamResponse(headers={"Content-Type": "text/plain; charset=utf-8"})
+        await resp.prepare(request)
+        await resp.write(first)
+        async for chunk in chunks:
+            await resp.write(chunk)
+        await resp.write_eof()
+        return resp
+
+    async def _api_stats(self) -> web.Response:
+        """Memory/CPU per managed container (issue #151), owner-only, read-only.
+
+        Shared runtime containers run many apps in one container, so they are
+        reported once with the list of apps they host. Includes the daemon itself."""
+        containers = await self.docker.list_containers("tee-proxy.managed=true")
+        rows = [(c["Names"][0].lstrip("/"), c["Id"], sorted(
+            k.removeprefix(APP_LABEL) for k in c["Labels"] if k.startswith(APP_LABEL)))
+            for c in containers]
+        rows.append(("tee-daemon", os.environ["HOSTNAME"], []))
+        stats = await asyncio.gather(*(self.docker.stats(cid) for _, cid, _ in rows))
+        out = [{"container": name, "id": cid[:12], "apps": apps, **_container_stats(s)}
+               for (name, cid, apps), s in zip(rows, stats)]
+        out.sort(key=lambda r: r["working_set"], reverse=True)
+        return web.json_response(out)
 
     async def _api_all_audit(self) -> web.Response:
         """Get audit entries for all known projects."""

@@ -10,10 +10,28 @@ contract so a schema bump has to be deliberate.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict, dataclass, field
 
 # Current schema version - increment when the structure changes.
 SCHEMA_VERSION = "1.0.0"
+
+# RFC 0027 binding report_data = BINDING_TAG || SHA-512(BINDING_DOMAIN || app_id || name
+# || tree_hash || app_pubkey)[:48]. The per-app dstack proxy refuses app GetQuote calls
+# whose report_data starts with BINDING_TAG, so no app can mint a binding (#159).
+BINDING_TAG = b"tee-daemon-bind1"
+BINDING_DOMAIN = b"tee-daemon/app-attest/v2"
+
+
+def _hex(s: str) -> bytes:
+    return bytes.fromhex(s.lower().removeprefix("0x"))
+
+
+def binding_report_data(app_id: str, name: str, tree_hash: str, app_pubkey: str) -> bytes:
+    """The 64-byte report_data of a per-app binding quote. app_id, tree_hash and
+    app_pubkey are hex; name is UTF-8."""
+    h = hashlib.sha512(BINDING_DOMAIN + _hex(app_id) + name.encode() + _hex(tree_hash) + _hex(app_pubkey))
+    return BINDING_TAG + h.digest()[:48]
 
 
 @dataclass

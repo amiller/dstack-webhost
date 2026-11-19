@@ -14,7 +14,7 @@ capability" — for your own dev apps it's just root; the only thing being scope
   attestation (they're no longer running only the measured code). That's the `hermes-staging` contradiction:
   a dev-OS box with attested projects *and* an ssh sidecar → its promoted apps are shell-reachable.
 - **Prod-OS has no SSH at all.** We removed the sidecar (and de-allowlisted its compose hash on-chain).
-- So there's no way to get root into *your own dev app* without either exposing the promoted tenants (SSH)
+- So there's no way to get root into *your own dev app* without either exposing the promoted apps (SSH)
   or redeploying.
 
 ## Design
