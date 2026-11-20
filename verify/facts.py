@@ -26,13 +26,15 @@ The library is honest about what it can and cannot verify:
 - The RFC 0027 per-app binding quote (app.binding) is DCAP-verified like the
   platform quote, and the report_data read from it is compared with
   binding_report_data over the served preimage, which must name the project
-  and tree_hash and come from the same CVM image as the platform quote.
+  and tree_hash. Both quotes' RTMR3 boot events are replayed, and the binding
+  must come from the platform quote's CVM image, dstack app_id and KMS.
 - The RFC 0029 declared operator-debug door is surfaced as a fact (enabled /
   last_session_at), never a verdict.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -77,6 +79,7 @@ class BindingFacts:
     signature_chain_root: str = ""
     promote_event_rtmr: int = 0
     promote_event_digest: str = ""
+    compose_hash: str = ""  # from the binding quote's boot events
     error: str = ""
 
 
@@ -191,6 +194,7 @@ class Facts:
                 "signature_chain_root": self.binding.signature_chain_root,
                 "promote_event_rtmr": self.binding.promote_event_rtmr,
                 "promote_event_digest": self.binding.promote_event_digest,
+                "compose_hash": self.binding.compose_hash,
                 "error": self.binding.error,
             },
             "onchain": {
@@ -327,50 +331,107 @@ def _verify_quote_signature(platform_quote: dict) -> QuoteFacts:
         for i in range(4)
         if report_data.get(f"rt_mr{i}")
     }
-    facts.report_data = report_data.get("report_data", facts.report_data)
+    facts.report_data = report_data.get("report_data", "")
     return facts
 
 
-def _verify_binding(binding: dict, project: str, tree_hash: str, platform: QuoteFacts) -> BindingFacts:
+DSTACK_EVENT_TYPE = 0x08000001
+# What a malformed served event log or preimage can raise (RecursionError: deeply nested JSON).
+EVIDENCE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError)
+
+
+def _boot_events(quote_data: dict, quote: QuoteFacts) -> dict[str, str]:
+    """Replay the quote's RTMR3 event log against its DCAP-verified RTMR3 and return
+    the boot events (name -> payload hex): those dstack-util writes before the first
+    system-ready, before any app code runs. Digests are recomputed as dstack does
+    (sha384(event_type LE || ":" || event || ":" || payload)), never read from the
+    served log. Boot names may not contain ":", so no event can be served under a
+    different name with the same digest. Raises ValueError if the log fails."""
+    log_ = quote_data.get("event_log", [])
+    events = [e for e in (json.loads(log_) if isinstance(log_, str) else log_) if e["imr"] == 3]
+    mr = bytes(48)
+    for e in events:
+        digest = hashlib.sha384(e["event_type"].to_bytes(4, "little") + b":" + e["event"].encode()
+                                + b":" + bytes.fromhex(e["event_payload"])).digest()
+        mr = hashlib.sha384(mr + digest).digest()
+    if mr.hex() != quote.rtmr.get("rtmr3", "").lower():
+        raise ValueError("event log does not replay to the quote's RTMR3")
+    names = [e["event"] for e in events]
+    if "system-ready" not in names:
+        raise ValueError("no system-ready event in RTMR3")
+    boot = events[:names.index("system-ready") + 1]
+    if [e["event"] for e in boot[:2]] != ["system-preparing", "app-id"]:
+        raise ValueError("RTMR3 does not start with system-preparing, app-id")
+    if any(e["event_type"] != DSTACK_EVENT_TYPE or ":" in e["event"] for e in boot):
+        raise ValueError("malformed boot event in RTMR3")
+    read = ("app-id", "compose-hash", "key-provider")
+    if any(sum(e["event"] == name for e in boot) != 1 for name in read):
+        raise ValueError(f"RTMR3 boot events must hold exactly one each of {', '.join(read)}")
+    return {e["event"]: e["event_payload"].lower() for e in boot if e["event"] in read}
+
+
+def _verify_binding(binding: dict, project: str, tree_hash: str,
+                    platform: QuoteFacts, platform_boot: dict | None) -> BindingFacts:
     """
     Verify the RFC 0027 per-app binding (``app.binding``): DCAP-verify the binding
     quote, read report_data out of the verified report, and compare it with
     binding_report_data over the served preimage. The preimage must name this
-    project and the bundle's tree_hash, and the binding quote must come from the
-    same CVM image as the platform quote (MRTD, RTMR0-2). Every mismatch is an
-    error string; nothing throws.
+    project and the bundle's tree_hash. The binding quote must come from the
+    platform quote's dstack app under the same KMS and CVM image: both quotes'
+    RTMR3 boot events are replayed, their app-id and key-provider must match,
+    the preimage's app_id must equal that app-id, and MRTD/RTMR0-2 must match.
+    Every problem, including a malformed bundle, is an error string.
     """
     facts = BindingFacts()
     if not binding:
         facts.error = "no app.binding block; the daemon published no per-app binding"
         return facts
-    pre = binding.get("preimage") or {}
-    event = binding.get("promote_event") or {}
-    facts.kind = binding.get("kind", "none")
-    facts.app_pubkey = pre.get("app_pubkey", "")
-    facts.promote_event_rtmr = event.get("rtmr", 0)
-    facts.promote_event_digest = event.get("digest", "")
-
-    quote = _verify_quote_signature(binding.get("binding_quote") or {})
-    facts.binding_quote = quote.quote_raw
-    if quote.verification_error:
-        facts.error = f"binding quote: {quote.verification_error}"
-        return facts
-    facts.report_data = quote.report_data
-
     errors = []
-    if pre.get("name") != project:
-        errors.append(f"preimage names project {pre.get('name')!r}, bundle is {project!r}")
-    if pre.get("tree_hash") != tree_hash:
-        errors.append("preimage tree_hash differs from the bundle's source tree_hash")
-    if platform.quote_valid and (quote.mrtd, [quote.rtmr.get(f"rtmr{i}") for i in range(3)]) != \
-            (platform.mrtd, [platform.rtmr.get(f"rtmr{i}") for i in range(3)]):
-        errors.append("binding quote's MRTD/RTMR0-2 differ from the platform quote's")
-    expected = binding_report_data(pre.get("app_id", ""), pre.get("name", ""),
-                                   pre.get("tree_hash", ""), facts.app_pubkey).hex()
-    facts.preimage_verified = quote.report_data.lower() == expected
-    if not facts.preimage_verified:
-        errors.append("binding quote's report_data does not match the preimage")
+    try:
+        pre = binding.get("preimage") or {}
+        event = binding.get("promote_event") or {}
+        facts.kind = binding.get("kind", "none")
+        facts.app_pubkey = pre.get("app_pubkey", "")
+        facts.promote_event_rtmr = event.get("rtmr", 0)
+        facts.promote_event_digest = event.get("digest", "")
+        binding_quote = binding.get("binding_quote") or {}
+        quote = _verify_quote_signature(binding_quote)
+        facts.binding_quote = quote.quote_raw
+        if quote.verification_error:
+            facts.error = f"binding quote: {quote.verification_error}"
+            return facts
+        facts.report_data = quote.report_data
+
+        if pre.get("name") != project:
+            errors.append(f"preimage names project {pre.get('name')!r}, bundle is {project!r}")
+        if pre.get("tree_hash") != tree_hash:
+            errors.append("preimage tree_hash differs from the bundle's source tree_hash")
+        lengths = [len(bytes.fromhex(str(pre.get(k, "")).removeprefix("0x")))
+                   for k in ("app_id", "tree_hash", "app_pubkey")]
+        if lengths[0] != 20 or lengths[1] not in (20, 32) or lengths[2] != 33:
+            errors.append(f"preimage field lengths {lengths}, expected app_id 20, tree_hash 20/32, app_pubkey 33 bytes")
+
+        boot = _boot_events(binding_quote, quote)
+        facts.compose_hash = boot["compose-hash"]
+        if boot["app-id"] != str(pre.get("app_id", "")).lower().removeprefix("0x"):
+            errors.append("preimage app_id differs from the binding quote's app-id event")
+        if platform_boot is None:
+            errors.append("binding not tied to this CVM: the platform quote or its event log did not verify")
+        else:
+            if (quote.mrtd, [quote.rtmr.get(f"rtmr{i}") for i in range(3)]) != \
+                    (platform.mrtd, [platform.rtmr.get(f"rtmr{i}") for i in range(3)]):
+                errors.append("binding quote's MRTD/RTMR0-2 differ from the platform quote's")
+            for name in ("app-id", "key-provider"):
+                if boot.get(name) is None or boot.get(name) != platform_boot.get(name):
+                    errors.append(f"binding quote's {name} differs from the platform quote's")
+
+        expected = binding_report_data(pre.get("app_id", ""), pre.get("name", ""),
+                                       pre.get("tree_hash", ""), facts.app_pubkey).hex()
+        if quote.report_data.lower() != expected:
+            errors.append("binding quote's report_data does not match the preimage")
+    except EVIDENCE_ERRORS as e:
+        errors.append(f"malformed binding evidence: {type(e).__name__}: {e}")
+    facts.preimage_verified = not errors
     facts.error = "; ".join(errors)
     return facts
 
@@ -402,36 +463,26 @@ def _extract_onchain_facts(onchain: OnchainInfo) -> OnchainFacts:
     return facts
 
 
-def _quoted_compose_hash(quote_data: dict) -> str:
-    event_log = quote_data.get("event_log", [])
-    if isinstance(event_log, str):
-        try:
-            event_log = json.loads(event_log)
-        except json.JSONDecodeError:
-            return ""
-    if not isinstance(event_log, list):
-        return ""
-    for event in reversed(event_log):
-        if isinstance(event, dict) and event.get("event") == "compose-hash":
-            return str(event.get("event_payload", ""))
-    return ""
+def _compose_pin(approved: dict | None) -> str:
+    """The consumer's approved compose hash, normalized to bare lowercase hex."""
+    pin = (approved or {}).get("allowed_compose_hash", (approved or {}).get("compose_hash", ""))
+    return str(pin).lower().removeprefix("0x")
 
 
 def _compare_measurements(
     quote_facts: QuoteFacts,
-    quote_data: dict,
+    quoted_compose: str,
     approved: dict | None,
 ) -> list[str]:
     """Compare quote measurements with explicit consumer-supplied approval data."""
     if not approved:
         return []
     errors = []
-    approved_compose = str(approved.get("allowed_compose_hash", approved.get("compose_hash", "")))
-    quoted_compose = _quoted_compose_hash(quote_data)
+    approved_compose = _compose_pin(approved)
     if approved_compose:
         if not quoted_compose:
             errors.append("measurement mismatch: quote has no measured compose hash")
-        elif quoted_compose != approved_compose:
+        elif quoted_compose.lower().removeprefix("0x") != approved_compose:
             errors.append(
                 f"measurement mismatch: quote compose hash {quoted_compose} != approved {approved_compose}"
             )
@@ -636,7 +687,6 @@ async def _verify_bundle(
         return facts
 
     facts.schema_version = bundle.schema_version
-    facts.app_id = bundle.webhost_app_id
     facts.attestation_kind = "daemon-vouched"  # shared-daemon model; per-app CVM is RFC 0019
 
     # channel (gateway) facts
@@ -662,16 +712,35 @@ async def _verify_bundle(
         facts.errors.append(f"quote: {facts.quote.verification_error}")
     # measurement comparison vs consumer-supplied approval data (chain_config),
     # else the bundle's own declared onchain allowlist — explicit, never silent
+    # app_id and compose hash come from the platform quote's replayed boot events;
+    # the bundle's declared webhost_app_id is only checked against them.
+    platform_boot = None
+    if facts.quote.quote_valid:
+        try:
+            platform_boot = _boot_events(bundle.platform_quote, facts.quote)
+        except EVIDENCE_ERRORS as e:
+            facts.errors.append(f"quote: event log: {type(e).__name__}: {e}")
+    if platform_boot:
+        facts.app_id = platform_boot["app-id"]
+        declared = str(bundle.webhost_app_id).lower().removeprefix("0x")
+        if declared and declared != facts.app_id:
+            facts.errors.append(f"quote: app-id {facts.app_id} differs from declared webhost_app_id {declared}")
     facts.errors.extend(_compare_measurements(
-        facts.quote, bundle.platform_quote, chain_config or asdict(bundle.onchain)
+        facts.quote, (platform_boot or {}).get("compose-hash", ""), chain_config or asdict(bundle.onchain)
     ))
 
     # binding leg (RFC 0027): the per-app binding quote, verified on its own
     facts.binding = _verify_binding(bundle.app.binding, bundle.app.project,
-                                    facts.source.tree_hash, facts.quote)
+                                    facts.source.tree_hash, facts.quote, platform_boot)
     facts.binding.signature_chain_root = _signature_chain_root(bundle.app.binding_quote)
     if facts.binding.error:
         facts.errors.append(f"binding: {facts.binding.error}")
+    # The consumer's compose pin covers the binding quote too: otherwise another compose
+    # allowed under the same app_id and KMS could mint bindings around the pin.
+    pin = _compose_pin(chain_config or asdict(bundle.onchain))
+    if pin and facts.binding.compose_hash and facts.binding.compose_hash != pin:
+        facts.binding.preimage_verified = False
+        facts.errors.append(f"binding: binding quote compose hash {facts.binding.compose_hash} != approved {pin}")
 
     # onchain leg — facts; chain_id 0 is not an error. With chain_config, the
     # DstackApp allowlist is re-checked over base-prod RPC (#90) against the
@@ -687,9 +756,12 @@ async def _verify_bundle(
         facts.errors.append("gateway: no zt_cert_ref — channel attestation not present")
 
     # audit sanity — a bundle with no promote event has no binding trail
-    if not any(isinstance(e, dict) and e.get("action") == "promote" for e in bundle.audit):
-        facts.errors.append("audit: no promote event recorded")
-    facts.errors.extend(_audit_source_errors(facts.source.tree_hash, bundle.audit))
+    try:
+        if not any(isinstance(e, dict) and e.get("action") == "promote" for e in bundle.audit):
+            facts.errors.append("audit: no promote event recorded")
+        facts.errors.extend(_audit_source_errors(facts.source.tree_hash, bundle.audit))
+    except EVIDENCE_ERRORS as e:
+        facts.errors.append(f"audit: malformed audit log: {type(e).__name__}: {e}")
 
     if base_url:
         facts.channel.domain = facts.channel.domain or urlparse(base_url).netloc
